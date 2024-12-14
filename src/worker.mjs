@@ -168,6 +168,9 @@ async function handleCompletions(req, apiKey) {
     case req.model.startsWith("learnlm-"):
       model = req.model;
   }
+  if (!model.includes("exp")) {
+    model = DEFAULT_MODEL;
+  }
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
   if (req.stream) { url += "?alt=sse"; }
