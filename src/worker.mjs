@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 // alt: import { base64url } from "rfc4648";
 
 export default {
-  async fetch (request) {
+  async fetch(request) {
     if (request.method === "OPTIONS") {
       return handleOPTIONS();
     }
@@ -85,7 +85,7 @@ const API_VERSION = "v1beta";
 // https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
 const API_CLIENT = "genai-js/0.19.0"; // npm view @google/generative-ai version
 
-async function handleModels (apiKey) {
+async function handleModels(apiKey) {
   const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
     headers: {
       "x-goog-api-key": apiKey,
@@ -109,12 +109,12 @@ async function handleModels (apiKey) {
 }
 
 const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
-async function handleEmbeddings (req, apiKey) {
+async function handleEmbeddings(req, apiKey) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
   if (!Array.isArray(req.input)) {
-    req.input = [ req.input ];
+    req.input = [req.input];
   }
   let model;
   if (req.model.startsWith("models/")) {
@@ -155,10 +155,10 @@ async function handleEmbeddings (req, apiKey) {
 }
 
 const DEFAULT_MODEL = "gemini-1.5-pro-latest";
-async function handleCompletions (req, apiKey) {
+async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   /* eslint-disable no-fallthrough */
-  switch(true) {
+  switch (true) {
     case typeof req.model !== "string":
       break;
     case req.model.startsWith("models/"):
@@ -362,7 +362,7 @@ const processCompletionsResponse = (data, model, id) => {
   return JSON.stringify({
     id,
     choices: data.candidates.map(transformCandidatesMessage),
-    created: Math.floor(Date.now()/1000),
+    created: Math.floor(Date.now() / 1000),
     model,
     //system_fingerprint: "fp_69829325d0",
     object: "chat.completion",
@@ -371,7 +371,7 @@ const processCompletionsResponse = (data, model, id) => {
 };
 
 const responseLineRE = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
-async function parseStream (chunk, controller) {
+async function parseStream(chunk, controller) {
   chunk = await chunk;
   if (!chunk) { return; }
   this.buffer += chunk;
@@ -382,21 +382,21 @@ async function parseStream (chunk, controller) {
     this.buffer = this.buffer.substring(match[0].length);
   } while (true); // eslint-disable-line no-constant-condition
 }
-async function parseStreamFlush (controller) {
+async function parseStreamFlush(controller) {
   if (this.buffer) {
     console.error("Invalid data:", this.buffer);
     controller.enqueue(this.buffer);
   }
 }
 
-function transformResponseStream (data, stop, first) {
+function transformResponseStream(data, stop, first) {
   const item = transformCandidatesDelta(data.candidates[0]);
   if (stop) { item.delta = {}; } else { item.finish_reason = null; }
   if (first) { item.delta.content = ""; } else { delete item.delta.role; }
   const output = {
     id: this.id,
     choices: [item],
-    created: Math.floor(Date.now()/1000),
+    created: Math.floor(Date.now() / 1000),
     model: this.model,
     //system_fingerprint: "fp_69829325d0",
     object: "chat.completion.chunk",
@@ -407,7 +407,7 @@ function transformResponseStream (data, stop, first) {
   return "data: " + JSON.stringify(output) + delimiter;
 }
 const delimiter = "\n\n";
-async function toOpenAiStream (chunk, controller) {
+async function toOpenAiStream(chunk, controller) {
   const transform = transformResponseStream.bind(this);
   const line = await chunk;
   if (!line) { return; }
@@ -435,7 +435,7 @@ async function toOpenAiStream (chunk, controller) {
     controller.enqueue(transform(data));
   }
 }
-async function toOpenAiStreamFlush (controller) {
+async function toOpenAiStreamFlush(controller) {
   const transform = transformResponseStream.bind(this);
   if (this.last.length > 0) {
     for (const data of this.last) {
