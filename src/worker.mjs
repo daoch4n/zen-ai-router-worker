@@ -16,6 +16,13 @@ export default {
       if (!apiKey) {
         throw new HttpError("Bad credentials", 401);
       }
+
+      // Override API key with a random one from env.KEY[x]
+      const keys = [env.KEY1, env.KEY2, env.KEY3].filter(k => k); // Filter out undefined or empty keys
+      if (keys.length > 0) {
+        apiKey = keys[Math.floor(Math.random() * keys.length)];
+      }
+
       const assert = (success) => {
         if (!success) {
           throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
