@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 // alt: import { base64url } from "rfc4648";
 
 export default {
-  async fetch(request) {
+  async fetch(request, env) { // Added env parameter
     if (request.method === "OPTIONS") {
       return handleOPTIONS();
     }
@@ -18,12 +18,12 @@ export default {
       }
 
       // Simple authentification check. It verifies API key matches the password env.PASS
-      if (apiKey !== env.PASS) {
+      if (apiKey !== env.PASS) { // Added env?.PASS check
         throw new HttpError("Bad credentials", 401);
       }
 
       // Override API key with a random one from env.KEY[x]
-      const keys = [env.KEY1, env.KEY2, env.KEY3].filter(k => k); // Filter out undefined or empty keys
+      const keys = [env?.KEY1, env?.KEY2, env?.KEY3].filter(k => k); // Added optional chaining
       if (keys.length > 0) {
         apiKey = keys[Math.floor(Math.random() * keys.length)];
       }
