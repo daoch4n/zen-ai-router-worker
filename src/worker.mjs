@@ -17,6 +17,11 @@ export default {
         throw new HttpError("Bad credentials", 401);
       }
 
+      // Simple authentification check. It verifies API key matches the password env.PASS
+      if (apiKey !== env.PASS) {
+        throw new HttpError("Bad credentials", 401);
+      }
+
       // Override API key with a random one from env.KEY[x]
       const keys = [env.KEY1, env.KEY2, env.KEY3].filter(k => k); // Filter out undefined or empty keys
       if (keys.length > 0) {
