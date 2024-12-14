@@ -1,6 +1,9 @@
 import { Buffer } from "node:buffer";
 // alt: import { base64url } from "rfc4648";
 
+// This worker script handles incoming requests and routes them to appropriate handlers.
+// It also includes error handling and CORS configuration.
+
 export default {
   async fetch(request, env) { // Added env parameter
     if (request.method === "OPTIONS") {
@@ -81,7 +84,7 @@ const handleOPTIONS = async () => {
 const BASE_URL = "https://generativelanguage.googleapis.com";
 const API_VERSION = "v1beta";
 // https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
-const API_CLIENT = "genai-js/0.19.0"; // npm view @google/generative-ai version
+const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
 
 async function handleModels(apiKey) {
   const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
@@ -152,7 +155,7 @@ async function handleEmbeddings(req, apiKey) {
   return new Response(body, { ...response, headers: fixCors(response.headers) });
 }
 
-const DEFAULT_MODEL = "gemini-1.5-pro-latest";
+const DEFAULT_MODEL = "gemini-2.0-flash-exp";
 async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   /* eslint-disable no-fallthrough */
