@@ -11,40 +11,38 @@ export default {
       return new Response(err.message, { status: err.status ?? 500, headers: fixCors() });
     };
     try {
-      const auth = request.headers.get("Authorization");
-      let apiKey = auth?.split(" ")[1];
+      let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
       if (!apiKey) {
         throw new HttpError("Bad credentials", 401);
       }
 
-      // Simple authentification check. It verifies API key matches the password env.PASS
-      if (apiKey !== env.PASS) { // Added env?.PASS check
+      if (apiKey !== env.PASS) {
         throw new HttpError("Bad credentials", 401);
       }
 
-      // Override API key with a random one from env.KEY[x]
-      const keys = [env?.KEY1, env?.KEY2, env?.KEY3].filter(k => k); // Added optional chaining
+      const keys = [env?.KEY1, env?.KEY2, env?.KEY3].filter(Boolean);
       if (keys.length > 0) {
         apiKey = keys[Math.floor(Math.random() * keys.length)];
       }
 
-      const assert = (success) => {
-        if (!success) {
-          throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
-        }
-      };
       const { pathname } = new URL(request.url);
       switch (true) {
         case pathname.endsWith("/chat/completions"):
-          assert(request.method === "POST");
+          if (request.method !== "POST") {
+            throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
+          }
           return handleCompletions(await request.json(), apiKey)
             .catch(errHandler);
         case pathname.endsWith("/embeddings"):
-          assert(request.method === "POST");
+          if (request.method !== "POST") {
+            throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
+          }
           return handleEmbeddings(await request.json(), apiKey)
             .catch(errHandler);
         case pathname.endsWith("/models"):
-          assert(request.method === "GET");
+          if (request.method !== "GET") {
+            throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
+          }
           return handleModels(apiKey)
             .catch(errHandler);
         default:
