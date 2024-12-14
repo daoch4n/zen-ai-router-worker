@@ -12,7 +12,7 @@ export default {
     };
     try {
       const auth = request.headers.get("Authorization");
-      const apiKey = auth?.split(" ")[1];
+      let apiKey = auth?.split(" ")[1];
       if (!apiKey) {
         throw new HttpError("Bad credentials", 401);
       }
