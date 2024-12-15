@@ -245,6 +245,9 @@ const transformConfig = (req) => {
   if (req.response_format?.type === "json_object") {
     cfg.response_mime_type = "application/json";
   }
+  if (cfg.temperature === undefined) {
+    cfg.temperature = 0.4;
+  }
   return cfg;
 };
 
