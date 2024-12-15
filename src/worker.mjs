@@ -23,9 +23,14 @@ export default {
         throw new HttpError("Bad credentials", 401);
       }
 
-      const keys = [env?.KEY1, env?.KEY2, env?.KEY3].filter(Boolean);
-      if (keys.length > 0) {
-        apiKey = keys[Math.floor(Math.random() * keys.length)];
+      // Collect all defined environment variables into an array
+      const keys = [env.KEY1, env.KEY2, env.KEY3].filter(Boolean); // Remove undefined or null
+
+      // Randomly select one of the defined keys
+      apiKey = keys.length > 0 ? keys[Math.floor(Math.random() * keys.length)] : null;
+
+      if (!apiKey) {
+        throw new HttpError("Bad credentials", 401);
       }
 
       const { pathname } = new URL(request.url);
