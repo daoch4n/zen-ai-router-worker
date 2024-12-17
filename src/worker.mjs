@@ -246,8 +246,8 @@ const transformConfig = (req) => {
     cfg.response_mime_type = "application/json";
   }
   // best for coding
-  cfg.temperature = 0.4;
-  cfg.topP = 0.4;
+  cfg.temperature = 0.2;
+  cfg.topP = 0.1;
   return cfg;
 };
 
