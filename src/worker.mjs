@@ -1,8 +1,6 @@
 import { Buffer } from "node:buffer";
-// alt: import { base64url } from "rfc4648";
 
 // This worker script handles incoming requests and routes them to appropriate handlers.
-// It also includes error handling and CORS configuration.
 
 export default {
   async fetch(request, env) { // Added env parameter
@@ -15,9 +13,7 @@ export default {
     };
     try {
       const apiKey = getRandomApiKey(request, env);
-
       forceSetWorkerLocation(env);
-
       const { pathname } = new URL(request.url);
       switch (true) {
         case pathname.endsWith("/chat/completions"):
@@ -41,6 +37,14 @@ export default {
   }
 };
 
+const DELIMITER = "\n\n";
+const DEFAULT_MODEL = "gemini-2.0-flash-exp";
+
+/**
+ * Custom error class for HTTP errors.
+ * @class HttpError
+ * @extends {Error}
+ */
 class HttpError extends Error {
   constructor(message, status) {
     super(message);
@@ -49,12 +53,21 @@ class HttpError extends Error {
   }
 }
 
+/**
+ * Fixes the CORS headers.
+ * @param {Headers} headers The headers object to fix.
+ * @returns {Headers} The fixed headers object.
+ */
 const fixCors = (headers) => {
   headers = new Headers(headers);
   headers.set("Access-Control-Allow-Origin", "*");
   return headers;
 };
 
+/**
+ * Handles OPTIONS requests by returning a response with CORS headers.
+ * @returns {Response} A response with CORS headers.
+ */
 const handleOPTIONS = async () => {
   return new Response(null, {
     headers: {
@@ -70,6 +83,11 @@ const API_VERSION = "v1beta";
 // https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
 const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
 
+/**
+ * Handles requests for available models.
+ * @param {string} apiKey The API key for authentication.
+ * @returns {Promise<Response>} A Promise that resolves to a response containing the list of models.
+ */
 async function handleModels(apiKey) {
   const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, {
     headers: {
@@ -93,7 +111,12 @@ async function handleModels(apiKey) {
   return new Response(body, { ...response, headers: fixCors(response.headers) });
 }
 
-const DEFAULT_MODEL = "gemini-2.0-flash-exp";
+/**
+ * Handles chat completion requests.
+ * @param {object} req The request body containing the chat parameters.
+ * @param {string} apiKey The API key for authentication.
+ * @returns {Promise<Response>} A Promise that resolves to a response containing the chat completion.
+ */
 async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   if (typeof req.model === "string") {
@@ -163,6 +186,12 @@ const fieldsMap = {
   top_p: "topP",
   //..."topK"
 };
+
+/**
+ * Transforms the request body to match the Google Gemini API format.
+ * @param {object} req The request body from the client.
+ * @returns {Promise<object>} A Promise that resolves to the transformed request body.
+ */
 const transformConfig = (req) => {
   const cfg = Object.entries(fieldsMap).reduce((acc, [key, mappedKey]) => {
     if (req[key] !== undefined) {
@@ -180,6 +209,11 @@ const transformConfig = (req) => {
   return cfg;
 };
 
+/**
+ * Parses an image URL to match the Google Gemini API format.
+ * @param {string} url The image URL.
+ * @returns {Promise<object>} A Promise that resolves to the transformed image object.
+ */
 const parseImg = async (url) => {
   let mimeType, data;
   if (url.startsWith("http://") || url.startsWith("https://")) {
@@ -208,6 +242,11 @@ const parseImg = async (url) => {
   };
 };
 
+/**
+ * Transforms a single message object.
+ * @param {object} msg The message object.
+ * @returns {Promise<object>} A Promise that resolves to the transformed message object.
+ */
 const transformMsg = async ({ role, content }) => {
   const parts = [];
   if (!Array.isArray(content)) {
@@ -243,6 +282,11 @@ const transformMsg = async ({ role, content }) => {
   return { role, parts };
 };
 
+/**
+ * Transforms the messages array to match the Google Gemini API format.
+ * @param {array} messages The messages array.
+ * @returns {Promise<object>} A Promise that resolves to the transformed messages object.
+ */
 const transformMessages = async (messages) => {
   if (!messages) { return; }
   let system_instruction;
@@ -264,18 +308,33 @@ const transformMessages = async (messages) => {
   return { system_instruction, contents };
 };
 
+/**
+ * Transforms the request body to match the Google Gemini API format.
+ * @param {object} req The request body from the client.
+ * @returns {Promise<object>} A Promise that resolves to the transformed request body.
+ */
 const transformRequest = async (req) => ({
   ...await transformMessages(req.messages),
   safetySettings,
   generationConfig: transformConfig(req),
 });
 
+/**
+ * Generates a unique ID for a chat completion.
+ * @returns {string} The unique ID.
+ */
 const generateChatcmplId = () => {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
   const randomChar = () => characters[Math.floor(Math.random() * characters.length)];
   return "chatcmpl-" + Array.from({ length: 29 }, randomChar).join("");
 };
 
+/**
+ * Maps finish reasons to OpenAI format.
+ * @param {string} key The key for the finish reason.
+ * @param {object} cand The candidate object.
+ * @returns {object} The transformed candidate object.
+ */
 const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse#finishreason
   //"FINISH_REASON_UNSPECIFIED": // Default value. This value is unused.
   "STOP": "stop",
@@ -285,6 +344,13 @@ const reasonsMap = { //https://ai.google.dev/api/rest/v1/GenerateContentResponse
   //"OTHER": "OTHER",
   // :"function_call",
 };
+
+/**
+ * Transforms the candidates object to match the OpenAI format.
+ * @param {string} key The key for the finish reason.
+ * @param {object} cand The candidate object.
+ * @returns {object} The transformed candidate object.
+ */
 const transformCandidates = (key, cand) => ({
   index: cand.index || 0, // 0-index is absent in new -002 models response
   [key]: { role: "assistant", content: cand.content?.parts[0].text },
@@ -294,12 +360,24 @@ const transformCandidates = (key, cand) => ({
 const transformCandidatesMessage = transformCandidates.bind(null, "message");
 const transformCandidatesDelta = transformCandidates.bind(null, "delta");
 
+/**
+ * Transforms the usage metadata to match the OpenAI format.
+ * @param {object} data The usage metadata object.
+ * @returns {object} The transformed usage object.
+ */
 const transformUsage = (data) => ({
   completion_tokens: data.candidatesTokenCount,
   prompt_tokens: data.promptTokenCount,
   total_tokens: data.totalTokenCount
 });
 
+/**
+ * Processes the completions response to match the OpenAI format.
+ * @param {object} data The completions response object.
+ * @param {string} model The model name.
+ * @param {string} id The chat completion ID.
+ * @returns {string} The processed completions response.
+ */
 const processCompletionsResponse = (data, model, id) => {
   return JSON.stringify({
     id,
@@ -312,8 +390,13 @@ const processCompletionsResponse = (data, model, id) => {
   });
 };
 
-const responseLineRE = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
+/**
+ * Parses a stream of data chunks.
+ * @param {string} chunk The incoming data chunk.
+ * @param {TransformStreamDefaultController} controller The controller for the TransformStream.
+ */
 async function parseStream(chunk, controller) {
+  const responseLineRE = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
   chunk = await chunk;
   if (!chunk) { return; }
   this.buffer += chunk;
@@ -329,6 +412,11 @@ async function parseStream(chunk, controller) {
     }
   }
 }
+
+/**
+ * Flushes the buffer in the parseStream function.
+ * @param {TransformStreamDefaultController} controller The controller for the TransformStream.
+ */
 async function parseStreamFlush(controller) {
   if (this.buffer) {
     console.error("Invalid data in buffer:", this.buffer);
@@ -336,6 +424,13 @@ async function parseStreamFlush(controller) {
   }
 }
 
+/**
+ * Transforms a single response stream data object.
+ * @param {object} data The data object from the stream.
+ * @param {string} stop The stop reason.
+ * @param {string} first The first chunk flag.
+ * @returns {string} The transformed data string.
+ */
 function transformResponseStream(data, stop, first) {
   const item = transformCandidatesDelta(data.candidates[0]);
   if (stop) { item.delta = {}; } else { item.finish_reason = null; }
@@ -351,9 +446,14 @@ function transformResponseStream(data, stop, first) {
   if (stop && data.usageMetadata) {
     output.usage = transformUsage(data.usageMetadata);
   }
-  return "data: " + JSON.stringify(output) + delimiter;
+  return "data: " + JSON.stringify(output) + DELIMITER;
 }
-const delimiter = "\n\n";
+
+/**
+ * Transforms the stream data to match the OpenAI format.
+ * @param {string} chunk The incoming data chunk.
+ * @param {TransformStreamDefaultController} controller The controller for the TransformStream.
+ */
 async function toOpenAiStream(chunk, controller) {
   const transform = transformResponseStream.bind(this);
   const line = await chunk;
@@ -382,16 +482,27 @@ async function toOpenAiStream(chunk, controller) {
     controller.enqueue(transform(data));
   }
 }
+
+/**
+ * Flushes the buffer in the toOpenAiStream function.
+ * @param {TransformStreamDefaultController} controller The controller for the TransformStream.
+ */
 async function toOpenAiStreamFlush(controller) {
   const transform = transformResponseStream.bind(this);
   if (this.last.length > 0) {
     for (const data of this.last) {
       controller.enqueue(transform(data, "stop"));
     }
-    controller.enqueue("data: [DONE]" + delimiter);
+    controller.enqueue("data: [DONE]" + DELIMITER);
   }
 }
 
+/**
+ * Retrieves a random API key from the environment variables.
+ * @param {Request} request The incoming request object.
+ * @param {object} env The environment variables.
+ * @returns {string} The API key.
+ */
 function getRandomApiKey(request, env) {
   let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
   if (!apiKey) {
@@ -411,6 +522,10 @@ function getRandomApiKey(request, env) {
   return apiKey;
 }
 
+/**
+ * Forces the worker to set the location by connecting to a mocked database.
+ * @param {object} env The environment variables.
+ */
 function forceSetWorkerLocation(env) {
   // Connect to mocked database to force proper region for CF worker
   const mockStatement = env.MOCK_DB.prepare("SELECT * FROM comments LIMIT 2");
