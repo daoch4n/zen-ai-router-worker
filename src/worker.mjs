@@ -23,6 +23,10 @@ export default {
         throw new HttpError("Bad credentials", 401);
       }
 
+      // Connect to mocked database to force proper region for CF worker
+      const mockStatement = env.MOCK_DB.prepare("SELECT * FROM comments LIMIT 2");
+      const mockResult = mockStatement.all();
+
       // Collect all defined environment variables into an array
       const keys = [env.KEY1, env.KEY2, env.KEY3].filter(Boolean); // Remove undefined or null
 
