@@ -20,7 +20,7 @@ export default {
           if (request.method !== "POST") {
             throw new HttpError("The specified HTTP method is not allowed for the requested resource", 400);
           }
-          return handleCompletions(await request.json(), apiKey)
+          return handleCompletions(env, await request.json(), apiKey)
             .catch(errHandler);
         case pathname.endsWith("/models"):
           if (request.method !== "GET") {
@@ -37,8 +37,10 @@ export default {
   }
 };
 
+const BASE_URL = "https://generativelanguage.googleapis.com";
+const API_VERSION = "v1beta";
+const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
 const DELIMITER = "\n\n";
-const DEFAULT_MODEL = "gemini-2.0-flash-exp";
 
 /**
  * Custom error class for HTTP errors.
@@ -78,11 +80,6 @@ const handleOPTIONS = async () => {
   });
 };
 
-const BASE_URL = "https://generativelanguage.googleapis.com";
-const API_VERSION = "v1beta";
-// https://github.com/google-gemini/generative-ai-js/blob/cf223ff4a1ee5a2d944c53cddb8976136382bee6/src/requests/request.ts#L71
-const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
-
 /**
  * Handles requests for available models.
  * @param {string} apiKey The API key for authentication.
@@ -117,8 +114,8 @@ async function handleModels(apiKey) {
  * @param {string} apiKey The API key for authentication.
  * @returns {Promise<Response>} A Promise that resolves to a response containing the chat completion.
  */
-async function handleCompletions(req, apiKey) {
-  let model = DEFAULT_MODEL;
+async function handleCompletions(env, req, apiKey) {
+  let model = env.DEFAULT_MODEL || "gemini-2.0-flash-exp";
   if (typeof req.model === "string") {
     if (req.model.startsWith("models/")) {
       model = req.model.substring(7);
@@ -127,7 +124,7 @@ async function handleCompletions(req, apiKey) {
     }
   }
   if (!model.includes("exp")) {
-    model = DEFAULT_MODEL;
+    model = env.DEFAULT_MODEL || "gemini-2.0-flash-exp";
   }
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
