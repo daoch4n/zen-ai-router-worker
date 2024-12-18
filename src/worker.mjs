@@ -14,28 +14,9 @@ export default {
       return new Response(err.message, { status: err.status ?? 500, headers: fixCors() });
     };
     try {
-      let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
-      if (!apiKey) {
-        throw new HttpError("Bad credentials", 401);
-      }
+      const apiKey = getRandomApiKey(request, env);
 
-      if (apiKey !== env.PASS) {
-        throw new HttpError("Bad credentials", 401);
-      }
-
-      // Connect to mocked database to force proper region for CF worker
-      const mockStatement = env.MOCK_DB.prepare("SELECT * FROM comments LIMIT 2");
-      const mockResult = mockStatement.all();
-
-      // Collect all defined environment variables into an array
-      const keys = [env.KEY1, env.KEY2, env.KEY3].filter(Boolean); // Remove undefined or null
-
-      // Randomly select one of the defined keys
-      apiKey = keys.length > 0 ? keys[Math.floor(Math.random() * keys.length)] : null;
-
-      if (!apiKey) {
-        throw new HttpError("Bad credentials", 401);
-      }
+      forceSetWorkerLocation(env);
 
       const { pathname } = new URL(request.url);
       switch (true) {
@@ -115,15 +96,12 @@ async function handleModels(apiKey) {
 const DEFAULT_MODEL = "gemini-2.0-flash-exp";
 async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
-  /* eslint-disable no-fallthrough */
-  switch (true) {
-    case typeof req.model !== "string":
-      break;
-    case req.model.startsWith("models/"):
+  if (typeof req.model === "string") {
+    if (req.model.startsWith("models/")) {
       model = req.model.substring(7);
-    case req.model.startsWith("gemini-"):
-    case req.model.startsWith("learnlm-"):
+    } else if (req.model.startsWith("gemini-") || req.model.startsWith("learnlm-")) {
       model = req.model;
+    }
   }
   if (!model.includes("exp")) {
     model = DEFAULT_MODEL;
@@ -186,14 +164,13 @@ const fieldsMap = {
   //..."topK"
 };
 const transformConfig = (req) => {
-  let cfg = {};
-  //if (typeof req.stop === "string") { req.stop = [req.stop]; } // no need
-  for (let key in req) {
-    const matchedKey = fieldsMap[key];
-    if (matchedKey) {
-      cfg[matchedKey] = req[key];
+  const cfg = Object.entries(fieldsMap).reduce((acc, [key, mappedKey]) => {
+    if (req[key] !== undefined) {
+      acc[mappedKey] = req[key];
     }
-  }
+    return acc;
+  }, {});
+
   if (req.response_format?.type === "json_object") {
     cfg.response_mime_type = "application/json";
   }
@@ -268,8 +245,9 @@ const transformMsg = async ({ role, content }) => {
 
 const transformMessages = async (messages) => {
   if (!messages) { return; }
-  const contents = [];
   let system_instruction;
+  const contents = [];
+
   for (const item of messages) {
     if (item.role === "system") {
       delete item.role;
@@ -279,10 +257,10 @@ const transformMessages = async (messages) => {
       contents.push(await transformMsg(item));
     }
   }
+
   if (system_instruction && contents.length === 0) {
     contents.push({ role: "model", parts: { text: " " } });
   }
-  //console.info(JSON.stringify(contents, 2));
   return { system_instruction, contents };
 };
 
@@ -339,16 +317,21 @@ async function parseStream(chunk, controller) {
   chunk = await chunk;
   if (!chunk) { return; }
   this.buffer += chunk;
-  do {
-    const match = this.buffer.match(responseLineRE);
-    if (!match) { break; }
-    controller.enqueue(match[1]);
-    this.buffer = this.buffer.substring(match[0].length);
-  } while (true); // eslint-disable-line no-constant-condition
+  let match;
+  while ((match = this.buffer.match(responseLineRE))) {
+    try {
+      controller.enqueue(match[1]);
+      this.buffer = this.buffer.substring(match[0].length);
+    } catch (err) {
+      console.error("Error parsing stream:", err);
+      controller.error(err);
+      return;
+    }
+  }
 }
 async function parseStreamFlush(controller) {
   if (this.buffer) {
-    console.error("Invalid data:", this.buffer);
+    console.error("Invalid data in buffer:", this.buffer);
     controller.enqueue(this.buffer);
   }
 }
@@ -389,13 +372,13 @@ async function toOpenAiStream(chunk, controller) {
     }));
     data = { candidates };
   }
-  const cand = data.candidates[0]; // !!untested with candidateCount>1
-  cand.index = cand.index || 0; // absent in new -002 models response
-  if (!this.last[cand.index]) {
+  const candidate = data.candidates[0]; // !!untested with candidateCount>1
+  candidate.index = candidate.index || 0; // absent in new -002 models response
+  if (!this.last[candidate.index]) {
     controller.enqueue(transform(data, false, "first"));
   }
-  this.last[cand.index] = data;
-  if (cand.content) { // prevent empty data (e.g. when MAX_TOKENS)
+  this.last[candidate.index] = data;
+  if (candidate.content) { // prevent empty data (e.g. when MAX_TOKENS)
     controller.enqueue(transform(data));
   }
 }
@@ -407,4 +390,29 @@ async function toOpenAiStreamFlush(controller) {
     }
     controller.enqueue("data: [DONE]" + delimiter);
   }
+}
+
+function getRandomApiKey(request, env) {
+  let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
+  if (!apiKey) {
+    throw new HttpError("Bad credentials - no api key", 401);
+  }
+
+  if (apiKey !== env.PASS) {
+    throw new HttpError("Bad credentials - wrong api key", 401);
+  }
+
+  const apiKeys = [env.KEY1, env.KEY2, env.KEY3].filter(Boolean);
+  apiKey = apiKeys.length > 0 ? apiKeys[Math.floor(Math.random() * apiKeys.length)] : null;
+
+  if (!apiKey) {
+    throw new HttpError("Bad credentials - check api keys in worker", 401);
+  }
+  return apiKey;
+}
+
+function forceSetWorkerLocation(env) {
+  // Connect to mocked database to force proper region for CF worker
+  const mockStatement = env.MOCK_DB.prepare("SELECT * FROM comments LIMIT 2");
+  const mockResult = mockStatement.all();
 }
