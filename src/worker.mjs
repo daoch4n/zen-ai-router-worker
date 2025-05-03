@@ -663,7 +663,9 @@ function getRandomApiKey(request, env) {
     throw new HttpError("Bad credentials - wrong api key", 401);
   }
 
-  const apiKeys = [env.KEY1, env.KEY2, env.KEY3, env.KEY4].filter(Boolean);
+  const apiKeys = Object.entries(env)
+    .filter(([key, value]) => /^KEY\d+$/.test(key) && value)
+    .map(([, value]) => value);
   apiKey = apiKeys.length > 0 ? apiKeys[Math.floor(Math.random() * apiKeys.length)] : null;
 
   if (!apiKey) {
