@@ -4,7 +4,7 @@ compatibility_date = "2025-01-01"
 compatibility_flags = [ "nodejs_compat" ]
 
 [placement]
-mode = "smart"
+mode = "off"
 
 [env.production]
 preview_urls = false
