@@ -11,6 +11,13 @@ export default {
     };
     try {
       const apiKey = getRandomApiKey(request, env);
+      const colo = request.cf?.colo;
+      if (colo && ["DME", "LED", "SVX", "KJA"].includes(colo)) {
+          return new Response(`Bad Cloudflare colo: ${colo}. Try again`, {
+              status: 429,
+              headers: { "Content-Type": "text/plain" },
+          });
+      }
       await forceSetWorkerLocation(env);
       const { pathname } = new URL(request.url);
       switch (true) {
