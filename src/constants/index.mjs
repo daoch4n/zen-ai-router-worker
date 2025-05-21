@@ -1,0 +1,55 @@
+/**
+ * Constants and configuration for the Cloudflare Worker
+ */
+
+// API URLs and versions
+export const BASE_URL = "https://generativelanguage.googleapis.com";
+export const API_VERSION = "v1beta";
+export const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
+
+// Default models
+export const DEFAULT_MODEL = "gemini-2.0-flash";
+export const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
+
+// Safety settings
+export const HARM_CATEGORIES = [
+  "HARM_CATEGORY_HATE_SPEECH",
+  "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+  "HARM_CATEGORY_DANGEROUS_CONTENT",
+  "HARM_CATEGORY_HARASSMENT",
+  "HARM_CATEGORY_CIVIC_INTEGRITY",
+];
+
+export const SAFETY_SETTINGS = HARM_CATEGORIES.map(category => ({
+  category,
+  threshold: "BLOCK_NONE",
+}));
+
+// Field mapping for configuration transformation
+export const FIELDS_MAP = {
+  frequency_penalty: "frequencyPenalty",
+  max_completion_tokens: "maxOutputTokens",
+  max_tokens: "maxOutputTokens",
+  n: "candidateCount", // not for streaming
+  presence_penalty: "presencePenalty",
+  seed: "seed",
+  stop: "stopSequences",
+  temperature: "temperature",
+  top_k: "topK", // non-standard
+  top_p: "topP",
+};
+
+// Finish reason mapping
+export const REASONS_MAP = {
+  //"FINISH_REASON_UNSPECIFIED": // Default value. This value is unused.
+  "STOP": "stop",
+  "MAX_TOKENS": "length",
+  "SAFETY": "content_filter",
+  "RECITATION": "content_filter",
+  //"OTHER": "OTHER",
+};
+
+// Stream processing constants
+export const STREAM_DELIMITER = "\n\n";
+export const RESPONSE_LINE_REGEX = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
+export const CONTENT_SEPARATOR = "\n\n|>";
