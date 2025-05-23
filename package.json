@@ -4,9 +4,9 @@
   },
   "devDependencies": {
     "nodemon": "3",
-    "wrangler": "^3.95.0"
+    "wrangler": "^4.16.1"
   },
   "scripts": {
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy --env production"
   }
 }
