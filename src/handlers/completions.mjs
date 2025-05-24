@@ -1,5 +1,6 @@
 /**
- * Handler for chat completions endpoint
+ * Handler for OpenAI-compatible chat completions endpoint.
+ * Transforms OpenAI requests to Gemini API format and processes responses.
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
@@ -10,18 +11,25 @@ import { parseStream, parseStreamFlush, toOpenAiStream, toOpenAiStreamFlush } fr
 import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constants/index.mjs';
 
 /**
- * Handles requests to the chat completions endpoint
- * @param {Object} req - The request object
- * @param {string} apiKey - The API key
- * @returns {Promise<Response>} - The response
+ * Processes chat completion requests by transforming OpenAI format to Gemini API,
+ * handling special model configurations like thinking modes and search capabilities.
+ *
+ * @param {Object} req - OpenAI-compatible chat completion request
+ * @param {Array} req.messages - Array of conversation messages
+ * @param {string} [req.model] - Model name, may include thinking mode suffixes
+ * @param {boolean} [req.stream] - Whether to stream the response
+ * @param {Object} [req.stream_options] - Streaming configuration options
+ * @param {string} apiKey - Google API key for Gemini access
+ * @returns {Promise<Response>} HTTP response with completion data or stream
+ * @throws {Error} When request validation fails or API call errors
  */
 export async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
-  // Parse model name to extract thinking mode and budget
   const { baseModel, mode, budget } = parseModelName(req.model);
 
+  // Determine the actual model name to use with Gemini API
   switch (true) {
     case typeof req.model !== "string":
       break;
@@ -34,19 +42,21 @@ export async function handleCompletions(req, apiKey) {
       model = baseModel;
   }
 
-  // Prepare thinking configuration based on mode and budget
+  // Configure thinking capabilities for reasoning-enhanced models
   let thinkingConfig = null;
   if (mode === THINKING_MODES.THINKING || mode === THINKING_MODES.REFINED) {
     const thinkingBudget = getBudgetFromLevel(budget);
     if (thinkingBudget > 0) {
       thinkingConfig = {
         thinkingBudget,
-        includeThoughts: mode === THINKING_MODES.THINKING, // Include thoughts for thinking mode, exclude for refined
+        includeThoughts: mode === THINKING_MODES.THINKING,
       };
     }
   }
 
   let body = await transformRequest(req, thinkingConfig);
+
+  // Enable Google Search tool for search-capable models
   switch (true) {
     case model.endsWith(":search"):
       model = model.substring(0, model.length - 7);
@@ -55,9 +65,14 @@ export async function handleCompletions(req, apiKey) {
       body.tools = body.tools || [];
       body.tools.push({googleSearch: {}});
   }
+
+  // Construct Gemini API endpoint URL based on streaming preference
   const TASK = req.stream ? "streamGenerateContent" : "generateContent";
   let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
-  if (req.stream) { url += "?alt=sse"; }
+  if (req.stream) {
+    url += "?alt=sse";
+  }
+
   const response = await fetch(url, {
     method: "POST",
     headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
@@ -68,7 +83,9 @@ export async function handleCompletions(req, apiKey) {
   if (response.ok) {
     let id = "chatcmpl-" + generateId();
     const shared = {};
+
     if (req.stream) {
+      // Process streaming response through transformation pipeline
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
@@ -82,11 +99,12 @@ export async function handleCompletions(req, apiKey) {
           flush: toOpenAiStreamFlush,
           streamIncludeUsage: req.stream_options?.include_usage,
           model, id, last: [],
-          thinkingMode: mode, // Pass thinking mode to stream transformer
+          thinkingMode: mode,
           shared,
         }))
         .pipeThrough(new TextEncoderStream());
     } else {
+      // Process non-streaming response
       body = await response.text();
       try {
         body = JSON.parse(body);
@@ -95,7 +113,7 @@ export async function handleCompletions(req, apiKey) {
         }
       } catch (err) {
         console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response)); // output as is
+        return new Response(body, fixCors(response));
       }
       body = processCompletionsResponse(body, model, id, mode);
     }

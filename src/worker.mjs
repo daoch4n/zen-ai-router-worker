@@ -1,8 +1,9 @@
 /**
- * Cloudflare Worker entry point
+ * Cloudflare Worker entry point that acts as a proxy/adapter between
+ * OpenAI-compatible API requests and Google's Gemini API.
  *
- * This worker acts as a proxy/adapter between OpenAI-compatible API requests
- * and Google's Gemini API.
+ * Provides OpenAI API compatibility for chat completions, embeddings,
+ * and model listing while translating requests to Gemini API format.
  */
 import {
   handleCompletions,
@@ -21,61 +22,70 @@ import {
 import { handleOPTIONS } from './utils/cors.mjs';
 
 /**
- * Main worker handler
+ * Main Cloudflare Worker handler that processes incoming HTTP requests
+ * and routes them to appropriate handlers based on the endpoint path.
+ *
+ * Supports the following OpenAI-compatible endpoints:
+ * - POST /chat/completions - Chat completion requests
+ * - POST /embeddings - Text embedding requests
+ * - GET /models - Available model listing
+ *
+ * @param {Request} request - The incoming HTTP request
+ * @param {Object} env - Cloudflare Worker environment variables
+ * @returns {Promise<Response>} HTTP response with CORS headers applied
  */
-export default {
-  async fetch(request, env) {
-    // Handle OPTIONS requests for CORS
-    if (request.method === "OPTIONS") {
-      return handleOPTIONS();
-    }
-
-    // Create error handler with CORS support
-    const errHandler = (err) => errorHandler(err, fixCors);
-
-    try {
-      // Get API key and validate location
-      const apiKey = getRandomApiKey(request, env);
-      const colo = request.cf?.colo;
-      if (colo && ["DME", "LED", "SVX", "KJA"].includes(colo)) {
-        return new Response(`Bad Cloudflare colo: ${colo}. Try again`, {
-          status: 429,
-          headers: { "Content-Type": "text/plain" },
-        });
-      }
-
-      // Force set worker location (for geolocation features)
-      await forceSetWorkerLocation(env);
-
-      // Route request based on path
-      const { pathname } = new URL(request.url);
-      switch (true) {
-        case pathname.endsWith("/chat/completions"):
-          if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request");
-          }
-          return handleCompletions(await request.json(), apiKey)
-            .catch(errHandler);
-
-        case pathname.endsWith("/embeddings"):
-          if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request");
-          }
-          return handleEmbeddings(await request.json(), apiKey)
-            .catch(errHandler);
-
-        case pathname.endsWith("/models"):
-          if (!(request.method === "GET")) {
-            throw new Error("Assertion failed: expected GET request");
-          }
-          return handleModels(apiKey)
-            .catch(errHandler);
-
-        default:
-          throw new HttpError("404 Not Found", 404);
-      }
-    } catch (err) {
-      return errHandler(err);
-    }
+async function fetch(request, env) {
+  if (request.method === "OPTIONS") {
+    return handleOPTIONS();
   }
-};
+
+  const errHandler = (err) => errorHandler(err, fixCors);
+
+  try {
+    const apiKey = getRandomApiKey(request, env);
+
+    // Block requests from specific Cloudflare data centers that may have
+    // connectivity issues with Google's API endpoints
+    const colo = request.cf?.colo;
+    if (colo && ["DME", "LED", "SVX", "KJA"].includes(colo)) {
+      return new Response(`Bad Cloudflare colo: ${colo}. Try again`, {
+        status: 429,
+        headers: { "Content-Type": "text/plain" },
+      });
+    }
+
+    // Initialize worker location for geolocation-dependent features
+    await forceSetWorkerLocation(env);
+
+    const { pathname } = new URL(request.url);
+    switch (true) {
+      case pathname.endsWith("/chat/completions"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleCompletions(await request.json(), apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/embeddings"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleEmbeddings(await request.json(), apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/models"):
+        if (!(request.method === "GET")) {
+          throw new Error("Assertion failed: expected GET request");
+        }
+        return handleModels(apiKey)
+          .catch(errHandler);
+
+      default:
+        throw new HttpError("404 Not Found", 404);
+    }
+  } catch (err) {
+    return errHandler(err);
+  }
+}
+
+export default { fetch };

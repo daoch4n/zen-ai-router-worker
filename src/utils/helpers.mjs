@@ -1,13 +1,16 @@
 /**
- * General helper functions
+ * General helper functions for ID generation, image processing, schema adjustment,
+ * and thinking mode parsing. Provides utilities used across the application.
  */
 import { Buffer } from "node:buffer";
 import { HttpError } from './error.mjs';
 import { THINKING_MODES, REASONING_EFFORT_MAP } from '../constants/index.mjs';
 
 /**
- * Generates a random ID for API responses
- * @returns {string} - Random ID
+ * Generates a random alphanumeric ID for API responses.
+ * Creates 29-character identifiers compatible with OpenAI response format.
+ *
+ * @returns {string} Random 29-character alphanumeric string
  */
 export const generateId = () => {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
@@ -16,14 +19,19 @@ export const generateId = () => {
 };
 
 /**
- * Parses an image from a URL or data URL
- * @param {string} url - The image URL or data URL
- * @returns {Promise<Object>} - Object with image data in the format required by the API
- * @throws {Error} - If the image cannot be fetched or parsed
+ * Parses and processes images from URLs or data URLs for Gemini API consumption.
+ * Handles both remote HTTP(S) URLs and inline data URLs with base64 encoding.
+ *
+ * @param {string} url - Image URL (http/https) or data URL (data:image/...)
+ * @returns {Promise<Object>} Gemini-compatible inline data object
+ * @throws {Error} When image cannot be fetched from remote URL
+ * @throws {HttpError} When data URL format is invalid
  */
 export const parseImg = async (url) => {
   let mimeType, data;
+
   if (url.startsWith("http://") || url.startsWith("https://")) {
+    // Fetch remote image and convert to base64
     try {
       const response = await fetch(url);
       if (!response.ok) {
@@ -35,12 +43,14 @@ export const parseImg = async (url) => {
       throw new Error("Error fetching image: " + err.toString());
     }
   } else {
+    // Parse data URL format
     const match = url.match(/^data:(?<mimeType>.*?)(;base64)?,(?<data>.*)$/);
     if (!match) {
       throw new HttpError("Invalid image data: " + url, 400);
     }
     ({ mimeType, data } = match.groups);
   }
+
   return {
     inlineData: {
       mimeType,
@@ -50,16 +60,20 @@ export const parseImg = async (url) => {
 };
 
 /**
- * Adjusts properties in a schema part
- * @param {Object} schemaPart - The schema part to adjust
+ * Recursively adjusts JSON schema properties for Gemini API compatibility.
+ * Removes unsupported properties that cause validation errors.
+ *
+ * @param {Object|Array} schemaPart - Schema object or array to process
  */
 export const adjustProps = (schemaPart) => {
   if (typeof schemaPart !== "object" || schemaPart === null) {
     return;
   }
+
   if (Array.isArray(schemaPart)) {
     schemaPart.forEach(adjustProps);
   } else {
+    // Remove additionalProperties:false which Gemini doesn't support
     if (schemaPart.type === "object" && schemaPart.properties && schemaPart.additionalProperties === false) {
       delete schemaPart.additionalProperties;
     }
@@ -68,9 +82,13 @@ export const adjustProps = (schemaPart) => {
 };
 
 /**
- * Adjusts a schema for compatibility
- * @param {Object} schema - The schema to adjust
- * @returns {Object} - The adjusted schema
+ * Adjusts OpenAI JSON schemas for Gemini API compatibility.
+ * Removes strict mode and other unsupported schema properties.
+ *
+ * @param {Object} schema - OpenAI tool schema object
+ * @param {string} schema.type - Schema type ("function")
+ * @param {Object} schema.function - Function definition with schema
+ * @returns {Object} Modified schema object (mutated in place)
  */
 export const adjustSchema = (schema) => {
   const obj = schema[schema.type];
@@ -79,9 +97,14 @@ export const adjustSchema = (schema) => {
 };
 
 /**
- * Parses a model name to extract thinking mode and budget information
- * @param {string} modelName - The model name to parse
- * @returns {Object} - Object containing baseModel, mode, and budget
+ * Parses model names to extract thinking mode configuration and budget levels.
+ * Supports special model name suffixes that control reasoning behavior.
+ *
+ * @param {string} modelName - Model name potentially with thinking mode suffix
+ * @returns {Object} Parsed model configuration
+ * @returns {string} returns.baseModel - Base model name without suffixes
+ * @returns {string} returns.mode - Thinking mode (standard, thinking, refined)
+ * @returns {string|null} returns.budget - Budget level string or null
  */
 export const parseModelName = (modelName) => {
   if (!modelName || typeof modelName !== "string") {
@@ -92,7 +115,7 @@ export const parseModelName = (modelName) => {
     };
   }
 
-  // Check for thinking mode suffix: -thinking-{budget}
+  // Parse thinking mode: model-thinking-{budget}
   const thinkingMatch = modelName.match(/^(.+)-thinking-([^-]+)$/);
   if (thinkingMatch) {
     const [, baseModel, budgetStr] = thinkingMatch;
@@ -103,7 +126,7 @@ export const parseModelName = (modelName) => {
     };
   }
 
-  // Check for refined mode suffix: -refined-{budget}
+  // Parse refined mode: model-refined-{budget}
   const refinedMatch = modelName.match(/^(.+)-refined-([^-]+)$/);
   if (refinedMatch) {
     const [, baseModel, budgetStr] = refinedMatch;
@@ -114,7 +137,7 @@ export const parseModelName = (modelName) => {
     };
   }
 
-  // Standard mode (no suffix)
+  // Standard mode without special suffixes
   return {
     baseModel: modelName,
     mode: THINKING_MODES.STANDARD,
@@ -123,9 +146,11 @@ export const parseModelName = (modelName) => {
 };
 
 /**
- * Converts a budget level string to a thinking budget number
- * @param {string} budgetLevel - The budget level ("low", "medium", "high", "none")
- * @returns {number} - The thinking budget in tokens
+ * Converts budget level strings to token budget numbers for thinking configuration.
+ * Maps human-readable effort levels to specific token allocations.
+ *
+ * @param {string} budgetLevel - Budget level ("none", "low", "medium", "high")
+ * @returns {number} Token budget for reasoning (0 for none, up to 24576 for high)
  */
 export const getBudgetFromLevel = (budgetLevel) => {
   if (!budgetLevel || typeof budgetLevel !== "string") {
@@ -137,32 +162,32 @@ export const getBudgetFromLevel = (budgetLevel) => {
 };
 
 /**
- * Removes thinking tags from response content
- * @param {string} content - The content to process
- * @returns {string} - Content with thinking tags removed
+ * Removes thinking tags from response content for refined mode processing.
+ * Identifies and removes the largest thinking block to clean up final output.
+ *
+ * @param {string} content - Response content potentially containing thinking tags
+ * @returns {string} Content with largest thinking block removed
  */
 export const removeThinkingTags = (content) => {
-  // Remove only the largest thinking block
   if (!content || typeof content !== "string") {
     return content;
   }
 
-  // Find all thinking blocks
+  // Find all thinking blocks in the content
   const matches = [...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)];
-  
-  // If no matches, return original content
+
   if (matches.length === 0) {
     return content;
   }
-  
-  // Find the largest block by content length
+
+  // Identify the largest thinking block by content length
   let largestMatch = matches[0];
   for (const match of matches) {
     if (match[1].length > largestMatch[1].length) {
       largestMatch = match;
     }
   }
-  
-  // Remove only the largest block
+
+  // Remove only the largest block to preserve other content
   return content.replace(largestMatch[0], '');
 };
