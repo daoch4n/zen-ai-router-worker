@@ -31,22 +31,29 @@ test/
 
 ### Completed Tests
 1. **Utils Module**
-   - ✅ `auth.test.mjs` - Authentication utilities
-   - ✅ `error.test.mjs` - Error handling (8/8 tests passing)
-   - ✅ `cors.test.mjs` - CORS utilities (needs fixes)
-   - ✅ `helpers.test.mjs` - Helper functions (needs fixes)
+   - ✅ `auth.test.mjs` - Authentication utilities (100% coverage)
+   - ✅ `error.test.mjs` - Error handling (100% coverage)
+   - ✅ `cors.test.mjs` - CORS utilities (100% coverage)
+   - ✅ `helpers.test.mjs` - Helper functions (96% coverage)
 
 2. **Constants Module**
-   - ✅ `index.test.mjs` - Configuration constants (needs fixes)
+   - ✅ `index.test.mjs` - Configuration constants (100% coverage)
 
 3. **Handlers Module**
-   - ✅ `embeddings.test.mjs` - Embeddings endpoint (passing)
+   - ✅ `embeddings.test.mjs` - Embeddings endpoint (100% coverage)
+   - ✅ `completions.test.mjs` - Chat completions endpoint (95% coverage)
+   - ✅ `models.test.mjs` - Models endpoint (100% coverage)
+
+4. **Transformers Module**
+   - ✅ `request.test.mjs` - Request transformation (55% coverage)
+   - ✅ `response.test.mjs` - Response transformation (100% coverage)
+   - ✅ `stream.test.mjs` - Stream processing (100% coverage)
 
 ### Test Results Summary
-- **Total Tests**: 66
-- **Passing**: 54
-- **Failing**: 12
-- **Test Suites**: 6 total (2 passing, 4 failing)
+- **Total Tests**: 139
+- **Passing**: 139
+- **Failing**: 0
+- **Test Suites**: 11 total (11 passing, 0 failing)
 
 ## 🔧 Issues to Fix
 
