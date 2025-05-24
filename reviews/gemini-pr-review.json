@@ -3,21 +3,11 @@
     "pr_number": 3,
     "repo": "daoch4n/zen-ai-router-thinking",
     "title": "feat(gemini): Resolve 'internal error' for tool calls by improving pa\u2026",
-    "timestamp_utc": "2025-05-24T07:02:12.131201+00:00",
+    "timestamp_utc": "2025-05-24T07:06:12.104560+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false
   },
-  "review_comments": [
-    {
-      "file_path": "src/transformers/requestAnthropic.mjs",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff, but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe line `delete anthropicReq.thinking;` modifies the original `anthropicReq` object. This is generally not recommended in transformation functions, as it can lead to unexpected side effects if `anthropicReq` is used elsewhere after this function call.\n\nSince `openAIReq` is being constructed as a new object, simply omitting the `thinking` property when building `openAIReq` is sufficient to prevent it from being passed to Gemini. The explicit deletion from the original `anthropicReq` is unnecessary for the purpose of this transformation.\n\nConsider removing this line to avoid modifying the input object:\n\n```javascript\n// 11. Thinking (Ignored by Gemini, ensure it's not passed)\n// No action needed if anthropicReq.thinking is present, as it's not added to openAIReq\n// if (anthropicReq.thinking !== undefined) {\n//   delete anthropicReq.thinking; // Remove this line\n// }\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "bug",
-      "invalidPosition": true
-    }
-  ]
+  "review_comments": []
 }
