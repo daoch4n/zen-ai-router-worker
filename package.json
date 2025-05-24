@@ -3,7 +3,6 @@
     "@whatwg-node/server": "0.9"
   },
   "devDependencies": {
-    "nodemon": "3",
     "wrangler": "^4.16.1"
   },
   "scripts": {
