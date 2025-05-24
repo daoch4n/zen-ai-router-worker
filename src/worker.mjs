@@ -12,6 +12,10 @@ import {
 } from './handlers/index.mjs';
 
 import {
+  transformAnthropicToOpenAIRequest
+} from './transformers/requestAnthropic.mjs';
+
+import {
   getRandomApiKey,
   forceSetWorkerLocation,
   fixCors,
@@ -49,9 +53,19 @@ export default {
       // Route request based on path
       const { pathname } = new URL(request.url);
       switch (true) {
-        case pathname.endsWith("/chat/completions"):
+        case pathname.endsWith("/v1/messages"): // Anthropic Messages API
           if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request");
+            throw new Error("Assertion failed: expected POST request for Anthropic API");
+          }
+          const anthropicReq = await request.json();
+          const openAIReqFromAnthropic = transformAnthropicToOpenAIRequest(anthropicReq);
+          // Pass the original Anthropic model name for response transformation
+          return handleCompletions(openAIReqFromAnthropic, apiKey, anthropicReq.model)
+            .catch(errHandler);
+
+        case pathname.endsWith("/chat/completions"): // Existing OpenAI Chat Completions API
+          if (!(request.method === "POST")) {
+            throw new Error("Assertion failed: expected POST request for OpenAI API");
           }
           return handleCompletions(await request.json(), apiKey)
             .catch(errHandler);

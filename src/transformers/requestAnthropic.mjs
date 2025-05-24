@@ -1,0 +1,137 @@
+import {
+  DEFAULT_ANTHROPIC_VERSION
+} from '../constants/index.mjs';
+
+/**
+ * Transforms an Anthropic request body into an OpenAI-compatible request body.
+ * This function handles role mapping, content block conversion, system prompts,
+ * and tool definitions as described in the mapping document.
+ * @param {Object} anthropicReq - The incoming Anthropic request body.
+ * @returns {Object} The transformed OpenAI-compatible request body.
+ */
+export function transformAnthropicToOpenAIRequest(anthropicReq) {
+  const openAIReq = {};
+
+  // 1. Model mapping
+  // The mapping document suggests mapping Claude model names to OpenAI model names.
+  // For now, we'll pass the Anthropic model name directly and assume further handling
+  // (e.g., within handleCompletions or another transformer) will map it to a Gemini model.
+  // This maintains the original architecture's model parsing.
+  openAIReq.model = anthropicReq.model;
+
+  // 2. Messages and System Prompt
+  openAIReq.messages = [];
+
+  // Handle Anthropic system prompt
+  if (anthropicReq.system) {
+    openAIReq.messages.push({
+      role: "system",
+      content: anthropicReq.system
+    });
+  }
+
+  // Map Anthropic messages to OpenAI format
+  for (const message of anthropicReq.messages) {
+    const openAIMessage = {
+      role: message.role
+    };
+
+    if (typeof message.content === "string") {
+      openAIMessage.content = message.content;
+    } else if (Array.isArray(message.content)) {
+      // Handle content blocks
+      let textContent = [];
+      for (const block of message.content) {
+        if (block.type === "text") {
+          textContent.push(block.text);
+        } else if (block.type === "tool_result" && message.role === "user") {
+          // Map Anthropic tool_result (user turn) to OpenAI function role
+          // The name of the tool needs to be tracked from the assistant's previous tool_use.
+          // For simplicity here, we assume the tool_use_id can be directly mapped to a name
+          // or that the name is implicitly known. A more robust solution would track this.
+          openAIReq.messages.push({
+            role: "function",
+            name: `tool_from_id_${block.tool_use_id}`, // Placeholder: needs actual tool name mapping
+            content: JSON.stringify(block.content) // OpenAI expects stringified JSON
+          });
+        }
+        // Image blocks are not directly supported by standard OpenAI Chat API
+        // As per mapping.md, they should be omitted or handled via a separate Vision API.
+        // For now, we will omit them.
+      }
+      if (textContent.length > 0) {
+        openAIMessage.content = textContent.join("\n"); // Concatenate multiple text blocks
+      } else if (openAIMessage.role !== "function") {
+        // If no text content and not a function call, content might be null
+        openAIMessage.content = null;
+      }
+    }
+
+    // Only push if content is not null (unless it's an assistant message with only function_call)
+    // and not a tool_result that's already pushed as a function role message
+    if (openAIMessage.content !== null || openAIMessage.role === "assistant") {
+      openAIReq.messages.push(openAIMessage);
+    }
+  }
+
+  // 3. Max Tokens
+  if (anthropicReq.max_tokens) {
+    openAIReq.max_tokens = anthropicReq.max_tokens;
+  }
+
+  // 4. Stop Sequences
+  if (anthropicReq.stop_sequences) {
+    openAIReq.stop = anthropicReq.stop_sequences;
+  }
+
+  // 5. Stream
+  if (anthropicReq.stream !== undefined) {
+    openAIReq.stream = anthropicReq.stream;
+    // Anthropic's stream_options is not directly supported by OpenAI
+    // Usage will be handled by the proxy at the end of the stream.
+  }
+
+  // 6. Temperature
+  if (anthropicReq.temperature !== undefined) {
+    openAIReq.temperature = anthropicReq.temperature;
+  }
+
+  // 7. Top P
+  if (anthropicReq.top_p !== undefined) {
+    openAIReq.top_p = anthropicReq.top_p;
+  }
+
+  // 8. Top K (Not supported by OpenAI, ignore/drop)
+  // No action needed for anthropicReq.top_k
+
+  // 9. Metadata.user_id
+  if (anthropicReq.metadata && anthropicReq.metadata.user_id) {
+    openAIReq.user = anthropicReq.metadata.user_id;
+  }
+
+  // 10. Tools and Tool Choice
+  if (anthropicReq.tools && anthropicReq.tools.length > 0) {
+    openAIReq.functions = anthropicReq.tools.map(tool => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.input_schema // Anthropic input_schema maps directly to OpenAI parameters
+    }));
+
+    if (anthropicReq.tool_choice) {
+      if (anthropicReq.tool_choice.type === "auto" || anthropicReq.tool_choice.type === "any") {
+        openAIReq.function_call = "auto";
+      } else if (anthropicReq.tool_choice.type === "tool" && anthropicReq.tool_choice.name) {
+        openAIReq.function_call = {
+          name: anthropicReq.tool_choice.name
+        };
+      }
+      // Anthropic "none" type is implied by omitting tools, not a direct mapping for function_call.
+      // If explicit prevention is needed, it would be handled by not including 'tools' at all.
+    } else {
+      // If Anthropic tool_choice is omitted, OpenAI defaults to "auto"
+      openAIReq.function_call = "auto";
+    }
+  }
+
+  return openAIReq;
+}
