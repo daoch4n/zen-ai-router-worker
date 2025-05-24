@@ -12,13 +12,13 @@ export const DEFAULT_MODEL = "gemini-2.0-flash";
 export const DEFAULT_EMBEDDINGS_MODEL = "text-embedding-004";
 
 // Safety settings
-export const HARM_CATEGORIES = [
+export const HARM_CATEGORIES = Object.freeze([
   "HARM_CATEGORY_HATE_SPEECH",
   "HARM_CATEGORY_SEXUALLY_EXPLICIT",
   "HARM_CATEGORY_DANGEROUS_CONTENT",
   "HARM_CATEGORY_HARASSMENT",
   "HARM_CATEGORY_CIVIC_INTEGRITY",
-];
+]);
 
 export const SAFETY_SETTINGS = HARM_CATEGORIES.map(category => ({
   category,
@@ -49,11 +49,11 @@ export const REASONING_EFFORT_MAP = {
 };
 
 // Thinking mode constants
-export const THINKING_MODES = {
+export const THINKING_MODES = Object.freeze({
   STANDARD: "standard",
   THINKING: "thinking",
   REFINED: "refined",
-};
+});
 
 // Finish reason mapping
 export const REASONS_MAP = {
