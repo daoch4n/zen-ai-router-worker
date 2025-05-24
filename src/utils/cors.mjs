@@ -1,14 +1,17 @@
 /**
- * CORS utilities for handling cross-origin requests
+ * CORS utilities for handling cross-origin requests in the Cloudflare Worker.
+ * Provides permissive CORS configuration for maximum client compatibility.
  */
 
 /**
- * Applies CORS headers to a response options object
- * @param {Object} options - Response options
- * @param {Headers} [options.headers] - Response headers
- * @param {number} [options.status] - Response status
- * @param {string} [options.statusText] - Response status text
- * @returns {Object} - Response options with CORS headers
+ * Applies CORS headers to response options for cross-origin compatibility.
+ * Enables unrestricted access from any origin with common HTTP methods and headers.
+ *
+ * @param {Object} options - Response options object
+ * @param {Headers} [options.headers] - Existing response headers
+ * @param {number} [options.status] - HTTP status code
+ * @param {string} [options.statusText] - HTTP status text
+ * @returns {Object} Response options with CORS headers applied
  */
 export const fixCors = ({ headers, status, statusText }) => {
   headers = new Headers(headers);
@@ -20,8 +23,10 @@ export const fixCors = ({ headers, status, statusText }) => {
 };
 
 /**
- * Handles OPTIONS requests for CORS preflight
- * @returns {Response} - Response with CORS headers
+ * Handles CORS preflight OPTIONS requests with permissive headers.
+ * Allows all origins, methods, and headers for maximum compatibility.
+ *
+ * @returns {Response} Empty response with CORS preflight headers
  */
 export const handleOPTIONS = () => {
   return new Response(null, {

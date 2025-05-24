@@ -1,5 +1,6 @@
 /**
- * Export all utilities
+ * Centralized exports for all utility functions.
+ * Provides authentication, CORS handling, database utilities, error handling, and helpers.
  */
 export * from './auth.mjs';
 export * from './cors.mjs';

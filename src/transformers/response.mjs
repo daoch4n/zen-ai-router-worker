@@ -1,13 +1,18 @@
 /**
- * Response transformation functions
+ * Response transformation functions that convert Gemini API responses to OpenAI format.
+ * Handles usage data, candidate processing, and thinking mode content filtering.
  */
 import { generateId, removeThinkingTags } from '../utils/helpers.mjs';
 import { REASONS_MAP, CONTENT_SEPARATOR, THINKING_MODES } from '../constants/index.mjs';
 
 /**
- * Transforms usage data
- * @param {Object} data - The usage data
- * @returns {Object} - Transformed usage data
+ * Transforms Gemini usage metadata to OpenAI-compatible token usage format.
+ *
+ * @param {Object} data - Gemini usage metadata object
+ * @param {number} data.candidatesTokenCount - Tokens used in generated responses
+ * @param {number} data.promptTokenCount - Tokens used in input prompt
+ * @param {number} data.totalTokenCount - Total tokens consumed
+ * @returns {Object} OpenAI-compatible usage object
  */
 export const transformUsage = (data) => ({
   completion_tokens: data.candidatesTokenCount,
@@ -16,14 +21,22 @@ export const transformUsage = (data) => ({
 });
 
 /**
- * Transforms candidates to OpenAI format
- * @param {string} key - The key to use in the transformed object
- * @param {Object} cand - The candidate object
- * @param {string} thinkingMode - The thinking mode (standard, thinking, refined)
- * @returns {Object} - Transformed candidate
+ * Transforms Gemini candidate responses to OpenAI choice format.
+ * Handles function calls, content processing, and thinking mode filtering.
+ *
+ * @param {string} key - Property name for the message object ("message" or "delta")
+ * @param {Object} cand - Gemini candidate object
+ * @param {Object} cand.content - Candidate content with parts array
+ * @param {Array} cand.content.parts - Array of content parts (text, function calls)
+ * @param {string} cand.finishReason - Reason why generation stopped
+ * @param {number} [cand.index] - Candidate index in response
+ * @param {string} [thinkingMode] - Thinking mode for content processing
+ * @returns {Object} OpenAI-compatible choice object
  */
 export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STANDARD) => {
   const message = { role: "assistant", content: [] };
+
+  // Process each content part (text or function calls)
   for (const part of cand.content?.parts ?? []) {
     if (part.functionCall) {
       const fc = part.functionCall;
@@ -43,7 +56,7 @@ export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STA
 
   let content = message.content.join(CONTENT_SEPARATOR) || null;
 
-  // Remove thinking tags for refined mode
+  // Apply thinking mode content filtering
   if (thinkingMode === THINKING_MODES.REFINED && content) {
     content = removeThinkingTags(content);
   }
@@ -51,7 +64,7 @@ export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STA
   message.content = content;
 
   return {
-    index: cand.index || 0, // 0-index is absent in new -002 models response
+    index: cand.index || 0,
     [key]: message,
     logprobs: null,
     finish_reason: message.tool_calls ? "tool_calls" : REASONS_MAP[cand.finishReason] || cand.finishReason,
@@ -59,32 +72,39 @@ export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STA
 };
 
 /**
- * Transforms candidates to message format
- * @param {Object} cand - The candidate object
- * @param {string} thinkingMode - The thinking mode
- * @returns {Object} - Transformed candidate with message
+ * Convenience function to transform candidates for non-streaming responses.
+ *
+ * @param {Object} cand - Gemini candidate object
+ * @param {string} [thinkingMode] - Thinking mode for content processing
+ * @returns {Object} OpenAI choice object with message property
  */
 export const transformCandidatesMessage = (cand, thinkingMode = THINKING_MODES.STANDARD) =>
   transformCandidates("message", cand, thinkingMode);
 
 /**
- * Transforms candidates to delta format
- * @param {Object} cand - The candidate object
- * @param {string} thinkingMode - The thinking mode
- * @returns {Object} - Transformed candidate with delta
+ * Convenience function to transform candidates for streaming responses.
+ *
+ * @param {Object} cand - Gemini candidate object
+ * @param {string} [thinkingMode] - Thinking mode for content processing
+ * @returns {Object} OpenAI choice object with delta property
  */
 export const transformCandidatesDelta = (cand, thinkingMode = THINKING_MODES.STANDARD) =>
   transformCandidates("delta", cand, thinkingMode);
 
 /**
- * Checks for prompt blocks and adds appropriate choices
- * @param {Array} choices - The choices array
- * @param {Object} promptFeedback - The prompt feedback object
- * @param {string} key - The key to use in the transformed object
- * @returns {boolean} - Whether a block was detected
+ * Checks for content filtering and creates appropriate error choices.
+ * Handles cases where Gemini blocks content due to safety policies.
+ *
+ * @param {Array} choices - Current choices array to modify
+ * @param {Object} promptFeedback - Gemini prompt feedback object
+ * @param {string} promptFeedback.blockReason - Reason for content blocking
+ * @param {Array} [promptFeedback.safetyRatings] - Safety rating details
+ * @param {string} key - Property name for the choice object ("message" or "delta")
+ * @returns {boolean} True if a block was detected and handled
  */
 export const checkPromptBlock = (choices, promptFeedback, key) => {
   if (choices.length) { return; }
+
   if (promptFeedback?.blockReason) {
     console.log("Prompt block reason:", promptFeedback.blockReason);
     if (promptFeedback.blockReason === "SAFETY") {
@@ -102,12 +122,18 @@ export const checkPromptBlock = (choices, promptFeedback, key) => {
 };
 
 /**
- * Processes completions response
- * @param {Object} data - The response data
- * @param {string} model - The model name
- * @param {string} id - The response ID
- * @param {string} thinkingMode - The thinking mode
- * @returns {string} - JSON string of the processed response
+ * Processes complete Gemini response and converts to OpenAI chat completion format.
+ * Handles candidate transformation, usage data, and content filtering.
+ *
+ * @param {Object} data - Complete Gemini API response
+ * @param {Array} data.candidates - Array of response candidates
+ * @param {Object} [data.usageMetadata] - Token usage information
+ * @param {Object} [data.promptFeedback] - Content filtering feedback
+ * @param {string} [data.modelVersion] - Actual model version used
+ * @param {string} model - Requested model name
+ * @param {string} id - Unique response identifier
+ * @param {string} [thinkingMode] - Thinking mode for content processing
+ * @returns {string} JSON string of OpenAI-compatible completion response
  */
 export const processCompletionsResponse = (data, model, id, thinkingMode = THINKING_MODES.STANDARD) => {
   const obj = {
@@ -118,8 +144,11 @@ export const processCompletionsResponse = (data, model, id, thinkingMode = THINK
     object: "chat.completion",
     usage: data.usageMetadata && transformUsage(data.usageMetadata),
   };
+
+  // Handle content filtering when no candidates are returned
   if (obj.choices.length === 0 ) {
     checkPromptBlock(obj.choices, data.promptFeedback, "message");
   }
+
   return JSON.stringify(obj);
 };

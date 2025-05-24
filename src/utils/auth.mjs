@@ -1,14 +1,17 @@
 /**
- * Authentication utilities
+ * Authentication utilities for handling API keys and request headers.
+ * Manages Google API authentication and worker access control.
  */
 import { HttpError } from './error.mjs';
 import { API_CLIENT } from '../constants/index.mjs';
 
 /**
- * Creates headers with API key and other optional headers
- * @param {string} apiKey - The API key
- * @param {Object} [more] - Additional headers
- * @returns {Object} - Headers object
+ * Creates HTTP headers for Gemini API requests with authentication and client identification.
+ * Includes Google API client identifier and optional API key for authenticated requests.
+ *
+ * @param {string} apiKey - Google API key for Gemini access
+ * @param {Object} [more] - Additional headers to include in the request
+ * @returns {Object} Complete headers object for Gemini API requests
  */
 export const makeHeaders = (apiKey, more) => ({
   "x-goog-api-client": API_CLIENT,
@@ -17,25 +20,34 @@ export const makeHeaders = (apiKey, more) => ({
 });
 
 /**
- * Retrieves a random API key from the environment variables
- * @param {Request} request - The incoming request object
- * @param {Object} env - The environment variables
- * @returns {string} - The API key
- * @throws {HttpError} - If no valid API key is found
+ * Validates worker access and retrieves a random Google API key from environment.
+ * Implements two-tier authentication: worker access validation followed by API key selection.
+ *
+ * @param {Request} request - Incoming HTTP request with Authorization header
+ * @param {Object} env - Cloudflare Worker environment variables
+ * @param {string} env.PASS - Worker access password for authentication
+ * @param {string} env.KEY1, env.KEY2, etc. - Google API keys for random selection
+ * @returns {string} Selected Google API key for Gemini requests
+ * @throws {HttpError} When authentication fails or no API keys are configured
  */
 export function getRandomApiKey(request, env) {
+  // Extract bearer token from Authorization header
   let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
   if (!apiKey) {
     throw new HttpError("Bad credentials - no api key", 401);
   }
 
+  // Validate worker access using PASS environment variable
   if (apiKey !== env.PASS) {
     throw new HttpError("Bad credentials - wrong api key", 401);
   }
 
+  // Collect all configured Google API keys (KEY1, KEY2, etc.)
   const apiKeys = Object.entries(env)
     .filter(([key, value]) => /^KEY\d+$/.test(key) && value)
     .map(([, value]) => value);
+
+  // Select random API key for load balancing and redundancy
   apiKey = apiKeys.length > 0 ? apiKeys[Math.floor(Math.random() * apiKeys.length)] : null;
 
   if (!apiKey) {
