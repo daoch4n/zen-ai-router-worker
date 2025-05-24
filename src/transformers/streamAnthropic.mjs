@@ -85,11 +85,9 @@ export class AnthropicStreamTransformer {
         this.accumulatedToolArguments[this.currentToolUseId] = "";
       }
 
-      if (delta.function_call.name && !this.accumulatedToolArguments[this.currentToolUseId]) {
-        // If name comes in a separate chunk, update it.
-        // This is a simplification; a full solution would re-emit the start event with the name.
-        // For now, we assume name is part of the first function_call delta or handled implicitly.
-      }
+      // The `name` is typically present in the first `function_call` delta and handled in `emitContentBlockStart`.
+      // This block was identified as dead code / remnant logic.
+      // No action needed here.
 
       if (delta.function_call.arguments) {
         this.accumulatedToolArguments[this.currentToolUseId] += delta.function_call.arguments;
@@ -176,8 +174,8 @@ export class AnthropicStreamTransformer {
     } else if (openAIFinishReason === "function_call") {
       stop_reason = "tool_use";
     } else if (openAIFinishReason === "content_filter") {
-      // This is a simplification; might need custom handling or error
-      stop_reason = "stop_sequence"; // Treating as an external stop
+      // As per mapping.md, Anthropic has `stop_reason: "content_filter"`
+      stop_reason = "content_filter";
     }
 
     const delta = {

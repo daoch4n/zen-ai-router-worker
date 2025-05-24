@@ -14,10 +14,16 @@ export function transformAnthropicToOpenAIRequest(anthropicReq) {
 
   // 1. Model mapping
   // The mapping document suggests mapping Claude model names to OpenAI model names.
-  // For now, we'll pass the Anthropic model name directly and assume further handling
-  // (e.g., within handleCompletions or another transformer) will map it to a Gemini model.
-  // This maintains the original architecture's model parsing.
-  openAIReq.model = anthropicReq.model;
+  // Explicit model mapping: Map Anthropic model names to OpenAI/Gemini equivalents.
+  // This ensures the downstream system receives recognized model identifiers.
+  // Example mapping (customize as needed):
+  const modelMap = {
+    "claude-3-opus-20240229": "gemini-1.5-pro",
+    "claude-3-sonnet-20240229": "gemini-1.5-flash",
+    "claude-3-haiku-20240307": "gemini-1.5-flash",
+    // Add more mappings as necessary
+  };
+  openAIReq.model = modelMap[anthropicReq.model] || anthropicReq.model; // Use mapped model or fallback to original
 
   // 2. Messages and System Prompt
   openAIReq.messages = [];
@@ -47,11 +53,24 @@ export function transformAnthropicToOpenAIRequest(anthropicReq) {
         } else if (block.type === "tool_result" && message.role === "user") {
           // Map Anthropic tool_result (user turn) to OpenAI function role
           // The name of the tool needs to be tracked from the assistant's previous tool_use.
-          // For simplicity here, we assume the tool_use_id can be directly mapped to a name
-          // or that the name is implicitly known. A more robust solution would track this.
+          // CRITICAL BUG: Tool name mapping for tool_result messages is complex in a stateless proxy.
+          // The `tool_use_id` is an internal identifier. To get the actual tool `name` for OpenAI's `function` role,
+          // the proxy would ideally need to track the `tool_use_id` to `tool_name` mapping from the *previous*
+          // assistant's `tool_use` message. This requires state management across turns.
+          //
+          // CURRENT LIMITATION: Without state, we cannot reliably infer the tool name.
+          // For now, a placeholder name is used. This will likely cause failures in downstream systems
+          // that rely on accurate tool names.
+          //
+          // A robust solution would involve:
+          // 1. Storing the `tool_use_id` to `tool_name` mapping in a cache or database when the assistant
+          //    returns a `tool_use` message.
+          // 2. Retrieving the `tool_name` using the `tool_use_id` when a `tool_result` message is received.
+          //
+          // For this stateless proxy, this remains a significant gap.
           openAIReq.messages.push({
             role: "function",
-            name: `tool_from_id_${block.tool_use_id}`, // Placeholder: needs actual tool name mapping
+            name: `UNKNOWN_TOOL_NAME_FOR_${block.tool_use_id}`, // Placeholder due to stateless nature
             content: JSON.stringify(block.content) // OpenAI expects stringified JSON
           });
         }
@@ -124,9 +143,9 @@ export function transformAnthropicToOpenAIRequest(anthropicReq) {
         openAIReq.function_call = {
           name: anthropicReq.tool_choice.name
         };
+      } else if (anthropicReq.tool_choice.type === "none") {
+        openAIReq.function_call = "none";
       }
-      // Anthropic "none" type is implied by omitting tools, not a direct mapping for function_call.
-      // If explicit prevention is needed, it would be handled by not including 'tools' at all.
     } else {
       // If Anthropic tool_choice is omitted, OpenAI defaults to "auto"
       openAIReq.function_call = "auto";

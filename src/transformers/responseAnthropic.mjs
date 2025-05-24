@@ -34,15 +34,45 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
   const message = choice.message;
 
   // 1. Map content
-  if (message.function_call) {
-    // Tool Use Content (Function Call)
-    anthropicRes.content.push({
-      type: "tool_use",
-      id: `toolu_${generateId()}`, // Generate a unique ID for this tool call
-      name: message.function_call.name,
-      input: JSON.parse(message.function_call.arguments) // Parse JSON string into object
+  if (message.tool_calls && message.tool_calls.length > 0) {
+    // Handle OpenAI's newer `message.tool_calls` (array of tool calls)
+    message.tool_calls.forEach(toolCall => {
+      try {
+        anthropicRes.content.push({
+          type: "tool_use",
+          id: toolCall.id || `toolu_${generateId()}`, // Use tool call ID or generate new
+          name: toolCall.function.name,
+          input: JSON.parse(toolCall.function.arguments) // Parse JSON string into object
+        });
+      } catch (e) {
+        console.error("Failed to parse tool_calls arguments:", e, toolCall.function.arguments);
+        anthropicRes.content.push({
+          type: "tool_use",
+          id: toolCall.id || `toolu_${generateId()}`,
+          name: toolCall.function.name,
+          input: {} // Fallback to empty object on parsing failure
+        });
+      }
     });
     anthropicRes.stop_reason = "tool_use"; // Set stop reason for tool calls
+  } else if (message.function_call) {
+    // Keep legacy support for `message.function_call`
+    try {
+      anthropicRes.content.push({
+        type: "tool_use",
+        id: `toolu_${generateId()}`, // Generate a unique ID for this tool call
+        name: message.function_call.name,
+        input: JSON.parse(message.function_call.arguments) // Parse JSON string into object
+      });
+    } catch (e) {
+      console.error("Failed to parse function_call arguments:", e, message.function_call.arguments);
+      anthropicRes.content.push({
+        type: "tool_use",
+        id: `toolu_${generateId()}`,
+        name: message.function_call.name,
+        input: {} // Fallback to empty object on parsing failure
+      });
+    }
   } else if (message.content !== null) {
     // Text Content
     anthropicRes.content.push({
@@ -62,15 +92,9 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
       case "length":
         anthropicRes.stop_reason = "max_tokens";
         break;
-      case "function_call":
-        // Already handled above when mapping content
-        anthropicRes.stop_reason = "tool_use";
-        break;
       case "content_filter":
-        // Anthropic has no direct equivalent. Map to end_turn or a specific error.
-        // For now, setting to "end_turn" as a general completion.
-        anthropicRes.stop_reason = "end_turn";
-        // A more robust solution might involve a custom error or specific handling.
+        // As per mapping.md, Anthropic has `stop_reason: "content_filter"`
+        anthropicRes.stop_reason = "content_filter";
         break;
       default:
         anthropicRes.stop_reason = "end_turn";

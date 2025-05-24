@@ -9,7 +9,17 @@ import {
 } from '../transformers/streamAnthropic.mjs';
 import {
   handleOpenAICompletions
-} from './completions.mjs'; // This will be the refactored core logic
+} from './completions.mjs'; // This is the refactored core logic
+import {
+  parseStream,
+  parseStreamFlush
+} from '../transformers/stream.mjs'; // For parsing raw stream data
+import {
+  generateId
+} from '../utils/helpers.mjs'; // For generating IDs
+import {
+  fixCors
+} from '../utils/cors.mjs'; // For applying CORS headers
 
 /**
  * Handles requests to the Anthropic chat completions endpoint.
@@ -28,7 +38,13 @@ export async function handleAnthropicCompletions(req, apiKey) {
 
   // 2. Call the core OpenAI completions handler (which now handles OpenAI to Gemini)
   // This function will return an OpenAI-formatted response (either full JSON or a stream)
-  const openAIRes = await handleOpenAICompletions(openAIReq, apiKey);
+  let openAIRes;
+  try {
+    openAIRes = await handleOpenAICompletions(openAIReq, apiKey);
+  } catch (error) {
+    // Catch errors from handleOpenAICompletions and transform to Anthropic error
+    return errorHandler(error, fixCors);
+  }
 
   // 3. Transform OpenAI response back to Anthropic format
   if (openAIReq.stream) {
@@ -39,8 +55,6 @@ export async function handleAnthropicCompletions(req, apiKey) {
       .pipeThrough(new TransformStream({
         transform: parseStream, // This handles parsing raw stream data into JSON chunks
         flush: parseStreamFlush,
-        buffer: "",
-        shared: {}, // Local shared object for this stream
       }))
       .pipeThrough(new TransformStream({
         transform: (chunk, controller) => {
@@ -52,7 +66,7 @@ export async function handleAnthropicCompletions(req, apiKey) {
               req // Pass original Anthropic request for input token calculation
             );
           }
-          const anthropicSse = this.anthropicStreamTransformer.transform(JSON.stringify(chunk));
+          const anthropicSse = this.anthropicStreamTransformer.transform(chunk); // chunk should already be parsed object
           if (anthropicSse) {
             controller.enqueue(anthropicSse);
           }
@@ -79,7 +93,13 @@ export async function handleAnthropicCompletions(req, apiKey) {
 
   } else {
     // For non-streaming, transform the full JSON response
-    const openAIResBody = await openAIRes.json();
+    let openAIResBody;
+    try {
+      openAIResBody = await openAIRes.json();
+    } catch (error) {
+      // Catch JSON parsing errors and transform to Anthropic error
+      return errorHandler(error, fixCors);
+    }
     const anthropicResBody = transformOpenAIToAnthropicResponse(
       openAIResBody,
       anthropicModelName,

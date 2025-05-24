@@ -53,15 +53,15 @@ export default {
 
       // Route request based on path
       const { pathname } = new URL(request.url);
-      switch (true) {
-        case pathname.endsWith("/v1/messages"): // Anthropic Messages API
+      switch (pathname) { // Use exact path matching
+        case "/v1/messages": // Anthropic Messages API
           if (!(request.method === "POST")) {
             throw new HttpError("Method Not Allowed", 405);
           }
           return handleAnthropicCompletions(await request.json(), apiKey)
             .catch(errHandler);
 
-        case pathname.endsWith("/chat/completions"): // OpenAI Chat Completions API
+        case "/chat/completions": // OpenAI Chat Completions API
           if (!(request.method === "POST")) {
             throw new HttpError("Method Not Allowed", 405);
           }
