@@ -25,6 +25,18 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
     }
   };
 
+  // Handle top-level errors from the upstream API (e.g., Gemini errors)
+  if (openAIRes.error) {
+    const errorType = openAIRes.error.code === 429 ? "rate_limit_error" : "api_error"; // Default to api_error or more specific based on code
+    return {
+      type: "error",
+      error: {
+        type: errorType,
+        message: openAIRes.error.message || "An unknown error occurred from the upstream API."
+      }
+    };
+  }
+
   if (!openAIRes.choices || openAIRes.choices.length === 0) {
     // Handle cases where no choices are returned, though typically an error would be thrown upstream
     return anthropicRes;

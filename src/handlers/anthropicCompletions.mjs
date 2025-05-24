@@ -96,6 +96,7 @@ export async function handleAnthropicCompletions(req, apiKey) {
     let openAIResBody;
     try {
       openAIResBody = await openAIRes.json();
+      console.log("Intermediate OpenAI-formatted Response Body:", openAIResBody); // Add this line for debugging
     } catch (error) {
       // Catch JSON parsing errors and transform to Anthropic error
       return errorHandler(error, fixCors);

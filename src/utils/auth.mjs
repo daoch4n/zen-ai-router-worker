@@ -33,9 +33,6 @@ export function getRandomApiKey(request, env) {
     throw new HttpError("Bad credentials - no api key", 401);
   }
 
-  if (apiKey !== env.PASS) {
-    throw new HttpError("Bad credentials - wrong api key", 401);
-  }
 
   const apiKeys = Object.entries(env)
     .filter(([key, value]) => /^KEY\d+$/.test(key) && value)

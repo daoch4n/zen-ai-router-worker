@@ -18,9 +18,9 @@ export function transformAnthropicToOpenAIRequest(anthropicReq) {
   // This ensures the downstream system receives recognized model identifiers.
   // Example mapping (customize as needed):
   const modelMap = {
-    "claude-3-opus-20240229": "gemini-1.5-pro",
-    "claude-3-sonnet-20240229": "gemini-1.5-flash",
-    "claude-3-haiku-20240307": "gemini-1.5-flash",
+    "claude-3-opus-20240229": "gemini-2.5-flash-preview-05-20-thinking-medium",
+    "claude-3-sonnet-20240229": "gemini-2.5-flash-preview-05-20-thinking-high",
+    "claude-3-haiku-20240307": "gemini-2.5-flash-preview-05-20-thinking-low",
     // Add more mappings as necessary
   };
   openAIReq.model = modelMap[anthropicReq.model] || anthropicReq.model; // Use mapped model or fallback to original
