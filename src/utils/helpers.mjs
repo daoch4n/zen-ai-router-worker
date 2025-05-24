@@ -142,16 +142,27 @@ export const getBudgetFromLevel = (budgetLevel) => {
  * @returns {string} - Content with thinking tags removed
  */
 export const removeThinkingTags = (content) => {
+  // Remove only the largest thinking block
   if (!content || typeof content !== "string") {
     return content;
   }
 
-  // Remove thinking blocks with various tag formats
-  // This handles both XML-style tags and other potential thinking markers
-  return content
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
-    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
-    .replace(/\[thinking\][\s\S]*?\[\/thinking\]/gi, '')
-    .replace(/\[thought\][\s\S]*?\[\/thought\]/gi, '')
-    .trim();
+  // Find all thinking blocks
+  const matches = [...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)];
+  
+  // If no matches, return original content
+  if (matches.length === 0) {
+    return content;
+  }
+  
+  // Find the largest block by content length
+  let largestMatch = matches[0];
+  for (const match of matches) {
+    if (match[1].length > largestMatch[1].length) {
+      largestMatch = match;
+    }
+  }
+  
+  // Remove only the largest block
+  return content.replace(largestMatch[0], '');
 };
