@@ -3,6 +3,7 @@
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
+import { errorHandler } from '../utils/error.mjs';
 import { generateId, parseModelName, getBudgetFromLevel } from '../utils/helpers.mjs';
 import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
@@ -15,7 +16,7 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constan
  * @param {string} apiKey - The API key
  * @returns {Promise<Response>} - The response
  */
-export async function handleCompletions(req, apiKey) {
+export async function handleOpenAICompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -64,41 +65,46 @@ export async function handleCompletions(req, apiKey) {
     body: JSON.stringify(body),
   });
 
-  body = response.body;
-  if (response.ok) {
-    let id = "chatcmpl-" + generateId();
-    const shared = {};
-    if (req.stream) {
-      body = response.body
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(new TransformStream({
-          transform: parseStream,
-          flush: parseStreamFlush,
-          buffer: "",
-          shared,
-        }))
-        .pipeThrough(new TransformStream({
-          transform: toOpenAiStream,
-          flush: toOpenAiStreamFlush,
-          streamIncludeUsage: req.stream_options?.include_usage,
-          model, id, last: [],
-          thinkingMode: mode, // Pass thinking mode to stream transformer
-          shared,
-        }))
-        .pipeThrough(new TextEncoderStream());
-    } else {
-      body = await response.text();
-      try {
-        body = JSON.parse(body);
-        if (!body.candidates) {
-          throw new Error("Invalid completion object");
-        }
-      } catch (err) {
-        console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response)); // output as is
+  if (!response.ok) {
+    const errorBody = await response.text();
+    console.error("Gemini API Error:", response.status, errorBody);
+    return errorHandler(new Error(errorBody), fixCors, response.status);
+  }
+
+  // Original body might be a stream, so handle accordingly
+  let id = "chatcmpl-" + generateId();
+  const shared = {};
+  if (req.stream) {
+    body = response.body
+      .pipeThrough(new TextDecoderStream())
+      .pipeThrough(new TransformStream({
+        transform: parseStream,
+        flush: parseStreamFlush,
+        buffer: "",
+        shared,
+      }))
+      .pipeThrough(new TransformStream({
+        transform: toOpenAiStream,
+        flush: toOpenAiStreamFlush,
+        streamIncludeUsage: req.stream_options?.include_usage,
+        model, id, last: [],
+        thinkingMode: mode, // Pass thinking mode to stream transformer
+        shared,
+      }))
+      .pipeThrough(new TextEncoderStream());
+  } else {
+    body = await response.text();
+    try {
+      body = JSON.parse(body);
+      if (!body.candidates) {
+        throw new Error("Invalid completion object");
       }
-      body = processCompletionsResponse(body, model, id, mode);
+    } catch (err) {
+      console.error("Error parsing response:", err);
+      // If parsing fails, return the raw body as is (with CORS headers)
+      return new Response(body, fixCors(response));
     }
+    body = processCompletionsResponse(body, model, id, mode);
   }
   return new Response(body, fixCors(response));
 }
