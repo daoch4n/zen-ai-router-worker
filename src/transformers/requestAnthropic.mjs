@@ -3,6 +3,47 @@ import {
 } from '../constants/index.mjs';
 
 /**
+ * Recursively removes unsupported fields from a JSON schema for Gemini.
+ * @param {Object} schema - The JSON schema to clean.
+ * @returns {Object} The cleaned schema.
+ */
+function cleanGeminiSchema(schema) {
+  if (typeof schema !== 'object' || schema === null) {
+    return schema;
+  }
+
+  if (Array.isArray(schema)) {
+    return schema.map(item => cleanGeminiSchema(item));
+  }
+
+  const cleaned = { ...schema
+  };
+
+  // Remove specific keys unsupported by Gemini tool parameters
+  delete cleaned.additionalProperties;
+  delete cleaned.default;
+
+  // Check for unsupported 'format' in string types
+  if (cleaned.type === "string" && cleaned.format) {
+    // Gemini might support more, this is a safe subset based on common usage
+    const allowedFormats = new Set(["enum", "date-time"]);
+    if (!allowedFormats.has(cleaned.format)) {
+      // console.warn(`Removing unsupported format '${cleaned.format}' for string type in Gemini schema.`);
+      delete cleaned.format;
+    }
+  }
+
+  // Recursively clean nested schemas (properties, items, etc.)
+  for (const key in cleaned) {
+    if (Object.prototype.hasOwnProperty.call(cleaned, key)) {
+      cleaned[key] = cleanGeminiSchema(cleaned[key]);
+    }
+  }
+
+  return cleaned;
+}
+
+/**
  * Transforms an Anthropic request body into an OpenAI-compatible request body.
  * This function handles role mapping, content block conversion, system prompts,
  * and tool definitions as described in the mapping document.
@@ -118,8 +159,10 @@ export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
     openAIReq.top_p = anthropicReq.top_p;
   }
 
-  // 8. Top K (Not supported by OpenAI, ignore/drop)
-  // No action needed for anthropicReq.top_k
+  // 8. Top K
+  if (anthropicReq.top_k !== undefined) {
+    openAIReq.top_k = anthropicReq.top_k;
+  }
 
   // 9. Metadata.user_id
   if (anthropicReq.metadata && anthropicReq.metadata.user_id) {
@@ -131,7 +174,7 @@ export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
     openAIReq.functions = anthropicReq.tools.map(tool => ({
       name: tool.name,
       description: tool.description,
-      parameters: tool.input_schema // Anthropic input_schema maps directly to OpenAI parameters
+      parameters: cleanGeminiSchema(tool.input_schema) // Clean schema for Gemini compatibility
     }));
 
     if (anthropicReq.tool_choice) {
@@ -148,6 +191,13 @@ export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
       // If Anthropic tool_choice is omitted, OpenAI defaults to "auto"
       openAIReq.function_call = "auto";
     }
+  }
+
+  // 11. Thinking (Ignored by Gemini, ensure it's not passed)
+  if (anthropicReq.thinking !== undefined) {
+    // Explicitly do not pass the 'thinking' parameter, as it's not supported by Gemini
+    // and its presence, even if ignored, might be contributing to the internal error.
+    delete anthropicReq.thinking; // Remove from the original request object if needed, though not strictly necessary for openAIReq
   }
 
   return openAIReq;
