@@ -47,6 +47,7 @@ export class AnthropicStreamTransformer {
     }
 
     const data = JSON.parse(chunk);
+    console.log('DEBUG: Raw OpenAI/Gemini streaming chunk:', JSON.stringify(data, null, 2));
     const choice = data.choices[0];
     const delta = choice.delta;
 

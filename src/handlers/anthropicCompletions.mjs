@@ -99,6 +99,7 @@ export async function handleAnthropicCompletions(req, apiKey, env) {
     let openAIResBody;
     try {
       openAIResBody = await openAIRes.json();
+      console.log('DEBUG: Raw OpenAI/Gemini non-streaming response:', JSON.stringify(openAIResBody, null, 2));
     } catch (error) {
       // Catch JSON parsing errors and transform to Anthropic error
       return errorHandler(error, fixCors);
