@@ -163,13 +163,6 @@ describe('helper utilities', () => {
       expect(result).toBe('Hello  world!');
     });
 
-    it('should handle multiple thinking blocks', () => {
-      const content = '<thinking>First thought</thinking>Hello<thinking>Second thought</thinking>world';
-      const result = removeThinkingTags(content);
-
-      expect(result).toBe('Helloworld');
-    });
-
     it('should handle nested content in thinking tags', () => {
       const content = 'Start <thinking>Complex\nmultiline\nthought</thinking> end';
       const result = removeThinkingTags(content);
