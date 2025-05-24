@@ -1,8 +1,8 @@
 /**
  * Response transformation functions
  */
-import { generateId } from '../utils/helpers.mjs';
-import { REASONS_MAP, CONTENT_SEPARATOR } from '../constants/index.mjs';
+import { generateId, removeThinkingTags } from '../utils/helpers.mjs';
+import { REASONS_MAP, CONTENT_SEPARATOR, THINKING_MODES } from '../constants/index.mjs';
 
 /**
  * Transforms usage data
@@ -19,9 +19,10 @@ export const transformUsage = (data) => ({
  * Transforms candidates to OpenAI format
  * @param {string} key - The key to use in the transformed object
  * @param {Object} cand - The candidate object
+ * @param {string} thinkingMode - The thinking mode (standard, thinking, refined)
  * @returns {Object} - Transformed candidate
  */
-export const transformCandidates = (key, cand) => {
+export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STANDARD) => {
   const message = { role: "assistant", content: [] };
   for (const part of cand.content?.parts ?? []) {
     if (part.functionCall) {
@@ -39,7 +40,16 @@ export const transformCandidates = (key, cand) => {
       message.content.push(part.text);
     }
   }
-  message.content = message.content.join(CONTENT_SEPARATOR) || null;
+
+  let content = message.content.join(CONTENT_SEPARATOR) || null;
+
+  // Remove thinking tags for refined mode
+  if (thinkingMode === THINKING_MODES.REFINED && content) {
+    content = removeThinkingTags(content);
+  }
+
+  message.content = content;
+
   return {
     index: cand.index || 0, // 0-index is absent in new -002 models response
     [key]: message,
@@ -51,16 +61,20 @@ export const transformCandidates = (key, cand) => {
 /**
  * Transforms candidates to message format
  * @param {Object} cand - The candidate object
+ * @param {string} thinkingMode - The thinking mode
  * @returns {Object} - Transformed candidate with message
  */
-export const transformCandidatesMessage = (cand) => transformCandidates("message", cand);
+export const transformCandidatesMessage = (cand, thinkingMode = THINKING_MODES.STANDARD) =>
+  transformCandidates("message", cand, thinkingMode);
 
 /**
  * Transforms candidates to delta format
  * @param {Object} cand - The candidate object
+ * @param {string} thinkingMode - The thinking mode
  * @returns {Object} - Transformed candidate with delta
  */
-export const transformCandidatesDelta = (cand) => transformCandidates("delta", cand);
+export const transformCandidatesDelta = (cand, thinkingMode = THINKING_MODES.STANDARD) =>
+  transformCandidates("delta", cand, thinkingMode);
 
 /**
  * Checks for prompt blocks and adds appropriate choices
@@ -92,12 +106,13 @@ export const checkPromptBlock = (choices, promptFeedback, key) => {
  * @param {Object} data - The response data
  * @param {string} model - The model name
  * @param {string} id - The response ID
+ * @param {string} thinkingMode - The thinking mode
  * @returns {string} - JSON string of the processed response
  */
-export const processCompletionsResponse = (data, model, id) => {
+export const processCompletionsResponse = (data, model, id, thinkingMode = THINKING_MODES.STANDARD) => {
   const obj = {
     id,
-    choices: data.candidates.map(transformCandidatesMessage),
+    choices: data.candidates.map(cand => transformCandidatesMessage(cand, thinkingMode)),
     created: Math.floor(Date.now()/1000),
     model: data.modelVersion ?? model,
     object: "chat.completion",

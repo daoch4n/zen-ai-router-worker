@@ -20,7 +20,7 @@ vars.KEY2 = "XXX"
 vars.KEY3 = "XXX"
 vars.KEY4 = "XXX"
 
-vars.DEFAULT_MODEL = "gemini-2.5-flash-preview-04-17"
+vars.DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20"
 
 [[env.production.d1_databases]]
 binding = "MOCK_DB"

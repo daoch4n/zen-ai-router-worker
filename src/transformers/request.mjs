@@ -2,22 +2,39 @@
  * Request transformation functions
  */
 import { HttpError } from '../utils/error.mjs';
-import { adjustSchema, parseImg } from '../utils/helpers.mjs';
-import { FIELDS_MAP, SAFETY_SETTINGS } from '../constants/index.mjs';
+import { adjustSchema, parseImg, getBudgetFromLevel } from '../utils/helpers.mjs';
+import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } from '../constants/index.mjs';
 
 /**
  * Transforms OpenAI-style configuration to Gemini format
  * @param {Object} req - The request object
+ * @param {Object} thinkingConfig - Optional thinking configuration
  * @returns {Object} - Transformed configuration
  */
-export const transformConfig = (req) => {
+export const transformConfig = (req, thinkingConfig = null) => {
   let cfg = {};
   for (let key in req) {
     const matchedKey = FIELDS_MAP[key];
     if (matchedKey) {
-      cfg[matchedKey] = req[key];
+      // Handle reasoning_effort specially - convert to thinking budget
+      if (key === "reasoning_effort") {
+        const budget = getBudgetFromLevel(req[key]);
+        if (budget > 0) {
+          cfg.thinkingConfig = cfg.thinkingConfig || {};
+          cfg.thinkingConfig.thinkingBudget = budget;
+        }
+      } else {
+        cfg[matchedKey] = req[key];
+      }
     }
   }
+
+  // Apply thinking configuration from model name parsing if provided
+  if (thinkingConfig) {
+    cfg.thinkingConfig = cfg.thinkingConfig || {};
+    Object.assign(cfg.thinkingConfig, thinkingConfig);
+  }
+
   if (req.response_format) {
     switch (req.response_format.type) {
       case "json_schema":
@@ -230,11 +247,12 @@ export const transformTools = (req) => {
 /**
  * Main request transformation function
  * @param {Object} req - The request object
+ * @param {Object} thinkingConfig - Optional thinking configuration
  * @returns {Promise<Object>} - Transformed request
  */
-export const transformRequest = async (req) => ({
+export const transformRequest = async (req, thinkingConfig = null) => ({
   ...await transformMessages(req.messages),
   safetySettings: SAFETY_SETTINGS,
-  generationConfig: transformConfig(req),
+  generationConfig: transformConfig(req, thinkingConfig),
   ...transformTools(req),
 });

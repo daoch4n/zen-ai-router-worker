@@ -32,11 +32,27 @@ export const FIELDS_MAP = {
   max_tokens: "maxOutputTokens",
   n: "candidateCount", // not for streaming
   presence_penalty: "presencePenalty",
+  reasoning_effort: "reasoningEffort", // OpenAI-style thinking parameter
   seed: "seed",
   stop: "stopSequences",
   temperature: "temperature",
   top_k: "topK", // non-standard
   top_p: "topP",
+};
+
+// Thinking budget mapping for reasoning effort levels
+export const REASONING_EFFORT_MAP = {
+  "none": 0,
+  "low": 1024,
+  "medium": 8192,
+  "high": 24576,
+};
+
+// Thinking mode constants
+export const THINKING_MODES = {
+  STANDARD: "standard",
+  THINKING: "thinking",
+  REFINED: "refined",
 };
 
 // Finish reason mapping
