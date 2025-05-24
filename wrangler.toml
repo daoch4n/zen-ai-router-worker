@@ -1,0 +1,43 @@
+name = "open-ai-thinking"
+main = "src/worker.mjs"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[placement]
+mode = "smart"
+
+[vars]
+PASS = "q87v1eeqs8t967uskrywu7zff4ywtebrmxu0jynv74r2cf78065n536pj1qm0c7a"
+
+vars.KEY1 = "AIzaSyBorjZgepq1daoKsDYuZ5tf0ZARRW97Vpk"
+vars.KEY2 = "AIzaSyC0ol4vqGUVZjVx-dubrWt610TGwM5R-mI"
+vars.KEY3 = "AIzaSyCebUooB6YJRt0vG7ZgHOYlKgZT83wOgnk"
+vars.KEY4 = "AIzaSyAvkIazCusQMMydVQwd9YYmLFL4EO9caMY"
+vars.KEY5 = "AIzaSyDB2WSib1CjaigRsmNSZzL204x5rs0e3bM"
+vars.KEY6 = "AIzaSyBDhLZzAdFCPfq_YcrRkZ2hulwPUZmnL1w"
+vars.KEY7 = "AIzaSyAve3n2hUfFRidZ20DjIKUbY2Pxfz8qs0A"
+vars.KEY8 = "AIzaSyAzz2_sdXlZXCIhQeKvQixR1Av31cYE6mA"
+vars.KEY9 = "AIzaSyAnyPR9I-9Qsj4YaRh9Hta_zP88x8_2nY0"
+vars.KEY10 = "AIzaSyBRsKRiBDVxJOZl56X7pPHnXYuJ1s9F01c"
+vars.KEY11 = "AIzaSyDc9fQUwslNlZzoqFSmmfhB3kobcLWPo-I"
+vars.KEY12 = "AIzaSyC6pbbtAz7n57F4bsPC5DgWbQrK3DI9kqM"
+vars.KEY13 = "AIzaSyDbzX9yJGwyrXZW5GJPf-fw4CPQ2LNxY1s"
+vars.KEY14 = "AIzaSyDg0aijSN3bKxtvx_BuRf_mrirN9TqXVwY"
+vars.KEY15 = "AIzaSyBRsKRiBDVxJOZl56X7pPHnXYuJ1s9F01c"
+
+vars.DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20"
+
+[env.production]
+preview_urls = false
+workers_dev = false
+routes = [
+  { pattern = "openai-gemini-adapter-worker.XXX.xyz", custom_domain = true }
+]
+
+[[env.production.d1_databases]]
+binding = "MOCK_DB"
+database_name = "mock-db-us"
+database_id = "GUID"
+
+[observability.logs]
+enabled = true
