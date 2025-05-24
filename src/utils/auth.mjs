@@ -2,6 +2,7 @@
  * Authentication utilities
  */
 import { HttpError } from './error.mjs';
+import { API_CLIENT } from '../constants/index.mjs';
 
 /**
  * Creates headers with API key and other optional headers
@@ -10,7 +11,7 @@ import { HttpError } from './error.mjs';
  * @returns {Object} - Headers object
  */
 export const makeHeaders = (apiKey, more) => ({
-  "x-goog-api-client": "genai-js/0.21.0",
+  "x-goog-api-client": API_CLIENT,
   ...(apiKey && { "x-goog-api-key": apiKey }),
   ...more
 });

@@ -5,7 +5,7 @@
 // API URLs and versions
 export const BASE_URL = "https://generativelanguage.googleapis.com";
 export const API_VERSION = "v1beta";
-export const API_CLIENT = "genai-js/0.21.0"; // npm view @google/generative-ai version
+export const API_CLIENT = "genai-js/0.24.1"; // npm view @google/generative-ai version
 
 // Default models
 export const DEFAULT_MODEL = "gemini-2.0-flash";
