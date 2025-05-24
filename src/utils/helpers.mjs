@@ -3,6 +3,7 @@
  */
 import { Buffer } from "node:buffer";
 import { HttpError } from './error.mjs';
+import { THINKING_MODES, REASONING_EFFORT_MAP } from '../constants/index.mjs';
 
 /**
  * Generates a random ID for API responses
@@ -75,4 +76,82 @@ export const adjustSchema = (schema) => {
   const obj = schema[schema.type];
   delete obj.strict;
   return adjustProps(schema);
+};
+
+/**
+ * Parses a model name to extract thinking mode and budget information
+ * @param {string} modelName - The model name to parse
+ * @returns {Object} - Object containing baseModel, mode, and budget
+ */
+export const parseModelName = (modelName) => {
+  if (!modelName || typeof modelName !== "string") {
+    return {
+      baseModel: modelName,
+      mode: THINKING_MODES.STANDARD,
+      budget: null,
+    };
+  }
+
+  // Check for thinking mode suffix: -thinking-{budget}
+  const thinkingMatch = modelName.match(/^(.+)-thinking-([^-]+)$/);
+  if (thinkingMatch) {
+    const [, baseModel, budgetStr] = thinkingMatch;
+    return {
+      baseModel,
+      mode: THINKING_MODES.THINKING,
+      budget: budgetStr,
+    };
+  }
+
+  // Check for refined mode suffix: -refined-{budget}
+  const refinedMatch = modelName.match(/^(.+)-refined-([^-]+)$/);
+  if (refinedMatch) {
+    const [, baseModel, budgetStr] = refinedMatch;
+    return {
+      baseModel,
+      mode: THINKING_MODES.REFINED,
+      budget: budgetStr,
+    };
+  }
+
+  // Standard mode (no suffix)
+  return {
+    baseModel: modelName,
+    mode: THINKING_MODES.STANDARD,
+    budget: null,
+  };
+};
+
+/**
+ * Converts a budget level string to a thinking budget number
+ * @param {string} budgetLevel - The budget level ("low", "medium", "high", "none")
+ * @returns {number} - The thinking budget in tokens
+ */
+export const getBudgetFromLevel = (budgetLevel) => {
+  if (!budgetLevel || typeof budgetLevel !== "string") {
+    return REASONING_EFFORT_MAP.none;
+  }
+
+  const normalizedLevel = budgetLevel.toLowerCase();
+  return REASONING_EFFORT_MAP[normalizedLevel] ?? REASONING_EFFORT_MAP.none;
+};
+
+/**
+ * Removes thinking tags from response content
+ * @param {string} content - The content to process
+ * @returns {string} - Content with thinking tags removed
+ */
+export const removeThinkingTags = (content) => {
+  if (!content || typeof content !== "string") {
+    return content;
+  }
+
+  // Remove thinking blocks with various tag formats
+  // This handles both XML-style tags and other potential thinking markers
+  return content
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, '')
+    .replace(/<thought>[\s\S]*?<\/thought>/gi, '')
+    .replace(/\[thinking\][\s\S]*?\[\/thinking\]/gi, '')
+    .replace(/\[thought\][\s\S]*?\[\/thought\]/gi, '')
+    .trim();
 };

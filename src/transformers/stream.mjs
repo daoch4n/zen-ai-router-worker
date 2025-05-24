@@ -64,7 +64,7 @@ export function toOpenAiStream(line, controller) {
   }
   const obj = {
     id: this.id,
-    choices: data.candidates.map(transformCandidatesDelta),
+    choices: data.candidates.map(cand => transformCandidatesDelta(cand, this.thinkingMode)),
     model: data.modelVersion ?? this.model,
     object: "chat.completion.chunk",
     usage: data.usageMetadata && this.streamIncludeUsage ? null : undefined,

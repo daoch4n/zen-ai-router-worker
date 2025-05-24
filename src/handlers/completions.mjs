@@ -3,11 +3,11 @@
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
-import { generateId } from '../utils/helpers.mjs';
+import { generateId, parseModelName, getBudgetFromLevel } from '../utils/helpers.mjs';
 import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
 import { parseStream, parseStreamFlush, toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
-import { BASE_URL, API_VERSION, DEFAULT_MODEL } from '../constants/index.mjs';
+import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constants/index.mjs';
 
 /**
  * Handles requests to the chat completions endpoint
@@ -17,23 +17,41 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL } from '../constants/index.mjs';
  */
 export async function handleCompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
+  let originalModel = req.model;
+
+  // Parse model name to extract thinking mode and budget
+  const { baseModel, mode, budget } = parseModelName(req.model);
+
   switch (true) {
     case typeof req.model !== "string":
       break;
     case req.model.startsWith("models/"):
-      model = req.model.substring(7);
+      model = baseModel.substring(7);
       break;
-    case req.model.startsWith("gemini-"):
-    case req.model.startsWith("gemma-"):
-    case req.model.startsWith("learnlm-"):
-      model = req.model;
+    case baseModel.startsWith("gemini-"):
+    case baseModel.startsWith("gemma-"):
+    case baseModel.startsWith("learnlm-"):
+      model = baseModel;
   }
-  let body = await transformRequest(req);
+
+  // Prepare thinking configuration based on mode and budget
+  let thinkingConfig = null;
+  if (mode === THINKING_MODES.THINKING || mode === THINKING_MODES.REFINED) {
+    const thinkingBudget = getBudgetFromLevel(budget);
+    if (thinkingBudget > 0) {
+      thinkingConfig = {
+        thinkingBudget,
+        includeThoughts: mode === THINKING_MODES.THINKING, // Include thoughts for thinking mode, exclude for refined
+      };
+    }
+  }
+
+  let body = await transformRequest(req, thinkingConfig);
   switch (true) {
     case model.endsWith(":search"):
       model = model.substring(0, model.length - 7);
       // eslint-disable-next-line no-fallthrough
-    case req.model.endsWith("-search-preview"):
+    case originalModel.endsWith("-search-preview"):
       body.tools = body.tools || [];
       body.tools.push({googleSearch: {}});
   }
@@ -64,6 +82,7 @@ export async function handleCompletions(req, apiKey) {
           flush: toOpenAiStreamFlush,
           streamIncludeUsage: req.stream_options?.include_usage,
           model, id, last: [],
+          thinkingMode: mode, // Pass thinking mode to stream transformer
           shared,
         }))
         .pipeThrough(new TextEncoderStream());
@@ -78,7 +97,7 @@ export async function handleCompletions(req, apiKey) {
         console.error("Error parsing response:", err);
         return new Response(body, fixCors(response)); // output as is
       }
-      body = processCompletionsResponse(body, model, id);
+      body = processCompletionsResponse(body, model, id, mode);
     }
   }
   return new Response(body, fixCors(response));
