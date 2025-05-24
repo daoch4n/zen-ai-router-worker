@@ -24,7 +24,11 @@ export const makeHeaders = (apiKey, more) => ({
  * @throws {HttpError} - If no valid API key is found
  */
 export function getRandomApiKey(request, env) {
-  let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null;
+  let apiKey = request.headers.get("x-api-key") ?? null; // Try Anthropic's x-api-key header first
+  if (!apiKey) {
+    apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null; // Then try OpenAI's Authorization header
+  }
+
   if (!apiKey) {
     throw new HttpError("Bad credentials - no api key", 401);
   }

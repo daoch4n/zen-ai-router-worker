@@ -6,9 +6,7 @@ import { fixCors } from '../utils/cors.mjs';
 import { generateId, parseModelName, getBudgetFromLevel } from '../utils/helpers.mjs';
 import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
-import { parseStream, parseStreamFlush } from '../transformers/stream.mjs';
-import { transformOpenAIToAnthropicResponse } from '../transformers/responseAnthropic.mjs';
-import { createAnthropicStreamTransformer } from '../transformers/streamAnthropic.mjs';
+import { parseStream, parseStreamFlush, toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
 import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constants/index.mjs';
 
 /**
@@ -17,7 +15,7 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constan
  * @param {string} apiKey - The API key
  * @returns {Promise<Response>} - The response
  */
-export async function handleCompletions(req, apiKey, anthropicModelName = null) {
+export async function handleOpenAICompletions(req, apiKey) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -68,66 +66,38 @@ export async function handleCompletions(req, apiKey, anthropicModelName = null) 
 
   body = response.body;
   if (response.ok) {
-    let id = "chatcmpl-" + generateId(); // OpenAI-style ID
+    let id = "chatcmpl-" + generateId();
     const shared = {};
     if (req.stream) {
-      // For streaming responses, we need to transform OpenAI chunks to Anthropic SSE events
       body = response.body
         .pipeThrough(new TextDecoderStream())
         .pipeThrough(new TransformStream({
-          transform: parseStream, // This handles parsing raw stream data into JSON chunks
+          transform: parseStream,
           flush: parseStreamFlush,
           buffer: "",
           shared,
         }))
         .pipeThrough(new TransformStream({
-          transform: (chunk, controller) => {
-            // Use the AnthropicStreamTransformer to convert OpenAI chunks to Anthropic SSE
-            if (!shared.anthropicStreamTransformer) {
-              shared.anthropicStreamTransformer = createAnthropicStreamTransformer(
-                anthropicModelName || originalModel, // Use original Anthropic model name if provided, else original OpenAI model
-                id, // OpenAI request ID for traceability
-                req.stream_options?.include_usage, // Anthropic-specific stream option
-                req // Pass original request for input token calculation
-              );
-            }
-            const anthropicSse = shared.anthropicStreamTransformer.transform(JSON.stringify(chunk));
-            if (anthropicSse) {
-              controller.enqueue(anthropicSse);
-            }
-          },
-          flush: (controller) => {
-            if (shared.anthropicStreamTransformer) {
-              // Ensure any final events are flushed
-              const finalSse = shared.anthropicStreamTransformer.transform("[DONE]");
-              if (finalSse) {
-                controller.enqueue(finalSse);
-              }
-            }
-          },
-          // No need for buffer or shared here, handled by AnthropicStreamTransformer
+          transform: toOpenAiStream,
+          flush: toOpenAiStreamFlush,
+          streamIncludeUsage: req.stream_options?.include_usage,
+          model, id, last: [],
+          thinkingMode: mode, // Pass thinking mode to stream transformer
+          shared,
         }))
         .pipeThrough(new TextEncoderStream());
     } else {
-      // For non-streaming responses, parse and transform the full JSON body
       body = await response.text();
       try {
         body = JSON.parse(body);
-        if (!body.choices) { // Check for choices in OpenAI response
+        if (!body.candidates) {
           throw new Error("Invalid completion object");
         }
       } catch (err) {
         console.error("Error parsing response:", err);
         return new Response(body, fixCors(response)); // output as is
-      }
-      // Process OpenAI response to an OpenAI-compatible format first (existing logic)
-      let openAIResponse = processCompletionsResponse(body, model, id, mode);
-      // Then transform the OpenAI-compatible response to Anthropic format
-      if (anthropicModelName) {
-        body = transformOpenAIToAnthropicResponse(openAIResponse, anthropicModelName, id);
-      } else {
-        body = openAIResponse; // If not an Anthropic request, return original OpenAI-compatible response
-      }
+        }
+      body = processCompletionsResponse(body, model, id, mode);
     }
   }
   return new Response(body, fixCors(response));

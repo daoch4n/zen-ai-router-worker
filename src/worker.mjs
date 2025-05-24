@@ -5,15 +5,16 @@
  * and Google's Gemini API.
  */
 import {
-  handleCompletions,
+  handleOpenAICompletions
+} from './handlers/completions.mjs';
+import {
+  handleAnthropicCompletions
+} from './handlers/anthropicCompletions.mjs';
+import {
   handleEmbeddings,
   handleModels,
   handleOPTIONS
 } from './handlers/index.mjs';
-
-import {
-  transformAnthropicToOpenAIRequest
-} from './transformers/requestAnthropic.mjs';
 
 import {
   getRandomApiKey,
@@ -55,19 +56,16 @@ export default {
       switch (true) {
         case pathname.endsWith("/v1/messages"): // Anthropic Messages API
           if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request for Anthropic API");
+            throw new HttpError("Method Not Allowed", 405);
           }
-          const anthropicReq = await request.json();
-          const openAIReqFromAnthropic = transformAnthropicToOpenAIRequest(anthropicReq);
-          // Pass the original Anthropic model name for response transformation
-          return handleCompletions(openAIReqFromAnthropic, apiKey, anthropicReq.model)
+          return handleAnthropicCompletions(await request.json(), apiKey)
             .catch(errHandler);
 
-        case pathname.endsWith("/chat/completions"): // Existing OpenAI Chat Completions API
+        case pathname.endsWith("/chat/completions"): // OpenAI Chat Completions API
           if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request for OpenAI API");
+            throw new HttpError("Method Not Allowed", 405);
           }
-          return handleCompletions(await request.json(), apiKey)
+          return handleOpenAICompletions(await request.json(), apiKey)
             .catch(errHandler);
 
         case pathname.endsWith("/embeddings"):
