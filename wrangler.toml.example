@@ -20,6 +20,10 @@ vars.KEY2 = "XXX"
 vars.KEY3 = "XXX"
 vars.KEY4 = "XXX"
 
+vars.MODEL_MAP_SONNET = "gemini-2.5-flash-preview-05-20-thinking-high"
+vars.MODEL_MAP_OPUS = "gemini-2.5-flash-preview-05-20-thinking-medium"
+vars.MODEL_MAP_HAIKU = "gemini-2.5-flash-preview-05-20-thinking-low"
+
 vars.DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20"
 
 [[env.production.d1_databases]]
