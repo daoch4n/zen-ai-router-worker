@@ -41,7 +41,10 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
       type: "error",
       error: {
         type: errorType,
-        message: openAIRes.error.message || "An unknown error occurred from the upstream API."
+        message: `Upstream error: ${openAIRes.error.message || 'Unknown'}` +
+                 (openAIRes.error.param ? ` (Param: ${openAIRes.error.param})` : '') +
+                 (openAIRes.error.type ? ` (Type: ${openAIRes.error.type})` : '') +
+                 (openAIRes.error.details ? ` (Details: ${JSON.stringify(openAIRes.error.details)})` : '')
       }
     };
   }
