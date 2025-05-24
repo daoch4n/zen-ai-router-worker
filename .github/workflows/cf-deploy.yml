@@ -3,7 +3,6 @@ on:
   push:
     branches:
       - master
-  pull_request:
   repository_dispatch:
 jobs:
   deploy:
