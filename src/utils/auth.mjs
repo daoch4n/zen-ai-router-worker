@@ -10,11 +10,16 @@ import { API_CLIENT } from '../constants/index.mjs';
  * @param {Object} [more] - Additional headers
  * @returns {Object} - Headers object
  */
-export const makeHeaders = (apiKey, more) => ({
-  "x-goog-api-client": API_CLIENT,
-  ...(apiKey && { "x-goog-api-key": apiKey }),
-  ...more
-});
+export const makeHeaders = (apiKey, more) => {
+  if (!apiKey) {
+    throw new HttpError("API key is missing for makeHeaders", 401);
+  }
+  return {
+    "x-goog-api-client": API_CLIENT,
+    "x-goog-api-key": apiKey,
+    ...more
+  };
+};
 
 /**
  * Retrieves a random API key from the environment variables
@@ -24,23 +29,22 @@ export const makeHeaders = (apiKey, more) => ({
  * @throws {HttpError} - If no valid API key is found
  */
 export function getRandomApiKey(request, env) {
-  let apiKey = request.headers.get("x-api-key") ?? null; // Try Anthropic's x-api-key header first
+  let apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null; // Try OpenAI's Authorization header first
   if (!apiKey) {
-    apiKey = request.headers.get("Authorization")?.split(" ")[1] ?? null; // Then try OpenAI's Authorization header
+    apiKey = request.headers.get("x-api-key") ?? null; // Then try Anthropic's x-api-key header
   }
 
-  if (!apiKey) {
-    throw new HttpError("Bad credentials - no api key", 401);
+  if (apiKey) {
+    return apiKey;
   }
-
 
   const apiKeys = Object.entries(env)
     .filter(([key, value]) => /^KEY\d+$/.test(key) && value)
     .map(([, value]) => value);
-  apiKey = apiKeys.length > 0 ? apiKeys[Math.floor(Math.random() * apiKeys.length)] : null;
 
-  if (!apiKey) {
-    throw new HttpError("Bad credentials - check api keys in worker", 401);
+  if (apiKeys.length === 0) {
+    throw new HttpError("Bad credentials - no API keys found in environment variables", 401);
   }
-  return apiKey;
+
+  return apiKeys[Math.floor(Math.random() * apiKeys.length)];
 }
