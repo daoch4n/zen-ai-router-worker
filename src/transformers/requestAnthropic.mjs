@@ -193,12 +193,6 @@ export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
     }
   }
 
-  // 11. Thinking (Ignored by Gemini, ensure it's not passed)
-  if (anthropicReq.thinking !== undefined) {
-    // Explicitly do not pass the 'thinking' parameter, as it's not supported by Gemini
-    // and its presence, even if ignored, might be contributing to the internal error.
-    delete anthropicReq.thinking; // Remove from the original request object if needed, though not strictly necessary for openAIReq
-  }
 
   return openAIReq;
 }

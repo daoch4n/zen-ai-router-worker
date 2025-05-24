@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "pr_number": 2,
+    "pr_number": 3,
     "repo": "daoch4n/zen-ai-router-thinking",
-    "title": "Fix: Resolve Anthropic endpoint issues and improve error handling",
-    "timestamp_utc": "2025-05-24T05:55:47.972214+00:00",
+    "title": "feat(gemini): Resolve 'internal error' for tool calls by improving pa\u2026",
+    "timestamp_utc": "2025-05-24T07:02:12.131201+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -11,21 +11,13 @@
   },
   "review_comments": [
     {
-      "file_path": "src/handlers/anthropicCompletions.mjs",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff, but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe PR description states that a new block was added to `handleAnthropicCompletions` to detect and transform top-level `error` objects from `openAIRes` into Anthropic-compatible errors (Problem & Resolution Summary, point 2, Resolution 2). While `errorHandler` is now imported and `env` is passed to `transformAnthropicToOpenAIRequest`, the provided diff does not show the actual implementation of this error detection and transformation logic within `handleAnthropicCompletions` after the call to the core OpenAI completions handler. Without this explicit check and transformation, upstream Gemini errors might still not be correctly propagated to the client in the expected Anthropic format.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency",
-      "invalidPosition": true
-    },
-    {
       "file_path": "src/transformers/requestAnthropic.mjs",
-      "github_diff_position": 16,
-      "comment_text_md": "**My Confidence: High**\n\nThe previous concern about hardcoding specific model identifiers has been addressed by externalizing them to environment variables (`env.MODEL_MAP_OPUS`, etc.). This is a significant improvement for maintainability and flexibility, allowing model mappings to be updated without code changes. Great job addressing this point!",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff, but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe line `delete anthropicReq.thinking;` modifies the original `anthropicReq` object. This is generally not recommended in transformation functions, as it can lead to unexpected side effects if `anthropicReq` is used elsewhere after this function call.\n\nSince `openAIReq` is being constructed as a new object, simply omitting the `thinking` property when building `openAIReq` is sufficient to prevent it from being passed to Gemini. The explicit deletion from the original `anthropicReq` is unnecessary for the purpose of this transformation.\n\nConsider removing this line to avoid modifying the input object:\n\n```javascript\n// 11. Thinking (Ignored by Gemini, ensure it's not passed)\n// No action needed if anthropicReq.thinking is present, as it's not added to openAIReq\n// if (anthropicReq.thinking !== undefined) {\n//   delete anthropicReq.thinking; // Remove this line\n// }\n```",
       "ai_confidence": "High",
       "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "refactoring/design"
+      "detected_category_heuristic": "bug",
+      "invalidPosition": true
     }
   ]
 }
