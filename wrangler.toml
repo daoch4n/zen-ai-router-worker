@@ -1,18 +1,16 @@
 name = "gemini-openai-adapter"
 main = "src/worker.mjs"
 compatibility_date = "2025-01-01"
-compatibility_flags = ["nodejs_compat"]
+compatibility_flags = [ "nodejs_compat" ]
 
 [placement]
 mode = "smart"
-
-
 
 [env.production]
 preview_urls = false
 workers_dev = false
 routes = [
-  { pattern = "openai-gemini-adapter-worker.XXX.xyz", custom_domain = true }
+  { pattern = "gemini-openai-adapter.XXX.xyz", custom_domain = true }
 ]
 
 vars.PASS = "q87v1eeqs8t967uskrywu7zff4ywtebrmxu0jynv74r2cf78065n536pj1qm0c7a"
@@ -34,6 +32,7 @@ vars.KEY14 = "AIzaSyDg0aijSN3bKxtvx_BuRf_mrirN9TqXVwY"
 vars.KEY15 = "AIzaSyBRsKRiBDVxJOZl56X7pPHnXYuJ1s9F01c"
 
 vars.DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20"
+
 [[env.production.d1_databases]]
 binding = "MOCK_DB"
 database_name = "mock-db-us"
