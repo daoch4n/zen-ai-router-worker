@@ -1,4 +1,4 @@
-name: Deploy Worker
+name: deploy to prod
 on:
   push:
     branches:
