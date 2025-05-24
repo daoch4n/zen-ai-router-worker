@@ -1,0 +1,13 @@
+{
+  "metadata": {
+    "pr_number": 3,
+    "repo": "daoch4n/zen-ai-router-thinking",
+    "title": "feat(gemini): Resolve 'internal error' for tool calls by improving pa\u2026",
+    "timestamp_utc": "2025-05-24T07:06:12.104560+00:00",
+    "review_tool": "I'm your Gemini AI Reviewer",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false
+  },
+  "review_comments": []
+}

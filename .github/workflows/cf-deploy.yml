@@ -1,9 +1,8 @@
-name: Deploy Worker
+name: deploy to prod
 on:
   push:
     branches:
-      - main
-  pull_request:
+      - master
   repository_dispatch:
 jobs:
   deploy:

@@ -5,7 +5,12 @@
  * and Google's Gemini API.
  */
 import {
-  handleCompletions,
+  handleOpenAICompletions
+} from './handlers/completions.mjs';
+import {
+  handleAnthropicCompletions
+} from './handlers/anthropicCompletions.mjs';
+import {
   handleEmbeddings,
   handleModels
 } from './handlers/index.mjs';
@@ -49,12 +54,19 @@ export default {
 
       // Route request based on path
       const { pathname } = new URL(request.url);
-      switch (true) {
-        case pathname.endsWith("/chat/completions"):
+      switch (pathname) { // Use exact path matching
+        case "/v1/messages": // Anthropic Messages API
           if (!(request.method === "POST")) {
-            throw new Error("Assertion failed: expected POST request");
+            throw new HttpError("Method Not Allowed", 405);
           }
-          return handleCompletions(await request.json(), apiKey)
+          return handleAnthropicCompletions(await request.json(), apiKey, env)
+            .catch(errHandler);
+
+        case "/chat/completions": // OpenAI Chat Completions API
+          if (!(request.method === "POST")) {
+            throw new HttpError("Method Not Allowed", 405);
+          }
+          return handleOpenAICompletions(await request.json(), apiKey)
             .catch(errHandler);
 
         case pathname.endsWith("/embeddings"):
