@@ -27,7 +27,16 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
 
   // Handle top-level errors from the upstream API (e.g., Gemini errors)
   if (openAIRes.error) {
-    const errorType = openAIRes.error.code === 429 ? "rate_limit_error" : "api_error"; // Default to api_error or more specific based on code
+    let errorType = "api_error";
+    if (openAIRes.error.code === 429) {
+      errorType = "rate_limit_error";
+    } else if (openAIRes.error.code === 400) {
+      errorType = "invalid_request_error";
+    } else if (openAIRes.error.code === 401 || openAIRes.error.code === 403) {
+      errorType = "authentication_error";
+    } else if (openAIRes.error.code >= 500 && openAIRes.error.code < 600) {
+      errorType = "api_error";
+    }
     return {
       type: "error",
       error: {

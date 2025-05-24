@@ -20,6 +20,9 @@ import {
 import {
   fixCors
 } from '../utils/cors.mjs'; // For applying CORS headers
+import {
+  errorHandler
+} from '../utils/error.mjs'; // For handling errors
 
 /**
  * Handles requests to the Anthropic chat completions endpoint.
@@ -96,7 +99,6 @@ export async function handleAnthropicCompletions(req, apiKey) {
     let openAIResBody;
     try {
       openAIResBody = await openAIRes.json();
-      console.log("Intermediate OpenAI-formatted Response Body:", openAIResBody); // Add this line for debugging
     } catch (error) {
       // Catch JSON parsing errors and transform to Anthropic error
       return errorHandler(error, fixCors);
