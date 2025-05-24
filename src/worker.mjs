@@ -7,8 +7,7 @@
 import {
   handleCompletions,
   handleEmbeddings,
-  handleModels,
-  handleOPTIONS
+  handleModels
 } from './handlers/index.mjs';
 
 import {
@@ -18,6 +17,8 @@ import {
   errorHandler,
   HttpError
 } from './utils/index.mjs';
+
+import { handleOPTIONS } from './utils/cors.mjs';
 
 /**
  * Main worker handler
