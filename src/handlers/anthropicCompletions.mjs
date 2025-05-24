@@ -33,11 +33,11 @@ import {
  * @param {string} apiKey - The API key.
  * @returns {Promise<Response>} - The Anthropic-compatible response.
  */
-export async function handleAnthropicCompletions(req, apiKey) {
+export async function handleAnthropicCompletions(req, apiKey, env) {
   const anthropicModelName = req.model; // Store original Anthropic model name
 
   // 1. Transform Anthropic request to OpenAI format
-  const openAIReq = transformAnthropicToOpenAIRequest(req);
+  const openAIReq = transformAnthropicToOpenAIRequest(req, env);
 
   // 2. Call the core OpenAI completions handler (which now handles OpenAI to Gemini)
   // This function will return an OpenAI-formatted response (either full JSON or a stream)

@@ -9,6 +9,10 @@ mode = "smart"
 [vars]
 PASS = "q87v1eeqs8t967uskrywu7zff4ywtebrmxu0jynv74r2cf78065n536pj1qm0c7a"
 
+MODEL_MAP_OPUS = "gemini-2.5-flash-preview-05-20-thinking-medium"
+MODEL_MAP_SONNET = "gemini-2.5-flash-preview-05-20-thinking-high"
+MODEL_MAP_HAIKU = "gemini-2.5-flash-preview-05-20-thinking-low"
+
 KEY1 = "AIzaSyBorjZgepq1daoKsDYuZ5tf0ZARRW97Vpk"
 KEY2 = "AIzaSyC0ol4vqGUVZjVx-dubrWt610TGwM5R-mI"
 KEY3 = "AIzaSyCebUooB6YJRt0vG7ZgHOYlKgZT83wOgnk"

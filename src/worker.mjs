@@ -58,7 +58,7 @@ export default {
           if (!(request.method === "POST")) {
             throw new HttpError("Method Not Allowed", 405);
           }
-          return handleAnthropicCompletions(await request.json(), apiKey)
+          return handleAnthropicCompletions(await request.json(), apiKey, env)
             .catch(errHandler);
 
         case "/chat/completions": // OpenAI Chat Completions API

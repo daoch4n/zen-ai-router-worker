@@ -9,19 +9,17 @@ import {
  * @param {Object} anthropicReq - The incoming Anthropic request body.
  * @returns {Object} The transformed OpenAI-compatible request body.
  */
-export function transformAnthropicToOpenAIRequest(anthropicReq) {
+export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
   const openAIReq = {};
 
   // 1. Model mapping
   // The mapping document suggests mapping Claude model names to OpenAI model names.
   // Explicit model mapping: Map Anthropic model names to OpenAI/Gemini equivalents.
   // This ensures the downstream system receives recognized model identifiers.
-  // Example mapping (customize as needed):
   const modelMap = {
-    "claude-3-opus-20240229": "gemini-2.5-flash-preview-05-20-thinking-medium",
-    "claude-3-sonnet-20240229": "gemini-2.5-flash-preview-05-20-thinking-high",
-    "claude-3-haiku-20240307": "gemini-2.5-flash-preview-05-20-thinking-low",
-    // Add more mappings as necessary
+    "claude-3-opus-20240229": env.MODEL_MAP_OPUS,
+    "claude-3-sonnet-20240229": env.MODEL_MAP_SONNET,
+    "claude-3-haiku-20240307": env.MODEL_MAP_HAIKU,
   };
   openAIReq.model = modelMap[anthropicReq.model] || anthropicReq.model; // Use mapped model or fallback to original
 
