@@ -1,20 +1,11 @@
 # Task ID: 5
-# Title: Configure Orchestrator Worker `wrangler.toml`
+# Title: Refactor orchestrator/src/index.mjs - Convert Interfaces and Types
 # Status: done
-# Dependencies: 1
+# Dependencies: 4
 # Priority: high
-# Description: Set up the basic `wrangler.toml` for the orchestrator worker, omitting explicit service bindings.
+# Description: Convert `interface` and `type` declarations in `orchestrator/src/index.mjs` to JSDoc `@typedef` comments for documentation purposes, or replace with runtime checks if their definitions were used for critical runtime validation.
 # Details:
-Create `orchestrator-worker/wrangler.toml` with the following content:
-```toml
-# orchestrator-worker/wrangler.toml
-name = "router-orchestrator"
-main = "src/index.ts"
-compatibility_date = "2024-05-01"
-
-# Service bindings will be dynamically added via GitHub Actions workflow.
-# No explicit [[services]] block needed here for backend workers.
-```
+For interfaces defining object shapes, convert them to JSDoc `@typedef` comments. Example: `interface MyType { prop: string; }` becomes `/** @typedef {{prop: string}} MyType */`. If runtime validation was dependent on these, implement a suitable JavaScript validation library (e.g., Joi) or manual checks.
 
 # Test Strategy:
-Verify the `wrangler.toml` file exists in the `orchestrator-worker` directory and contains the specified configuration. Attempt to run `wrangler dev` from this directory to check for basic syntax validity.
+Code review `orchestrator/src/index.mjs` to ensure all `interface` and `type` declarations are removed and replaced with appropriate JSDoc or runtime checks. Verify that the intended structural documentation or validation is preserved.

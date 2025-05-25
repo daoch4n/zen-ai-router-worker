@@ -1,39 +1,11 @@
 # Task ID: 8
-# Title: Implement Orchestrator Dynamic Worker Discovery (Fetch Fallback)
+# Title: Remove import type Statements
 # Status: done
 # Dependencies: 7
 # Priority: high
-# Description: Add robust discovery logic to the `fetch` handler as a fallback, ensuring `activeBackendServices` is populated even if `scheduled` handler doesn't run or for local development.
+# Description: Remove all `import type { ... } from '...';` statements from the entire codebase, as they are TypeScript-specific and no longer needed.
 # Details:
-Add the fallback discovery logic within the `fetch` handler in `orchestrator-worker/src/index.ts`:
-```typescript
-// orchestrator-worker/src/index.ts
-// ... existing code
-
-export default {
-  // ... scheduled handler
-
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    if (activeBackendServices.length === 0) {
-      for (let i = 1; i <= 100; i++) {
-        const serviceBindingName = `BACKEND_SERVICE_${i}`;
-        const service = env[serviceBindingName as keyof Env];
-        if (service) {
-          activeBackendServices.push(service as Service<BackendWorkerInterface>);
-        }
-      }
-      if (activeBackendServices.length === 0) {
-        return new Response("No backend workers configured or discovered.", { status: 500 });
-      }
-    }
-    // ... rest of fetch handler logic
-  }
-}
-```
+Perform a project-wide search and remove all instances of `import type` statements.
 
 # Test Strategy:
-Test the orchestrator locally using `wrangler dev` without explicitly simulating a scheduled event. Send a request and verify that `activeBackendServices` is populated and the orchestrator does not return a 500 error due to no discovered workers (assuming backend workers are bound).
+Code review the entire project to ensure no `import type` statements remain. Verify that the removal does not introduce any runtime errors.

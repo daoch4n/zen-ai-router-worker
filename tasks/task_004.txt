@@ -1,18 +1,11 @@
 # Task ID: 4
-# Title: Configure `backend-worker-template/wrangler.toml`
+# Title: Refactor orchestrator/src/index.mjs - Remove Type Annotations
 # Status: done
-# Dependencies: 1
+# Dependencies: 3
 # Priority: high
-# Description: Set up the basic `wrangler.toml` for the backend worker template.
+# Description: Systematically remove all explicit type annotations (e.g., `: string`, `: MyInterface<T>`) from function parameters, return types, and variable declarations within `orchestrator/src/index.mjs`.
 # Details:
-Create `backend-worker-template/wrangler.toml` with the following content:
-```toml
-# backend-worker-template/wrangler.toml
-main = "src/index.ts"
-compatibility_date = "2024-05-01"
-# No 'name' field here, as it's set dynamically by the CI/CD.
-# No [[services]] bindings needed here as they are the target of RPC calls.
-```
+Open `orchestrator/src/index.mjs`. Manually or using a text editor's find/replace with regex, remove all TypeScript-specific type annotations. For example, change `function foo(param: string): number {` to `function foo(param) {`.
 
 # Test Strategy:
-Verify the `wrangler.toml` file exists in the `backend-worker-template` directory and contains the specified configuration. Attempt to run `wrangler dev` from this directory to check for basic syntax validity.
+Perform a thorough code review of `orchestrator/src/index.mjs` to ensure no explicit type annotations remain. Verify that the code remains syntactically valid JavaScript.

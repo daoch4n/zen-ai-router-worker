@@ -1,31 +1,11 @@
 # Task ID: 3
-# Title: Implement `backend-worker-template` Logic
+# Title: Rename orchestrator/src/index.ts to .mjs
 # Status: done
-# Dependencies: 1, 2
+# Dependencies: 2
 # Priority: high
-# Description: Develop the core logic for the `backend-worker-template/src/index.ts` to implement `BackendWorkerInterface` and handle forwarded requests.
+# Description: Rename the primary orchestrator worker entry point from `orchestrator/src/index.ts` to `orchestrator/src/index.mjs`.
 # Details:
-Implement the `BackendWorker` class in `backend-worker-template/src/index.ts` as follows:
-```typescript
-// backend-worker-template/src/index.ts
-import { WorkerEntrypoint } from "cloudflare:workers";
-import { BackendWorkerInterface } from "./interfaces";
-
-export default class BackendWorker extends WorkerEntrypoint
-  implements BackendWorkerInterface {
-
-  async handleRequest(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const workerName = self.name;
-    console.log(`Backend Worker ${workerName} received request for path: ${url.pathname}`);
-    return new Response(`Hello from Backend Worker: ${workerName} (path: ${url.pathname})`);
-  }
-
-  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {
-    return this.handleRequest(request);
-  }
-}
-```
+Execute `git mv orchestrator/src/index.ts orchestrator/src/index.mjs` to rename the file while preserving its Git history.
 
 # Test Strategy:
-Manually deploy a single backend worker (e.g., using `wrangler publish --name my-test-backend`) and send a direct HTTP request to its URL. Verify that it responds with the expected 'Hello from Backend Worker' message and logs the request path.
+Verify that `orchestrator/src/index.ts` no longer exists and `orchestrator/src/index.mjs` is present in its place. Confirm the file content remains intact.

@@ -1,33 +1,11 @@
 # Task ID: 9
-# Title: Implement Round-Robin Load Balancing
+# Title: Update wrangler.toml Entry Point
 # Status: done
 # Dependencies: 8
 # Priority: high
-# Description: Develop the round-robin algorithm within the orchestrator's `fetch` handler to select the next backend worker.
+# Description: Modify `orchestrator/wrangler.toml` to update the `main` entry point from pointing to a `.ts` file to `orchestrator/src/index.mjs`.
 # Details:
-Implement the round-robin selection logic in `orchestrator-worker/src/index.ts`:
-```typescript
-// orchestrator-worker/src/index.ts
-// ... existing code
-
-export default {
-  // ... scheduled handler
-
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    // ... dynamic discovery fallback
-
-    // Round-robin selection
-    const targetWorker = activeBackendServices[nextWorkerIndex];
-    nextWorkerIndex = (nextWorkerIndex + 1) % activeBackendServices.length;
-
-    // ... rest of fetch handler logic
-  }
-}
-```
+Open `orchestrator/wrangler.toml` and change the `main` field from `main = "src/index.ts"` to `main = "src/index.mjs"`.
 
 # Test Strategy:
-With multiple backend workers configured, send several sequential requests to the orchestrator. Observe the logs from the backend workers (or their responses if they include their name) to confirm that requests are distributed in a round-robin fashion.
+Verify the `main` entry in `orchestrator/wrangler.toml` correctly points to `src/index.mjs`. Attempt to run `wrangler dev` to ensure the worker can be loaded.
