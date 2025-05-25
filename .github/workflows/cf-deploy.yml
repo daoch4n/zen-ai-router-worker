@@ -16,12 +16,12 @@ jobs:
       - name: Build & Deploy Worker
       - name: Prepare Worker Environment Variables
         run: |
-          if ! grep -q "PASS =" wrangler.toml || grep -q "PASS = \"xxx\"" wrangler.toml; then
+          if ! grep -q "vars.PASS =" wrangler.toml || grep -q "vars.PASS = \"XXX\"" wrangler.toml; then
             echo "CLOUDFLARE_ENV_VAR_PASS=${{ secrets.PASS }}" >> $GITHUB_ENV
           fi
           for i in $(seq 1 100); do
             KEY_NAME="KEY${i}"
-            if ! grep -q "${KEY_NAME} =" wrangler.toml || grep -q "${KEY_NAME} = \"xxx\"" wrangler.toml; then
+            if ! grep -q "vars.${KEY_NAME} =" wrangler.toml || grep -q "vars.${KEY_NAME} = \"XXX\"" wrangler.toml; then
               # Use indirect variable expansion to get the secret value
               KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
               if [ -n "$KEY_VALUE" ]; then # Check if secret actually exists
@@ -51,12 +51,12 @@ jobs:
       - name: Build & Deploy Worker to PR Environment
       - name: Prepare Worker Environment Variables
         run: |
-          if ! grep -q "PASS =" wrangler.toml || grep -q "PASS = \"xxx\"" wrangler.toml; then
+          if ! grep -q "vars.PASS =" wrangler.toml || grep -q "vars.PASS = \"XXX\"" wrangler.toml; then
             echo "CLOUDFLARE_ENV_VAR_PASS=${{ secrets.PASS }}" >> $GITHUB_ENV
           fi
           for i in $(seq 1 100); do
             KEY_NAME="KEY${i}"
-            if ! grep -q "${KEY_NAME} =" wrangler.toml || grep -q "${KEY_NAME} = \"xxx\"" wrangler.toml; then
+            if ! grep -q "vars.${KEY_NAME} =" wrangler.toml || grep -q "vars.${KEY_NAME} = \"XXX\"" wrangler.toml; then
               # Use indirect variable expansion to get the secret value
               KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
               if [ -n "$KEY_VALUE" ]; then # Check if secret actually exists
