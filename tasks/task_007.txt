@@ -1,31 +1,11 @@
 # Task ID: 7
-# Title: Implement Orchestrator Dynamic Worker Discovery (Initialization)
+# Title: Update Import/Export Paths to .mjs Extensions
 # Status: done
-# Dependencies: 5, 6
+# Dependencies: 6
 # Priority: high
-# Description: Develop the logic within the orchestrator worker's `scheduled` handler to dynamically discover and populate `activeBackendServices` array based on available service bindings.
+# Description: Perform a project-wide search and replace to change `.ts` extensions to `.mjs` in all `import` and `export` statements referencing local files.
 # Details:
-Implement the `scheduled` handler in `orchestrator-worker/src/index.ts` as follows:
-```typescript
-// orchestrator-worker/src/index.ts
-// ... existing code including Env interface and global state
-
-export default {
-  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
-    if (activeBackendServices.length === 0) {
-      for (let i = 1; i <= 100; i++) {
-        const serviceBindingName = `BACKEND_SERVICE_${i}`;
-        const service = env[serviceBindingName as keyof Env];
-        if (service) {
-          activeBackendServices.push(service as Service<BackendWorkerInterface>);
-        }
-      }
-      console.log(`Discovered ${activeBackendServices.length} backend workers.`);
-    }
-  },
-  // ... fetch handler will go here
-}
-```
+This will affect imports within `orchestrator/src/index.mjs` and any other `.mjs` files that previously imported from `orchestrator/src/index.ts` or other local `.ts` files. Ensure all local file references explicitly use the `.mjs` extension (e.g., `import { func } from './module.mjs';`).
 
 # Test Strategy:
-During local development or after deployment, verify that the `console.log` message in the `scheduled` handler correctly reports the number of discovered backend workers based on the provided service bindings.
+Globally search the codebase for `.ts` extensions in `import` and `export` statements and verify they have been updated to `.mjs`. Confirm that all module resolutions are correct and no import errors occur.

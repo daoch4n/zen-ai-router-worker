@@ -1,33 +1,11 @@
 # Task ID: 14
-# Title: Modify GitHub Actions Workflow for Orchestrator Binding Generation
+# Title: Update GitHub Actions Workflow (cf-deploy.yml)
 # Status: done
 # Dependencies: 13
 # Priority: high
-# Description: Enhance the backend deployment step in `cf-deploy.yml` to collect deployed backend worker names and generate `--service` arguments for the orchestrator.
+# Description: Review and modify the GitHub Actions workflow for deployment (`.github/workflows/cf-deploy.yml`) to remove any build steps that involve TypeScript compilation.
 # Details:
-Add the binding argument construction and output to the `Prepare Worker Environment Variables and Deploy Backend Workers` step in `.github/workflows/cf-deploy.yml`:
-```yaml
-# Partial modification to .github/workflows/cf-deploy.yml
-      - name: Prepare Worker Environment Variables and Deploy Backend Workers
-        id: prepare_and_deploy_backends
-        run: |
-          ORCHESTRATOR_SERVICE_BINDINGS_ARGS=""
-          for i in $(seq 1 100); do
-            KEY_NAME="KEY${i}"
-            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
-            if [ -z "$KEY_VALUE" ]; then
-              break
-            fi
-            echo "Deploying backend worker: $KEY_VALUE"
-            flatpak-spawn --host npx wrangler publish --name "$KEY_VALUE" --compatibility-date 2024-05-01 --main backend-worker-template/src/index.ts
-            
-            ORCHESTRATOR_SERVICE_BINDINGS_ARGS+=" --service BACKEND_SERVICE_${i}=${KEY_VALUE}"
-          done
-          echo "orchestrator_bindings=${ORCHESTRATOR_SERVICE_BINDINGS_ARGS}" >> $GITHUB_OUTPUT
-        env:
-          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-```
+Edit `.github/workflows/cf-deploy.yml`. Remove steps that explicitly call `tsc` or `npm run build` if that script involves TypeScript compilation. The deployment process should now directly utilize the `.mjs` files.
 
 # Test Strategy:
-Trigger the workflow with multiple `KEY` secrets. Inspect the GitHub Actions run logs for the `prepare_and_deploy_backends` step and verify that the `orchestrator_bindings` output variable is correctly formatted with all deployed backend worker names.
+Review the `.github/workflows/cf-deploy.yml` file to confirm that all TypeScript compilation steps have been removed. Ensure the workflow is configured to deploy `.mjs` files directly.

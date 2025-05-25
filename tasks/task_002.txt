@@ -1,19 +1,11 @@
 # Task ID: 2
-# Title: Create Shared RPC Interface (`src/interfaces.ts`)
+# Title: Identify TypeScript and Configuration Files
 # Status: done
 # Dependencies: 1
 # Priority: high
-# Description: Define the `BackendWorkerInterface` in `src/interfaces.ts` to ensure type-safe communication between the orchestrator and backend workers.
+# Description: Confirm the presence and content of all `.ts` files and relevant configuration files to understand their current TypeScript dependencies.
 # Details:
-Create `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` with the following content:
-```typescript
-// src/interfaces.ts
-
-export interface BackendWorkerInterface {
-  handleRequest(request: Request): Promise<Response>;
-}
-```
-Ensure this file is identical or symlinked/copied to both worker directories.
+Use `find . -name "*.ts"` to confirm `orchestrator/src/index.ts`. Review the content of `tsconfig.json`, `orchestrator/wrangler.toml`, `package.json`, `jest.config.mjs`, and `.github/workflows/cf-deploy.yml`.
 
 # Test Strategy:
-Verify that `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` exist and contain the correct interface definition. Check for TypeScript compilation errors related to this interface.
+Document the paths and initial content of all identified files. Ensure `orchestrator/src/index.ts` is confirmed as the primary file to be converted.

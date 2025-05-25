@@ -1,53 +1,11 @@
 # Task ID: 12
-# Title: Implement Advanced Error Handling with Retries and Failover
+# Title: Remove tsconfig.json
 # Status: done
 # Dependencies: 11
 # Priority: high
-# Description: Enhance the orchestrator's error handling to include a retry mechanism with failover to the next available backend worker upon RPC failure.
+# Description: Delete the `tsconfig.json` file from the project root, as TypeScript will no longer be used.
 # Details:
-Implement the retry loop in `orchestrator-worker/src/index.ts`:
-```typescript
-// orchestrator-worker/src/index.ts
-// ... existing code
-
-export default {
-  // ... scheduled handler
-
-  async fetch(
-    request: Request,
-    env: Env,
-    ctx: ExecutionContext
-  ): Promise<Response> {
-    // ... dynamic discovery fallback
-
-    const MAX_ATTEMPTS = activeBackendServices.length; // Max attempts equals number of active workers
-    let response: Response | null = null;
-    let attempts = 0;
-
-    while (response === null && attempts < MAX_ATTEMPTS) {
-        const currentWorkerIndex = (nextWorkerIndex + attempts) % activeBackendServices.length;
-        const targetWorker = activeBackendServices[currentWorkerIndex];
-        
-        try {
-            console.log(`Attempting to route to worker index ${currentWorkerIndex}.`);
-            response = await targetWorker.handleRequest(request);
-        } catch (error) {
-            console.error(`Attempt ${attempts + 1} failed for worker at index ${currentWorkerIndex}:`, error);
-            attempts++;
-            // Optionally: Implement a short delay before retrying
-            // await new Promise(resolve => setTimeout(resolve, 50));
-        }
-    }
-    nextWorkerIndex = (nextWorkerIndex + attempts) % activeBackendServices.length; // Update next index for next incoming request
-
-    if (response) {
-        return response;
-    } else {
-        return new Response("Service Unavailable: All backend workers failed or are unreachable.", { status: 503 });
-    }
-  }
-}
-```
+Execute `rm tsconfig.json` from the project root directory.
 
 # Test Strategy:
-1. Start multiple backend workers. Stop one worker and send requests; verify requests are routed to the remaining active workers. 2. Stop all but one backend worker and verify retries occur before a 503 is returned if that last worker fails. 3. Stop all backend workers and verify a 503 (Service Unavailable) is returned immediately.
+Verify that `tsconfig.json` is no longer present in the project directory.

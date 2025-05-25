@@ -1,31 +1,11 @@
 # Task ID: 1
-# Title: Initialize Monorepo Project Structure
+# Title: Create Dedicated Git Branch for Refactoring
 # Status: done
 # Dependencies: None
 # Priority: high
-# Description: Set up the recommended monorepo structure including `orchestrator-worker/`, `backend-worker-template/`, `.github/workflows/`, and shared `package.json`, `tsconfig.json`.
+# Description: Isolate all refactoring changes in a new, dedicated Git branch to ensure the main branch remains untouched and stable.
 # Details:
-Create the following directory and file structure:
-```
-.
-├── .github/
-│   └── workflows/
-│       └── cf-deploy.yml
-├── orchestrator-worker/
-│   ├── src/
-│   │   ├── index.ts
-│   │   └── interfaces.ts
-│   └── wrangler.toml
-├── backend-worker-template/
-│   ├── src/
-│   │   ├── index.ts
-│   │   └── interfaces.ts
-│   └── wrangler.toml
-├── package.json
-├── tsconfig.json
-└── README.md
-```
-Initialize `package.json` and `tsconfig.json` with basic configurations.
+Execute `git checkout -b feature/ts-to-js-refactor` to create and switch to the new branch.
 
 # Test Strategy:
-Verify that all specified directories and empty files are created correctly in the project root.
+Verify that a new branch named `feature/ts-to-js-refactor` has been created and that the current working branch is set to it using `git branch` and `git status`.

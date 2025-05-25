@@ -88,4 +88,6 @@ async function fetch(request, env) {
   }
 }
 
+export { default as ConversationStateDO } from './do/ConversationStateDO.mjs';
+
 export default { fetch };
