@@ -1697,13 +1697,12 @@ def main():
 
         logger.info("AI Code Review Script finished successfully.")
     except ValueError as e:
-        # Expected errors that we've explicitly raised
         logger.error(f"Error in main process: {str(e)}")
-        # We don't re-raise here as we want to handle these gracefully
+        sys.exit(1) # Ensure workflow fails for critical ValueError
     except Exception as e:
-        # Unexpected errors
         logger.error(f"Unexpected error in main process: {str(e)}")
         traceback.print_exc()
+        sys.exit(1) # Ensure workflow fails for unexpected errors
         # We don't re-raise here to avoid abrupt termination
 
 

@@ -8,9 +8,22 @@ export class ConversationStateDO extends DurableObject {
 
     // Helper function to report metrics asynchronously using this.state.waitUntil
     // This ensures that metric reporting does not block the main DO logic.
-    this.reportMetric = (metricData) => {
-      this.state.waitUntil(Promise.resolve(console.log(JSON.stringify(metricData))));
+    this.reportMetric = async (metricData) => {
+      try {
+        // In a real application, you would send this to a dedicated metrics endpoint, e.g.:
+        // await fetch('https://your-metrics-service.com/api/metrics', {
+        //   method: 'POST',
+        //   headers: { 'Content-Type': 'application/json' },
+        //   body: JSON.stringify(metricData),
+        // });
+        // For this example, we'll log it with a clear prefix.
+        console.log(`[METRIC] ${JSON.stringify(metricData)}`);
+      } catch (e) {
+        console.error(`Failed to report metric: ${e.message}`, metricData);
+      }
     };
+    // Ensure the metric reporting is awaited and does not block the main DO logic.
+    this.state.waitUntil(this.reportMetric(metricData));
 
     // Log DO instance creation event
     this.reportMetric({
