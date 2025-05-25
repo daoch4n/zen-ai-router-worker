@@ -14,8 +14,19 @@ export class ConversationStateDO extends DurableObject {
       }
     };
   }
-
+ 
+  // Define inactivity timeout (5 minutes)
+  static INACTIVITY_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
+ 
+  // Helper to set or reset the inactivity alarm
+  async setInactivityAlarm() {
+    await this.state.storage.setAlarm(Date.now() + ConversationStateDO.INACTIVITY_TIMEOUT_MS);
+  }
+ 
   async handleRequest(request) {
+    // Reset the inactivity alarm on any activity
+    await this.setInactivityAlarm();
+ 
     const url = new URL(request.url);
     const path = url.pathname;
 
@@ -128,5 +139,12 @@ export class ConversationStateDO extends DurableObject {
       console.error(`Error clearing conversation state after retries: ${error.message}`, error.stack);
       return createErrorResponse(error, 'Error clearing conversation state', 500);
     }
+  }
+ 
+  async alarm() {
+    // Alarm triggered due to inactivity, clear the conversation state
+    console.log('Inactivity alarm triggered. Clearing conversation state.');
+    // Create a dummy request as handleClearConversationState expects one
+    await this.handleClearConversationState(new Request('http://dummy-url/clear_conversation_state', { method: 'POST' }));
   }
 }
