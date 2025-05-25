@@ -26,6 +26,8 @@ jobs:
             fi
             echo "CLOUDFLARE_ENV_VAR_KEY${i}=${KEY_VALUE}" >> $GITHUB_ENV
           done
+      - name: Copy wrangler.toml.example
+        run: cp wrangler.toml.example wrangler.toml
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
@@ -56,6 +58,8 @@ jobs:
             fi
             echo "CLOUDFLARE_ENV_VAR_KEY${i}=${KEY_VALUE}" >> $GITHUB_ENV
           done
+      - name: Copy wrangler.toml.example
+        run: cp wrangler.toml.example wrangler.toml
       - name: Build & Deploy Worker to PR Environment
         uses: cloudflare/wrangler-action@v3
         with:
