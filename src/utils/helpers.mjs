@@ -172,22 +172,6 @@ export const removeThinkingTags = (content) => {
   if (!content || typeof content !== "string") {
     return content;
   }
-
-  // Find all thinking blocks in the content
-  const matches = [...content.matchAll(/<thinking>([\s\S]*?)<\/thinking>/g)];
-
-  if (matches.length === 0) {
-    return content;
-  }
-
-  // Identify the largest thinking block by content length
-  let largestMatch = matches[0];
-  for (const match of matches) {
-    if (match[1].length > largestMatch[1].length) {
-      largestMatch = match;
-    }
-  }
-
-  // Remove only the largest block to preserve other content
-  return content.replace(largestMatch[0], '');
+  // Remove only the first occurrence of <thinking>...</thinking>
+  return content.replace(/<thinking>[\s\S]*?<\/thinking>/, '');
 };
