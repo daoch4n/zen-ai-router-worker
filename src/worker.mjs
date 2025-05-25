@@ -1,5 +1,11 @@
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, context) {
+    // Helper function to report metrics asynchronously using context.waitUntil
+    // This ensures that metric reporting does not block the main response.
+    const reportMetric = (metricData) => {
+      context.waitUntil(Promise.resolve(console.log(JSON.stringify(metricData))));
+    };
+
     const url = new URL(request.url);
     const conversationId = request.headers.get('X-Conversation-ID') || `conv_${crypto.randomUUID()}`;
 
@@ -24,6 +30,28 @@ export default {
         return new Response('Conversation terminated successfully', { status: 200 });
       } catch (error) {
         console.error('Error terminating conversation:', error);
+        // Report total error count asynchronously
+        reportMetric({
+          timestamp: new Date().toISOString(),
+          metric_name: 'do_error_count_total',
+          value: 1,
+          level: 'ERROR',
+          conversation_id: conversationId,
+          error_type: error.name,
+          error_message: `Error terminating conversation: ${error.message}`,
+          stack_trace: error.stack,
+        });
+        // Report specific error for failed termination asynchronously
+        reportMetric({
+          timestamp: new Date().toISOString(),
+          metric_name: 'do_error_count_clear_failed', // As termination involves clearing state
+          value: 1,
+          level: 'ERROR',
+          conversation_id: conversationId,
+          error_type: error.name,
+          error_message: `Failed to terminate conversation: ${error.message}`,
+          stack_trace: error.stack,
+        });
         return new Response(`Error terminating conversation: ${error.message}`, { status: 500 });
       }
     }
