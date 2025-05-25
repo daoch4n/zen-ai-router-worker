@@ -51,9 +51,18 @@ const formatAnthropicError = (error, statusCode) => {
     type = 'invalid_request_error';
     message = error.message;
   } else if (error instanceof DOOperationError && error.isNotFound) {
-    type = 'api_error'; // Anthropic doesn't have a specific 'not_found' error type for API errors.
+    type = 'not_found_error'; // Anthropic has a 'not_found_error' type.
     message = error.message;
-  } else if (error instanceof HttpError) {
+  } else if (error instanceof ToolExecutionError) {
+    type = 'tool_error'; // Custom type for tool execution failures
+    message = error.message;
+  } else if (statusCode === 401 || statusCode === 403) {
+    type = 'authentication_error';
+    message = error.message;
+  } else if (statusCode === 429) {
+    type = 'rate_limit_error';
+    message = error.message;
+  } else if (error instanceof HttpError) { // Catch-all for other HttpErrors
     message = error.message;
   } else {
     // Generic error
