@@ -1,0 +1,35 @@
+# Task ID: 11
+# Title: Implement Basic RPC Error Handling
+# Status: done
+# Dependencies: 10
+# Priority: high
+# Description: Add a `try...catch` block around the RPC call in the orchestrator's `fetch` handler to catch communication errors.
+# Details:
+Wrap the RPC call in `orchestrator-worker/src/index.ts` with a `try...catch` block:
+```typescript
+// orchestrator-worker/src/index.ts
+// ... existing code
+
+export default {
+  // ... scheduled handler
+
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
+    // ... dynamic discovery and round-robin selection
+
+    try {
+      const response = await targetWorker.handleRequest(request);
+      return response;
+    } catch (error) {
+      console.error(`Error communicating with backend worker:`, error);
+      return new Response("Internal Server Error during request processing.", { status: 500 });
+    }
+  }
+}
+```
+
+# Test Strategy:
+Start the orchestrator and at least one backend worker. Then, stop the backend worker. Send a request to the orchestrator and verify that it returns an HTTP 500 status code and logs the error.

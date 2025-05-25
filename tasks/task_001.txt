@@ -1,0 +1,31 @@
+# Task ID: 1
+# Title: Initialize Monorepo Project Structure
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Set up the recommended monorepo structure including `orchestrator-worker/`, `backend-worker-template/`, `.github/workflows/`, and shared `package.json`, `tsconfig.json`.
+# Details:
+Create the following directory and file structure:
+```
+.
+├── .github/
+│   └── workflows/
+│       └── cf-deploy.yml
+├── orchestrator-worker/
+│   ├── src/
+│   │   ├── index.ts
+│   │   └── interfaces.ts
+│   └── wrangler.toml
+├── backend-worker-template/
+│   ├── src/
+│   │   ├── index.ts
+│   │   └── interfaces.ts
+│   └── wrangler.toml
+├── package.json
+├── tsconfig.json
+└── README.md
+```
+Initialize `package.json` and `tsconfig.json` with basic configurations.
+
+# Test Strategy:
+Verify that all specified directories and empty files are created correctly in the project root.

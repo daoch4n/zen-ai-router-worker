@@ -1,0 +1,31 @@
+# Task ID: 7
+# Title: Implement Orchestrator Dynamic Worker Discovery (Initialization)
+# Status: done
+# Dependencies: 5, 6
+# Priority: high
+# Description: Develop the logic within the orchestrator worker's `scheduled` handler to dynamically discover and populate `activeBackendServices` array based on available service bindings.
+# Details:
+Implement the `scheduled` handler in `orchestrator-worker/src/index.ts` as follows:
+```typescript
+// orchestrator-worker/src/index.ts
+// ... existing code including Env interface and global state
+
+export default {
+  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    if (activeBackendServices.length === 0) {
+      for (let i = 1; i <= 100; i++) {
+        const serviceBindingName = `BACKEND_SERVICE_${i}`;
+        const service = env[serviceBindingName as keyof Env];
+        if (service) {
+          activeBackendServices.push(service as Service<BackendWorkerInterface>);
+        }
+      }
+      console.log(`Discovered ${activeBackendServices.length} backend workers.`);
+    }
+  },
+  // ... fetch handler will go here
+}
+```
+
+# Test Strategy:
+During local development or after deployment, verify that the `console.log` message in the `scheduled` handler correctly reports the number of discovered backend workers based on the provided service bindings.

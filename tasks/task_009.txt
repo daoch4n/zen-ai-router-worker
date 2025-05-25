@@ -1,0 +1,33 @@
+# Task ID: 9
+# Title: Implement Round-Robin Load Balancing
+# Status: done
+# Dependencies: 8
+# Priority: high
+# Description: Develop the round-robin algorithm within the orchestrator's `fetch` handler to select the next backend worker.
+# Details:
+Implement the round-robin selection logic in `orchestrator-worker/src/index.ts`:
+```typescript
+// orchestrator-worker/src/index.ts
+// ... existing code
+
+export default {
+  // ... scheduled handler
+
+  async fetch(
+    request: Request,
+    env: Env,
+    ctx: ExecutionContext
+  ): Promise<Response> {
+    // ... dynamic discovery fallback
+
+    // Round-robin selection
+    const targetWorker = activeBackendServices[nextWorkerIndex];
+    nextWorkerIndex = (nextWorkerIndex + 1) % activeBackendServices.length;
+
+    // ... rest of fetch handler logic
+  }
+}
+```
+
+# Test Strategy:
+With multiple backend workers configured, send several sequential requests to the orchestrator. Observe the logs from the backend workers (or their responses if they include their name) to confirm that requests are distributed in a round-robin fashion.

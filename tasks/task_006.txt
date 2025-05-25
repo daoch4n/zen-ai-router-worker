@@ -1,0 +1,30 @@
+# Task ID: 6
+# Title: Define Orchestrator `Env` Interface for Dynamic Bindings
+# Status: done
+# Dependencies: 1, 2
+# Priority: high
+# Description: Define the `Env` interface in `orchestrator-worker/src/index.ts` to explicitly list all possible backend service bindings up to `BACKEND_SERVICE_100`.
+# Details:
+Add the `interface Env` definition to `orchestrator-worker/src/index.ts`:
+```typescript
+// orchestrator-worker/src/index.ts
+import type { BackendWorkerInterface } from "./interfaces";
+
+interface Env {
+  BACKEND_SERVICE_1?: Service<BackendWorkerInterface>;
+  BACKEND_SERVICE_2?: Service<BackendWorkerInterface>;
+  // ... continue up to BACKEND_SERVICE_100
+  BACKEND_SERVICE_100?: Service<BackendWorkerInterface>;
+}
+
+// Add global state variables
+let activeBackendServices: Service<BackendWorkerInterface>[] = [];
+let nextWorkerIndex = 0;
+
+export default {
+  // ... rest of the worker code will go here
+}
+```
+
+# Test Strategy:
+Ensure the `Env` interface is correctly defined in `orchestrator-worker/src/index.ts` and that TypeScript recognizes the `Service` type and the optional service bindings without errors. Verify the global state variables are declared.

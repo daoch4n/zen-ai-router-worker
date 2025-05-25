@@ -1,0 +1,236 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "dependencies": [],
+      "details": "Create the following directory and file structure:\n```\n.\n├── .github/\n│   └── workflows/\n│       └── cf-deploy.yml\n├── orchestrator-worker/\n│   ├── src/\n│   │   ├── index.ts\n│   │   └── interfaces.ts\n│   └── wrangler.toml\n├── backend-worker-template/\n│   ├── src/\n│   │   ├── index.ts\n│   │   └── interfaces.ts\n│   └── wrangler.toml\n├── package.json\n├── tsconfig.json\n└── README.md\n```\nInitialize `package.json` and `tsconfig.json` with basic configurations.",
+      "title": "Initialize Monorepo Project Structure",
+      "status": "done",
+      "testStrategy": "Verify that all specified directories and empty files are created correctly in the project root.",
+      "description": "Set up the recommended monorepo structure including `orchestrator-worker/`, `backend-worker-template/`, `.github/workflows/`, and shared `package.json`, `tsconfig.json`.",
+      "priority": "high",
+      "subtasks": []
+    },
+    {
+      "id": 2,
+      "title": "Create Shared RPC Interface (`src/interfaces.ts`)",
+      "status": "done",
+      "details": "Create `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` with the following content:\n```typescript\n// src/interfaces.ts\n\nexport interface BackendWorkerInterface {\n  handleRequest(request: Request): Promise<Response>;\n}\n```\nEnsure this file is identical or symlinked/copied to both worker directories.",
+      "dependencies": [
+        1
+      ],
+      "description": "Define the `BackendWorkerInterface` in `src/interfaces.ts` to ensure type-safe communication between the orchestrator and backend workers.",
+      "priority": "high",
+      "testStrategy": "Verify that `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` exist and contain the correct interface definition. Check for TypeScript compilation errors related to this interface.",
+      "subtasks": []
+    },
+    {
+      "dependencies": [
+        1,
+        2
+      ],
+      "id": 3,
+      "testStrategy": "Manually deploy a single backend worker (e.g., using `wrangler publish --name my-test-backend`) and send a direct HTTP request to its URL. Verify that it responds with the expected 'Hello from Backend Worker' message and logs the request path.",
+      "status": "done",
+      "details": "Implement the `BackendWorker` class in `backend-worker-template/src/index.ts` as follows:\n```typescript\n// backend-worker-template/src/index.ts\nimport { WorkerEntrypoint } from \"cloudflare:workers\";\nimport { BackendWorkerInterface } from \"./interfaces\";\n\nexport default class BackendWorker extends WorkerEntrypoint\n  implements BackendWorkerInterface {\n\n  async handleRequest(request: Request): Promise<Response> {\n    const url = new URL(request.url);\n    const workerName = self.name;\n    console.log(`Backend Worker ${workerName} received request for path: ${url.pathname}`);\n    return new Response(`Hello from Backend Worker: ${workerName} (path: ${url.pathname})`);\n  }\n\n  async fetch(request: Request, env: unknown, ctx: ExecutionContext): Promise<Response> {\n    return this.handleRequest(request);\n  }\n}\n```",
+      "priority": "high",
+      "title": "Implement `backend-worker-template` Logic",
+      "description": "Develop the core logic for the `backend-worker-template/src/index.ts` to implement `BackendWorkerInterface` and handle forwarded requests.",
+      "subtasks": []
+    },
+    {
+      "status": "done",
+      "id": 4,
+      "details": "Create `backend-worker-template/wrangler.toml` with the following content:\n```toml\n# backend-worker-template/wrangler.toml\nmain = \"src/index.ts\"\ncompatibility_date = \"2024-05-01\"\n# No 'name' field here, as it's set dynamically by the CI/CD.\n# No [[services]] bindings needed here as they are the target of RPC calls.\n```",
+      "dependencies": [
+        1
+      ],
+      "description": "Set up the basic `wrangler.toml` for the backend worker template.",
+      "testStrategy": "Verify the `wrangler.toml` file exists in the `backend-worker-template` directory and contains the specified configuration. Attempt to run `wrangler dev` from this directory to check for basic syntax validity.",
+      "priority": "high",
+      "title": "Configure `backend-worker-template/wrangler.toml`",
+      "subtasks": []
+    },
+    {
+      "priority": "high",
+      "testStrategy": "Verify the `wrangler.toml` file exists in the `orchestrator-worker` directory and contains the specified configuration. Attempt to run `wrangler dev` from this directory to check for basic syntax validity.",
+      "description": "Set up the basic `wrangler.toml` for the orchestrator worker, omitting explicit service bindings.",
+      "title": "Configure Orchestrator Worker `wrangler.toml`",
+      "id": 5,
+      "status": "done",
+      "dependencies": [
+        1
+      ],
+      "details": "Create `orchestrator-worker/wrangler.toml` with the following content:\n```toml\n# orchestrator-worker/wrangler.toml\nname = \"router-orchestrator\"\nmain = \"src/index.ts\"\ncompatibility_date = \"2024-05-01\"\n\n# Service bindings will be dynamically added via GitHub Actions workflow.\n# No explicit [[services]] block needed here for backend workers.\n```",
+      "subtasks": []
+    },
+    {
+      "status": "done",
+      "priority": "high",
+      "dependencies": [
+        1,
+        2
+      ],
+      "title": "Define Orchestrator `Env` Interface for Dynamic Bindings",
+      "details": "Add the `interface Env` definition to `orchestrator-worker/src/index.ts`:\n```typescript\n// orchestrator-worker/src/index.ts\nimport type { BackendWorkerInterface } from \"./interfaces\";\n\ninterface Env {\n  BACKEND_SERVICE_1?: Service<BackendWorkerInterface>;\n  BACKEND_SERVICE_2?: Service<BackendWorkerInterface>;\n  // ... continue up to BACKEND_SERVICE_100\n  BACKEND_SERVICE_100?: Service<BackendWorkerInterface>;\n}\n\n// Add global state variables\nlet activeBackendServices: Service<BackendWorkerInterface>[] = [];\nlet nextWorkerIndex = 0;\n\nexport default {\n  // ... rest of the worker code will go here\n}\n```",
+      "description": "Define the `Env` interface in `orchestrator-worker/src/index.ts` to explicitly list all possible backend service bindings up to `BACKEND_SERVICE_100`.",
+      "id": 6,
+      "testStrategy": "Ensure the `Env` interface is correctly defined in `orchestrator-worker/src/index.ts` and that TypeScript recognizes the `Service` type and the optional service bindings without errors. Verify the global state variables are declared.",
+      "subtasks": []
+    },
+    {
+      "priority": "high",
+      "status": "done",
+      "details": "Implement the `scheduled` handler in `orchestrator-worker/src/index.ts` as follows:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code including Env interface and global state\n\nexport default {\n  async scheduled(event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {\n    if (activeBackendServices.length === 0) {\n      for (let i = 1; i <= 100; i++) {\n        const serviceBindingName = `BACKEND_SERVICE_${i}`;\n        const service = env[serviceBindingName as keyof Env];\n        if (service) {\n          activeBackendServices.push(service as Service<BackendWorkerInterface>);\n        }\n      }\n      console.log(`Discovered ${activeBackendServices.length} backend workers.`);\n    }\n  },\n  // ... fetch handler will go here\n}\n```",
+      "description": "Develop the logic within the orchestrator worker's `scheduled` handler to dynamically discover and populate `activeBackendServices` array based on available service bindings.",
+      "dependencies": [
+        5,
+        6
+      ],
+      "testStrategy": "During local development or after deployment, verify that the `console.log` message in the `scheduled` handler correctly reports the number of discovered backend workers based on the provided service bindings.",
+      "id": 7,
+      "title": "Implement Orchestrator Dynamic Worker Discovery (Initialization)",
+      "subtasks": []
+    },
+    {
+      "status": "done",
+      "details": "Add the fallback discovery logic within the `fetch` handler in `orchestrator-worker/src/index.ts`:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code\n\nexport default {\n  // ... scheduled handler\n\n  async fetch(\n    request: Request,\n    env: Env,\n    ctx: ExecutionContext\n  ): Promise<Response> {\n    if (activeBackendServices.length === 0) {\n      for (let i = 1; i <= 100; i++) {\n        const serviceBindingName = `BACKEND_SERVICE_${i}`;\n        const service = env[serviceBindingName as keyof Env];\n        if (service) {\n          activeBackendServices.push(service as Service<BackendWorkerInterface>);\n        }\n      }\n      if (activeBackendServices.length === 0) {\n        return new Response(\"No backend workers configured or discovered.\", { status: 500 });\n      }\n    }\n    // ... rest of fetch handler logic\n  }\n}\n```",
+      "priority": "high",
+      "title": "Implement Orchestrator Dynamic Worker Discovery (Fetch Fallback)",
+      "description": "Add robust discovery logic to the `fetch` handler as a fallback, ensuring `activeBackendServices` is populated even if `scheduled` handler doesn't run or for local development.",
+      "testStrategy": "Test the orchestrator locally using `wrangler dev` without explicitly simulating a scheduled event. Send a request and verify that `activeBackendServices` is populated and the orchestrator does not return a 500 error due to no discovered workers (assuming backend workers are bound).",
+      "id": 8,
+      "dependencies": [
+        7
+      ],
+      "subtasks": []
+    },
+    {
+      "priority": "high",
+      "title": "Implement Round-Robin Load Balancing",
+      "status": "done",
+      "details": "Implement the round-robin selection logic in `orchestrator-worker/src/index.ts`:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code\n\nexport default {\n  // ... scheduled handler\n\n  async fetch(\n    request: Request,\n    env: Env,\n    ctx: ExecutionContext\n  ): Promise<Response> {\n    // ... dynamic discovery fallback\n\n    // Round-robin selection\n    const targetWorker = activeBackendServices[nextWorkerIndex];\n    nextWorkerIndex = (nextWorkerIndex + 1) % activeBackendServices.length;\n\n    // ... rest of fetch handler logic\n  }\n}\n```",
+      "dependencies": [
+        8
+      ],
+      "id": 9,
+      "testStrategy": "With multiple backend workers configured, send several sequential requests to the orchestrator. Observe the logs from the backend workers (or their responses if they include their name) to confirm that requests are distributed in a round-robin fashion.",
+      "description": "Develop the round-robin algorithm within the orchestrator's `fetch` handler to select the next backend worker.",
+      "subtasks": []
+    },
+    {
+      "description": "Modify the orchestrator's `fetch` handler to forward the original `Request` object to the selected backend worker using RPC (`targetWorker.handleRequest(request)`).",
+      "dependencies": [
+        3,
+        9
+      ],
+      "title": "Implement RPC Request Forwarding",
+      "testStrategy": "Send a request to the orchestrator. Verify that the selected backend worker receives the request (check its logs) and that the client receives the response generated by the backend worker.",
+      "priority": "high",
+      "details": "Integrate the RPC call in `orchestrator-worker/src/index.ts`:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code\n\nexport default {\n  // ... scheduled handler\n\n  async fetch(\n    request: Request,\n    env: Env,\n    ctx: ExecutionContext\n  ): Promise<Response> {\n    // ... dynamic discovery and round-robin selection\n\n    try {\n      const response = await targetWorker.handleRequest(request);\n      return response;\n    } catch (error) {\n      // ... error handling will go here\n    }\n  }\n}\n```",
+      "status": "done",
+      "id": 10,
+      "subtasks": []
+    },
+    {
+      "description": "Add a `try...catch` block around the RPC call in the orchestrator's `fetch` handler to catch communication errors.",
+      "dependencies": [
+        10
+      ],
+      "title": "Implement Basic RPC Error Handling",
+      "priority": "high",
+      "testStrategy": "Start the orchestrator and at least one backend worker. Then, stop the backend worker. Send a request to the orchestrator and verify that it returns an HTTP 500 status code and logs the error.",
+      "details": "Wrap the RPC call in `orchestrator-worker/src/index.ts` with a `try...catch` block:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code\n\nexport default {\n  // ... scheduled handler\n\n  async fetch(\n    request: Request,\n    env: Env,\n    ctx: ExecutionContext\n  ): Promise<Response> {\n    // ... dynamic discovery and round-robin selection\n\n    try {\n      const response = await targetWorker.handleRequest(request);\n      return response;\n    } catch (error) {\n      console.error(`Error communicating with backend worker:`, error);\n      return new Response(\"Internal Server Error during request processing.\", { status: 500 });\n    }\n  }\n}\n```",
+      "id": 11,
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "dependencies": [
+        11
+      ],
+      "status": "done",
+      "testStrategy": "1. Start multiple backend workers. Stop one worker and send requests; verify requests are routed to the remaining active workers. 2. Stop all but one backend worker and verify retries occur before a 503 is returned if that last worker fails. 3. Stop all backend workers and verify a 503 (Service Unavailable) is returned immediately.",
+      "id": 12,
+      "title": "Implement Advanced Error Handling with Retries and Failover",
+      "priority": "high",
+      "details": "Implement the retry loop in `orchestrator-worker/src/index.ts`:\n```typescript\n// orchestrator-worker/src/index.ts\n// ... existing code\n\nexport default {\n  // ... scheduled handler\n\n  async fetch(\n    request: Request,\n    env: Env,\n    ctx: ExecutionContext\n  ): Promise<Response> {\n    // ... dynamic discovery fallback\n\n    const MAX_ATTEMPTS = activeBackendServices.length; // Max attempts equals number of active workers\n    let response: Response | null = null;\n    let attempts = 0;\n\n    while (response === null && attempts < MAX_ATTEMPTS) {\n        const currentWorkerIndex = (nextWorkerIndex + attempts) % activeBackendServices.length;\n        const targetWorker = activeBackendServices[currentWorkerIndex];\n        \n        try {\n            console.log(`Attempting to route to worker index ${currentWorkerIndex}.`);\n            response = await targetWorker.handleRequest(request);\n        } catch (error) {\n            console.error(`Attempt ${attempts + 1} failed for worker at index ${currentWorkerIndex}:`, error);\n            attempts++;\n            // Optionally: Implement a short delay before retrying\n            // await new Promise(resolve => setTimeout(resolve, 50));\n        }\n    }\n    nextWorkerIndex = (nextWorkerIndex + attempts) % activeBackendServices.length; // Update next index for next incoming request\n\n    if (response) {\n        return response;\n    } else {\n        return new Response(\"Service Unavailable: All backend workers failed or are unreachable.\", { status: 503 });\n    }\n  }\n}\n```",
+      "description": "Enhance the orchestrator's error handling to include a retry mechanism with failover to the next available backend worker upon RPC failure.",
+      "subtasks": []
+    },
+    {
+      "dependencies": [
+        3,
+        4
+      ],
+      "details": "Modify `.github/workflows/cf-deploy.yml` to include the `Prepare Worker Environment Variables and Deploy Backend Workers` step:\n```yaml\n# Partial modification to .github/workflows/cf-deploy.yml\njobs:\n  deploy:\n    runs-on: ubuntu-latest\n    name: Deploy\n    steps:\n      - uses: actions/checkout@v4\n\n      - name: Prepare Worker Environment Variables and Deploy Backend Workers\n        id: prepare_and_deploy_backends # Add an ID to reference outputs\n        run: |\n          ORCHESTRATOR_SERVICE_BINDINGS_ARGS=\"\"\n          for i in $(seq 1 100); do\n            KEY_NAME=\"KEY${i}\"\n            KEY_VALUE=$(eval echo \"\\${{ secrets.${KEY_NAME} }}\")\n            if [ -z \"$KEY_VALUE\" ]; then\n              break # Stop if a KEY{num} secret is not found\n            fi\n            echo \"Deploying backend worker: $KEY_VALUE\"\n            flatpak-spawn --host npx wrangler publish --name \"$KEY_VALUE\" --compatibility-date 2024-05-01 --main backend-worker-template/src/index.ts\n            \n            # ... (rest of the script for orchestrator bindings)\n          done\n          # ... (output orchestrator_bindings)\n        env:\n          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}\n          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}\n```",
+      "priority": "high",
+      "id": 13,
+      "testStrategy": "Configure GitHub secrets (e.g., `KEY1`, `KEY2`) and trigger the workflow. Verify in the GitHub Actions run logs that backend workers are deployed with the names corresponding to the `KEY` secret values.",
+      "description": "Update `.github/workflows/cf-deploy.yml` to include a step for iteratively deploying backend workers based on `KEY{num}` secrets.",
+      "status": "done",
+      "title": "Modify GitHub Actions Workflow for Backend Worker Deployment",
+      "subtasks": []
+    },
+    {
+      "dependencies": [
+        13
+      ],
+      "details": "Add the binding argument construction and output to the `Prepare Worker Environment Variables and Deploy Backend Workers` step in `.github/workflows/cf-deploy.yml`:\n```yaml\n# Partial modification to .github/workflows/cf-deploy.yml\n      - name: Prepare Worker Environment Variables and Deploy Backend Workers\n        id: prepare_and_deploy_backends\n        run: |\n          ORCHESTRATOR_SERVICE_BINDINGS_ARGS=\"\"\n          for i in $(seq 1 100); do\n            KEY_NAME=\"KEY${i}\"\n            KEY_VALUE=$(eval echo \"\\${{ secrets.${KEY_NAME} }}\")\n            if [ -z \"$KEY_VALUE\" ]; then\n              break\n            fi\n            echo \"Deploying backend worker: $KEY_VALUE\"\n            flatpak-spawn --host npx wrangler publish --name \"$KEY_VALUE\" --compatibility-date 2024-05-01 --main backend-worker-template/src/index.ts\n            \n            ORCHESTRATOR_SERVICE_BINDINGS_ARGS+=\" --service BACKEND_SERVICE_${i}=${KEY_VALUE}\"\n          done\n          echo \"orchestrator_bindings=${ORCHESTRATOR_SERVICE_BINDINGS_ARGS}\" >> $GITHUB_OUTPUT\n        env:\n          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}\n          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}\n```",
+      "title": "Modify GitHub Actions Workflow for Orchestrator Binding Generation",
+      "id": 14,
+      "priority": "high",
+      "testStrategy": "Trigger the workflow with multiple `KEY` secrets. Inspect the GitHub Actions run logs for the `prepare_and_deploy_backends` step and verify that the `orchestrator_bindings` output variable is correctly formatted with all deployed backend worker names.",
+      "description": "Enhance the backend deployment step in `cf-deploy.yml` to collect deployed backend worker names and generate `--service` arguments for the orchestrator.",
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "priority": "high",
+      "details": "Modify the `Deploy Orchestrator Worker` step in `.github/workflows/cf-deploy.yml`:\n```yaml\n# Partial modification to .github/workflows/cf-deploy.yml\n      - name: Deploy Orchestrator Worker\n        uses: cloudflare/wrangler-action@v3\n        with:\n          apiToken: ${{ secrets.CF_API_TOKEN }}\n          accountId: ${{ secrets.CF_ACCOUNT_ID }}\n          workingDirectory: orchestrator-worker\n          command: |\n            publish --name router-orchestrator \\\n            --main src/index.ts \\\n            --compatibility-date 2024-05-01 \\\n            ${{ steps.prepare_and_deploy_backends.outputs.orchestrator_bindings }}\n```",
+      "description": "Update the orchestrator deployment step in `cf-deploy.yml` to use the dynamically generated service binding arguments.",
+      "testStrategy": "Trigger a full deployment workflow. After deployment, verify the orchestrator worker's configuration in the Cloudflare dashboard to ensure that the service bindings for the backend workers are correctly listed.",
+      "dependencies": [
+        5,
+        14
+      ],
+      "title": "Modify GitHub Actions Workflow for Orchestrator Deployment",
+      "id": 15,
+      "status": "done",
+      "subtasks": []
+    },
+    {
+      "title": "Document Local Development Setup",
+      "details": "Add a section to `README.md` or a dedicated `LOCAL_DEV.md` file with instructions similar to section 8.6.C:\n```markdown\n## Local Development\n\nTo run the orchestrator and backend workers locally, follow these steps:\n\n1.  **Start Backend Workers (in separate terminals):**\n    ```bash\n    flatpak-spawn --host npx wrangler dev --name my-backend-worker-1 --port 8081 --main backend-worker-template/src/index.ts\n    flatpak-spawn --host npx wrangler dev --name my-backend-worker-2 --port 8082 --main backend-worker-template/src/index.ts\n    # Add more as needed, adjusting names and ports\n    ```\n\n2.  **Start Orchestrator Worker (in another terminal):**\n    ```bash\n    flatpak-spawn --host npx wrangler dev --name router-orchestrator --main orchestrator-worker/src/index.ts --port 8080 \\\n      --service BACKEND_SERVICE_1=my-backend-worker-1 \\\n      --service BACKEND_SERVICE_2=my-backend-worker-2\n    # Include all active backend workers you started above\n    ```\n\n3.  **Test:** Send requests to `http://localhost:8080`.\n```",
+      "description": "Provide clear instructions on how to set up and run the orchestrator and backend workers locally using `wrangler dev`.",
+      "testStrategy": "Follow the documented local development steps precisely. Verify that all workers start successfully and that requests sent to the orchestrator's local URL are correctly routed to the locally running backend workers.",
+      "dependencies": [
+        3,
+        5,
+        7,
+        8,
+        9,
+        10,
+        12
+      ],
+      "id": 16,
+      "status": "done",
+      "priority": "medium",
+      "subtasks": []
+    },
+    {
+      "id": 17,
+      "title": "Conduct Comprehensive End-to-End Testing",
+      "description": "End-to-end testing of the entire system, including deployment, dynamic discovery, load balancing, RPC communication, and error handling, is currently deferred. This testing will commence after the successful deployment of Cloudflare Workers to the production environment.",
+      "status": "deferred",
+      "dependencies": [
+        12,
+        15
+      ],
+      "priority": "high",
+      "details": "Upon successful deployment to production, the following test scenarios will be executed:\n-   Deploy the system with varying numbers of `KEY` secrets (e.g., 1, 3, 5, 0 backend workers) to test dynamic discovery.\n-   Send a high volume of requests to the unified endpoint to test round-robin distribution and performance.\n-   During live traffic, simulate backend worker failures (e.g., by stopping a deployed worker or introducing errors in its code) and observe the orchestrator's resilience (retries, failover).\n-   Verify Cloudflare Worker logs for correct routing decisions, error messages, and performance metrics.\n-   Ensure all functional and non-functional requirements from the PRD are met.",
+      "testStrategy": "After production deployment, develop and execute automated integration tests that cover the described scenarios. Manually verify logs and system behavior in the Cloudflare dashboard. Confirm that the system behaves as expected under various load and failure conditions.",
+      "subtasks": []
+    }
+  ]
+}

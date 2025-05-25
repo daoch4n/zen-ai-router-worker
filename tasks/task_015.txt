@@ -1,0 +1,25 @@
+# Task ID: 15
+# Title: Modify GitHub Actions Workflow for Orchestrator Deployment
+# Status: done
+# Dependencies: 5, 14
+# Priority: high
+# Description: Update the orchestrator deployment step in `cf-deploy.yml` to use the dynamically generated service binding arguments.
+# Details:
+Modify the `Deploy Orchestrator Worker` step in `.github/workflows/cf-deploy.yml`:
+```yaml
+# Partial modification to .github/workflows/cf-deploy.yml
+      - name: Deploy Orchestrator Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          workingDirectory: orchestrator-worker
+          command: |
+            publish --name router-orchestrator \
+            --main src/index.ts \
+            --compatibility-date 2024-05-01 \
+            ${{ steps.prepare_and_deploy_backends.outputs.orchestrator_bindings }}
+```
+
+# Test Strategy:
+Trigger a full deployment workflow. After deployment, verify the orchestrator worker's configuration in the Cloudflare dashboard to ensure that the service bindings for the backend workers are correctly listed.

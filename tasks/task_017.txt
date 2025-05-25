@@ -1,0 +1,16 @@
+# Task ID: 17
+# Title: Conduct Comprehensive End-to-End Testing
+# Status: deferred
+# Dependencies: 12, 15
+# Priority: high
+# Description: End-to-end testing of the entire system, including deployment, dynamic discovery, load balancing, RPC communication, and error handling, is currently deferred. This testing will commence after the successful deployment of Cloudflare Workers to the production environment.
+# Details:
+Upon successful deployment to production, the following test scenarios will be executed:
+-   Deploy the system with varying numbers of `KEY` secrets (e.g., 1, 3, 5, 0 backend workers) to test dynamic discovery.
+-   Send a high volume of requests to the unified endpoint to test round-robin distribution and performance.
+-   During live traffic, simulate backend worker failures (e.g., by stopping a deployed worker or introducing errors in its code) and observe the orchestrator's resilience (retries, failover).
+-   Verify Cloudflare Worker logs for correct routing decisions, error messages, and performance metrics.
+-   Ensure all functional and non-functional requirements from the PRD are met.
+
+# Test Strategy:
+After production deployment, develop and execute automated integration tests that cover the described scenarios. Manually verify logs and system behavior in the Cloudflare dashboard. Confirm that the system behaves as expected under various load and failure conditions.
