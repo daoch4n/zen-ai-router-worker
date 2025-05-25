@@ -120,11 +120,7 @@ export class ConversationStateDO extends DurableObject {
     }
   }
 
-  async handleClearConversationState(request) {
-    if (request.method !== 'POST') {
-      return new Response('Method Not Allowed', { status: 405 });
-    }
-
+  async clearConversationState() {
     try {
       await executeWithRetry(
         async () => this.storage.deleteAll(),
@@ -134,9 +130,21 @@ export class ConversationStateDO extends DurableObject {
         async () => this.storage.deleteAlarm(),
         this.retryOptions
       );
-      return new Response('Conversation state cleared successfully', { status: 200 });
     } catch (error) {
       console.error(`Error clearing conversation state after retries: ${error.message}`, error.stack);
+      throw error;
+    }
+  }
+
+  async handleClearConversationState(request) {
+    if (request.method !== 'POST') {
+      return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    try {
+      await this.clearConversationState();
+      return new Response('Conversation state cleared successfully', { status: 200 });
+    } catch (error) {
       return createErrorResponse(error, 'Error clearing conversation state', 500);
     }
   }
@@ -144,7 +152,6 @@ export class ConversationStateDO extends DurableObject {
   async alarm() {
     // Alarm triggered due to inactivity, clear the conversation state
     console.log('Inactivity alarm triggered. Clearing conversation state.');
-    // Create a dummy request as handleClearConversationState expects one
-    await this.handleClearConversationState(new Request('http://dummy-url/clear_conversation_state', { method: 'POST' }));
+    await this.clearConversationState();
   }
 }
