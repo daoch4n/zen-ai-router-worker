@@ -58,8 +58,11 @@ class GitHubAuthenticator:
             logger.info("Using private key from environment variable (less secure)")
             private_key = os.environ.get("ZEN_APP_PRIVATE_KEY")
             # Replace newline placeholders if the key was stored with them
-            return private_key.replace('\\n', '\n')
-
+            if private_key:
+                return private_key.replace('\\n', '\n')
+            else:
+                logger.error("Private key from environment variable is empty.")
+                return None
         return None
 
     def generate_jwt_token(self):
@@ -377,7 +380,7 @@ except Exception as e:
 
 
 class PRDetails:
-    def __init__(self, owner: str, repo_name_str: str, pull_number: int, title: str, description: str, repo_obj=None, pr_obj=None, event_type: str = None):
+    def __init__(self, owner: str, repo_name_str: str, pull_number: int, title: Optional[str], description: Optional[str], repo_obj=None, pr_obj=None, event_type: Optional[str] = None):
         self.owner = owner
         self.repo_name = repo_name_str
         self.pull_number = pull_number
@@ -423,16 +426,29 @@ def get_pr_details() -> PRDetails:
     owner, repo_name_str = repo_full_name.split("/")
 
     try:
-        repo_obj = gh.get_repo(repo_full_name)
-        pr_obj = repo_obj.get_pull(pull_number)
+        if gh: # Ensure gh client is available
+            repo_obj = gh.get_repo(repo_full_name)
+            pr_obj = repo_obj.get_pull(pull_number)
+        else:
+            logger.error("GitHub client (gh) not initialized. Cannot fetch PR details.")
+            sys.exit(1)
     except GithubException as e:
-        print(f"Error accessing GitHub repository or PR: {e}")
+        logger.error(f"Error accessing GitHub repository or PR: {e}")
         sys.exit(1)
     except Exception as e:
-        print(f"An unexpected error occurred while fetching PR details: {e}")
+        logger.error(f"An unexpected error occurred while fetching PR details: {e}")
         sys.exit(1)
 
-    return PRDetails(owner, repo_name_str, pull_number, pr_obj.title, pr_obj.body or "", repo_obj, pr_obj, pr_event_type)
+    # Ensure pr_obj is not None before accessing attributes
+    if pr_obj is None:
+        logger.error(f"Could not retrieve PR object for PR #{pull_number}. Exiting.")
+        sys.exit(1)
+
+    # Ensure title and body are strings, even if None from API
+    pr_title = pr_obj.title if pr_obj.title is not None else ""
+    pr_description = pr_obj.body if pr_obj.body is not None else ""
+
+    return PRDetails(owner, repo_name_str, pull_number, pr_title, pr_description, repo_obj, pr_obj, pr_event_type)
 
 
 def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str:
@@ -448,13 +464,20 @@ def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str
     """
     repo = pr_details.repo_obj
     pr = pr_details.pr_obj
+    if pr is None:
+        logger.error("PR object is None in get_diff. Cannot retrieve head_sha.")
+        return ""
     head_sha = pr.head.sha
 
     # Strategy 1: Use repo.compare if comparison_sha is provided
     if comparison_sha:
         logger.info(f"Getting diff comparing HEAD ({head_sha}) against specified SHA ({comparison_sha})")
         try:
-            comparison_obj = repo.compare(comparison_sha, head_sha)
+            if repo: # Ensure repo object is available
+                comparison_obj = repo.compare(comparison_sha, head_sha)
+            else:
+                logger.warning(f"Repo object is None. Cannot compare SHAs. Falling back.")
+                return ""
             diff_parts = []
             for file_diff in comparison_obj.files:
                 if file_diff.patch:
@@ -513,7 +536,11 @@ def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str
     # Strategy 2: Use pr.get_diff()
     logger.info(f"Falling back to pr.get_diff() for PR #{pr_details.pull_number}")
     try:
-        diff_text = pr.get_diff() # This is usually well-formatted for unidiff
+        if pr: # Ensure pr object is available
+            diff_text = pr.get_diff() # This is usually well-formatted for unidiff
+        else:
+            logger.warning(f"PR object is None. Cannot get diff. Falling back further.")
+            return ""
         if diff_text:
             logger.info(f"Retrieved diff (length: {len(diff_text)}) using pr.get_diff()")
             return diff_text
@@ -536,31 +563,23 @@ def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str
 
     # Get a fresh token from the authenticator
     try:
-        # Create a new authenticator instance for this request
-        request_auth = GitHubAuthenticator()
-        _, token = request_auth.authenticate()
+        # Reuse the global authenticator's token
+        # Ensure 'authenticator' (global instance) is accessible here
+        if authenticator.token:
+            token = authenticator.token
+        else:
+            # If for some reason the global authenticator hasn't got a token yet, try to get one
+            # This fallback is less ideal but safer than creating a new authenticator
+            _, token = authenticator.authenticate() # This will use existing logic to get token
 
         if token:
             headers['Authorization'] = f'token {token}'
         else:
-            # Last resort: try to use GITHUB_TOKEN directly
-            github_token = os.environ.get("GITHUB_TOKEN")
-            if github_token:
-                logger.warning("Using GITHUB_TOKEN directly for API request as authenticator failed")
-                headers['Authorization'] = f'token {github_token}'
-            else:
-                logger.error("No authentication token available for API request")
-                return ""
-    except Exception as auth_error:
-        logger.error(f"Authentication error for direct API request: {auth_error}")
-        # Last resort: try to use GITHUB_TOKEN directly
-        github_token = os.environ.get("GITHUB_TOKEN")
-        if github_token:
-            logger.warning("Using GITHUB_TOKEN directly for API request after authentication error")
-            headers['Authorization'] = f'token {github_token}'
-        else:
             logger.error("No authentication token available for API request")
             return ""
+    except Exception as auth_error:
+        logger.error(f"Authentication error for direct API request: {auth_error}")
+        # ... rest of your fallback logic for GITHUB_TOKEN ...
 
     # Make the API request
     try:
@@ -854,10 +873,10 @@ def improved_calculate_github_position(file_patch: PatchedFile, hunk_idx: int, l
         if not (1 <= line_num_in_hunk <= num_lines_in_hunk):
             print(f"Warning: Line number {line_num_in_hunk} is outside the range of hunk content (1-{num_lines_in_hunk})")
             # Return a special value to indicate invalid position but don't skip the comment
-            return {
-                "invalidPosition": True,
-                "file": file_patch.path
-            }
+            # If line number is invalid, return None to indicate the position could not be precisely calculated.
+            # The calling function will handle this by marking it as an "invalidPosition" comment.
+            logger.warning(f"Line number {line_num_in_hunk} is outside the range of hunk content (1-{num_lines_in_hunk}) for file {file_patch.path}, hunk {hunk_idx}. Returning None for position.")
+            return None
 
         # Calculate position based on hunk position and line number
         position = 0
@@ -952,7 +971,8 @@ def get_ai_response_with_structured_output(prompt: str, model_name: str, max_ret
 
             enforce_gemini_rate_limits()
             # Only show first 5 chars of key followed by *** for security
-            key_prefix = gemini_key_manager.get_current_key()[:5] if gemini_key_manager.get_current_key() else "None"
+            current_key = gemini_key_manager.get_current_key()
+            key_prefix = current_key[:5] if current_key else "None"
             print(f"Attempt {attempt}/{max_retries} - Sending prompt to Gemini model {model_name} with structured output using key: {key_prefix}***")
 
             # Generate content with the prompt
@@ -1027,7 +1047,8 @@ def get_ai_response_with_structured_output(prompt: str, model_name: str, max_ret
                 # Try to rotate to the next available key
                 if gemini_key_manager.rotate_key():
                     # Only show first 5 chars of key followed by *** for security
-                    key_prefix = gemini_key_manager.get_current_key()[:5] if gemini_key_manager.get_current_key() else "None"
+                    rotated_key = gemini_key_manager.get_current_key()
+                    key_prefix = rotated_key[:5] if rotated_key else "None"
                     print(f"Rotated to alternative API key {gemini_key_manager.get_current_key_name()}: {key_prefix}***")
                     # Don't increment attempt counter when we rotate keys
                     continue
@@ -1366,37 +1387,20 @@ def create_review_and_summary_comment(pr_details: PRDetails, comments_for_gh_rev
     pr = pr_details.pr_obj
     num_suggestions = len(comments_for_gh_review)
 
-    # Check if the global gh client is authenticated with the bot identity
+    # Ensure comments are posted by the GitHub App bot
     try:
-        # First try to use the global gh client which should already be authenticated
-        if gh and hasattr(gh, '_Github__requester') and hasattr(gh._Github__requester, 'auth'):
-            # Check if we're using the zen-ai-qa bot identity (app_id 1281729)
-            auth_header = getattr(gh._Github__requester.auth, 'token', '')
-            if auth_header and os.environ.get("ZEN_APP_INSTALLATION_ID"):
-                # We're already authenticated with the bot identity
-                repo = gh.get_repo(pr_details.get_full_repo_name())
-                pr = repo.get_pull(pr_details.pull_number)
-                logger.info(f"Using globally authenticated client with bot identity for PR #{pr_details.pull_number}")
-            else:
-                # We're authenticated but not with the bot identity, try to re-authenticate
-                logger.info("Global client not authenticated with bot identity, attempting to use bot credentials")
-                # Create a new authenticator instance for this request
-                review_auth = GitHubAuthenticator()
-                github_client, token = review_auth.authenticate()
-
-                if github_client and token:
-                    # Create a new PR object with the authenticated client
-                    repo = github_client.get_repo(pr_details.get_full_repo_name())
-                    pr = repo.get_pull(pr_details.pull_number)
-                    logger.info(f"Successfully authenticated with bot identity for PR #{pr_details.pull_number}")
-                else:
-                    logger.warning("Bot authentication failed. Using original PR object.")
+        # Authenticate using the GitHub App token for posting comments
+        # This ensures comments are posted as the bot, not the GITHUB_TOKEN user
+        if authenticator.token:
+            bot_github_client = Github(authenticator.token)
+            repo_obj_for_comment = bot_github_client.get_repo(pr_details.get_full_repo_name())
+            pr = repo_obj_for_comment.get_pull(pr_details.pull_number)
+            logger.info(f"Authenticated as bot for creating review and summary comment for PR #{pr_details.pull_number}")
         else:
-            # Global client not properly initialized, fall back to original PR object
-            logger.warning("Global GitHub client not properly initialized. Using original PR object.")
-    except Exception as auth_error:
-        logger.error(f"Error during GitHub authentication: {auth_error}")
-        logger.warning("Falling back to original PR object due to error.")
+            logger.error("Authenticator token not available for bot authentication. Comments might be posted as GITHUB_TOKEN user.")
+    except Exception as e:
+        logger.error(f"Error during bot authentication for comments: {e}")
+        logger.warning("Proceeding with existing PR object, comments might not be posted as bot.")
 
     # Process and post review comments
     if num_suggestions > 0:
@@ -1598,6 +1602,14 @@ def main():
 
         # Determine what to review based on event type
         last_run_sha_from_env = os.environ.get("LAST_RUN_SHA", "").strip()
+        
+        # Ensure pr_details.pr_obj is not None before accessing its attributes
+        if pr_details.pr_obj is None:
+            logger.error("PR object is None in main. Cannot retrieve SHAs. Exiting.")
+            save_review_results_to_json(pr_details, [], "reviews/gemini-pr-review.json")
+            create_review_and_summary_comment(pr_details, [], "reviews/gemini-pr-review.json")
+            return
+            
         head_sha = pr_details.pr_obj.head.sha
         base_sha = pr_details.pr_obj.base.sha
 
