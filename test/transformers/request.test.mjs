@@ -359,7 +359,7 @@ describe('Request Transformers', () => {
       expect(result).toEqual({});
     });
 
-    it('should transform function tools', () => {
+    it('should transform function tools with Gemini compatibility adjustments', () => {
       const req = {
         tools: [
           {
@@ -367,10 +367,39 @@ describe('Request Transformers', () => {
             function: {
               name: "get_weather",
               description: "Get weather information",
+              strict: true,  // This should be removed
               parameters: {
+                $schema: "http://json-schema.org/draft-07/schema#",  // This will be removed
                 type: "object",
                 properties: {
-                  location: { type: "string" }
+                  location: { type: "string" },
+                  temperature_range: {
+                    type: "object",
+                    properties: {
+                      min: {
+                        type: "number",
+                        exclusiveMinimum: -273.15  // This will be removed
+                      },
+                      max: {
+                        type: "number",
+                        exclusiveMaximum: 1000     // This will be removed
+                      }
+                    },
+                    allOf: [{ required: ["min"] }]  // This will be removed
+                  }
+                },
+                additionalProperties: false,  // This will be removed
+                if: {  // This will be removed
+                  properties: { location: { const: "Antarctica" } }
+                },
+                then: {  // This will be removed
+                  properties: {
+                    temperature_range: {
+                      properties: {
+                        max: { maximum: 0 }
+                      }
+                    }
+                  }
                 }
               }
             }
@@ -385,11 +414,29 @@ describe('Request Transformers', () => {
         function_declarations: [{
           name: "get_weather",
           description: "Get weather information",
+          // strict property should be removed
           parameters: {
+            // $schema removed by adjustSchema
             type: "object",
             properties: {
-              location: { type: "string" }
+              location: { type: "string" },
+              temperature_range: {
+                type: "object",
+                properties: {
+                  min: {
+                    type: "number"
+                    // exclusiveMinimum removed by adjustSchema
+                  },
+                  max: {
+                    type: "number"
+                    // exclusiveMaximum removed by adjustSchema
+                  }
+                }
+                // allOf removed by adjustSchema
+              }
             }
+            // additionalProperties removed by adjustSchema
+            // if/then removed by adjustSchema
           }
         }]
       });
@@ -563,8 +610,15 @@ describe('Request Transformers', () => {
             schema: {
               type: "object",
               properties: {
-                name: { type: "string" }
-              }
+                name: { type: "string" },
+                age: {
+                  type: "number",
+                  exclusiveMinimum: 0,  // Response format schemas are passed through
+                  exclusiveMaximum: 150
+                }
+              },
+              $schema: "http://json-schema.org/draft-07/schema#",  // Response format schemas are passed through
+              allOf: [{ required: ["name"] }]  // Response format schemas are passed through
             }
           }
         }
@@ -572,11 +626,18 @@ describe('Request Transformers', () => {
 
       const result = transformConfig(req);
 
-      expect(result.responseSchema).toEqual({
+      expect(result.responseJsonSchema).toEqual({
         type: "object",
         properties: {
-          name: { type: "string" }
-        }
+          name: { type: "string" },
+          age: {
+            type: "number",
+            exclusiveMinimum: 0,
+            exclusiveMaximum: 150
+          }
+        },
+        $schema: "http://json-schema.org/draft-07/schema#",
+        allOf: [{ required: ["name"] }]
       });
       expect(result.responseMimeType).toBe("application/json");
     });
@@ -595,7 +656,7 @@ describe('Request Transformers', () => {
 
       const result = transformConfig(req);
 
-      expect(result.responseSchema).toEqual({
+      expect(result.responseJsonSchema).toEqual({
         enum: ["option1", "option2", "option3"]
       });
       expect(result.responseMimeType).toBe("text/x.enum");
