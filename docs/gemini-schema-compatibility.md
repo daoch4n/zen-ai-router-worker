@@ -1,162 +1,118 @@
 # Gemini API JSON Schema Compatibility
 
-This document explains the JSON schema compatibility fixes implemented to resolve errors when using OpenAI-style JSON schemas with the Gemini API.
+This document explains the JSON Schema compatibility limitations and transformations applied for Gemini API.
 
-## Problem
+## Schema Compatibility Overview
 
-The Gemini API has more restrictive JSON schema support compared to OpenAI's API. When using certain JSON Schema Draft 7+ properties, the Gemini API returns validation errors like:
-
-```
-Invalid JSON payload received. Unknown name "exclusiveMinimum" at 'tools[0].function_declarations[0].parameters.properties[0].value': Cannot find field.
-Invalid JSON payload received. Unknown name "$schema" at 'tools[0].function_declarations[0].parameters': Cannot find field.
-```
-
-## Solution
-
-The `adjustProps` and `adjustSchema` functions in `src/utils/helpers.mjs` automatically remove or transform unsupported JSON schema properties to ensure compatibility with the Gemini API.
+**IMPORTANT**: The Gemini API has limited JSON Schema support and requires transformation of OpenAI schemas to remove unsupported properties.
 
 ## Unsupported Properties
 
-The following JSON Schema properties are automatically removed:
+The following JSON Schema properties are **NOT supported** by Gemini API and are automatically removed:
 
-### JSON Schema Draft 7+ Metadata
-- `$schema` - Schema version identifier
-- `$id` - Schema identifier
-- `$ref` - Schema reference
-- `$comment` - Schema comments
+- `$schema` - Schema version identifier ❌
+- `$id` - Schema identifier ❌
+- `exclusiveMinimum`/`exclusiveMaximum` - Exclusive numeric constraints ❌
+- `allOf`/`anyOf`/`oneOf` - Schema composition ❌
+- `if`/`then`/`else` - Conditional schemas ❌
+- `const` - Constant values (transformed to `enum`) ❌
+- `additionalProperties: false` - Strict object validation ❌
+- Various other Draft 7+ properties ❌
 
-### Numeric Validation Keywords
-- `exclusiveMinimum` - Exclusive minimum value constraint
-- `exclusiveMaximum` - Exclusive maximum value constraint
+## Implementation
 
-### Complex Composition Keywords
-- `allOf` - Schema must match all sub-schemas
-- `anyOf` - Schema must match any sub-schema
-- `oneOf` - Schema must match exactly one sub-schema
-- `not` - Schema must not match the sub-schema
-
-### Conditional Schema Keywords
-- `if` - Conditional schema application
-- `then` - Schema to apply if condition is true
-- `else` - Schema to apply if condition is false
-
-### Content Validation
-- `contentEncoding` - Content encoding specification
-- `contentMediaType` - Content media type specification
-- `contentSchema` - Content schema specification
-
-### Additional Draft 7+ Keywords
-- `readOnly` - Property is read-only
-- `writeOnly` - Property is write-only
-- `examples` - Example values
-
-## Property Transformations
-
-### `const` to `enum`
-The `const` keyword is transformed to `enum` with a single value:
-
-```javascript
-// Before
-{
-  "type": "string",
-  "const": "fixed-value"
-}
-
-// After
-{
-  "type": "string",
-  "enum": ["fixed-value"]
-}
-```
-
-### `additionalProperties: false`
-This property is removed for object schemas:
-
-```javascript
-// Before
-{
-  "type": "object",
-  "properties": {
-    "name": { "type": "string" }
-  },
-  "additionalProperties": false
-}
-
-// After
-{
-  "type": "object",
-  "properties": {
-    "name": { "type": "string" }
-  }
-}
-```
+The transformation logic applies schema adjustments to ensure compatibility:
+- Tool function declarations are cleaned using `adjustSchema()`
+- Response format schemas use `responseJsonSchema` field
+- Unsupported properties are automatically removed
 
 ## Usage
 
-The schema adjustment happens automatically when:
+Schema transformations are applied automatically when:
 
-1. **Tool schemas** are processed in `transformTools()` function
-2. **Response format schemas** are processed in `transformConfig()` function
-3. **Any OpenAI schema** is passed through `adjustSchema()` function
+1. **Tool function declarations** are processed in `transformTools()` using `adjustSchema()`
+2. **Response format schemas** are processed in `transformConfig()` using `responseJsonSchema`
+3. **OpenAI schemas** are cleaned to remove unsupported properties
 
-No manual intervention is required - the compatibility fixes are applied transparently.
+No manual intervention is required - compatibility transformations are applied transparently.
+
+## Benefits
+
+1. **API Compatibility**: Ensures requests work with Gemini API limitations
+2. **Automatic Transformation**: Unsupported properties are removed automatically
+3. **Error Prevention**: Prevents API errors from unsupported schema features
+4. **Simplified Usage**: Developers can use OpenAI-style schemas without worrying about compatibility
 
 ## Best Practices
 
-To ensure optimal compatibility with Gemini API:
+When working with schemas for Gemini API:
 
-1. **Use simple schemas** - Avoid complex composition keywords when possible
-2. **Use `enum` instead of `const`** - For fixed values, prefer enum arrays
-3. **Avoid Draft 7+ features** - Stick to basic JSON Schema features
-4. **Test thoroughly** - Verify your schemas work with both OpenAI and Gemini APIs
+1. **Avoid unsupported features** - Use basic JSON Schema properties when possible
+2. **Use `enum` instead of `const`** - `const` is automatically converted to `enum`
+3. **Avoid complex composition** - `allOf`, `anyOf`, `oneOf` are not supported
+4. **Use basic validation** - Stick to `minimum`/`maximum` instead of exclusive variants
+5. **Don't rely on `additionalProperties: false`** - This constraint is removed
 
 ## Example
 
-Here's an example of a schema before and after adjustment:
+Here's an example showing schema transformation for Gemini API compatibility:
 
-### Before Adjustment
+### OpenAI Schema (Input)
 ```javascript
 {
   "type": "function",
   "function": {
     "name": "get_weather",
-    "strict": true,
+    "strict": true,  // ❌ Removed
     "parameters": {
-      "$schema": "http://json-schema.org/draft-07/schema#",
+      "$schema": "http://json-schema.org/draft-07/schema#",  // ❌ Removed
       "type": "object",
       "properties": {
-        "location": {
-          "type": "string",
-          "exclusiveMinimum": 0
+        "temperature": {
+          "type": "number",
+          "exclusiveMinimum": -273.15,  // ❌ Removed
+          "exclusiveMaximum": 1000      // ❌ Removed
         },
         "units": {
-          "const": "celsius"
+          "const": "celsius"            // ❌ Transformed to enum
+        },
+        "conditions": {
+          "anyOf": [                    // ❌ Removed
+            { "const": "sunny" },
+            { "const": "cloudy" },
+            { "const": "rainy" }
+          ]
         }
       },
-      "additionalProperties": false,
-      "required": ["location"]
+      "additionalProperties": false,    // ❌ Removed
+      "required": ["temperature"]
     }
   }
 }
 ```
 
-### After Adjustment
+### Result (Gemini-Compatible)
 ```javascript
 {
   "type": "function",
   "function": {
     "name": "get_weather",
+    // strict property removed
     "parameters": {
+      // $schema removed
       "type": "object",
       "properties": {
-        "location": {
-          "type": "string"
+        "temperature": {
+          "type": "number"
+          // exclusiveMinimum/exclusiveMaximum removed
         },
         "units": {
-          "enum": ["celsius"]
+          "enum": ["celsius"]           // const converted to enum
         }
+        // conditions with anyOf removed entirely
       },
-      "required": ["location"]
+      // additionalProperties removed
+      "required": ["temperature"]
     }
   }
 }
@@ -164,15 +120,16 @@ Here's an example of a schema before and after adjustment:
 
 ## Testing
 
-Comprehensive tests are available in `test/utils/helpers.test.mjs` that verify:
+Comprehensive tests are available in `test/transformers/request.test.mjs` that verify:
 
-- All unsupported properties are removed
-- Property transformations work correctly
-- Nested objects and arrays are processed recursively
-- Edge cases are handled safely
-- Valid properties are preserved
+- Unsupported JSON Schema properties are removed from tool schemas
+- `responseJsonSchema` is used for response format schemas
+- Tool function declarations are properly cleaned using `adjustSchema()`
+- `strict` property is removed from function schemas
+- `const` values are converted to `enum` arrays
+- `additionalProperties: false` is removed
 
 Run tests with:
 ```bash
-npm test -- test/utils/helpers.test.mjs
+npm test -- test/transformers/request.test.mjs
 ```
