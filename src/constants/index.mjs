@@ -9,8 +9,6 @@ export const BASE_URL = "https://generativelanguage.googleapis.com";
 /** API version used for all Gemini API requests */
 export const API_VERSION = "v1beta";
 
-/** Client identifier sent with API requests for tracking and debugging */
-export const API_CLIENT = "genai-js/0.24.1";
 
 /** Default Gemini model used when no specific model is requested */
 export const DEFAULT_MODEL = "gemini-2.0-flash";
@@ -95,7 +93,6 @@ export const REASONS_MAP = {
 export const STREAM_DELIMITER = "\n\n";
 
 /** Regex pattern for parsing server-sent event data lines */
-export const RESPONSE_LINE_REGEX = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
 
 /** Separator used to join multiple content parts in responses */
 export const CONTENT_SEPARATOR = "\n\n|>";

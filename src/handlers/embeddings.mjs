@@ -2,10 +2,10 @@
  * Handler for OpenAI-compatible embeddings endpoint.
  * Transforms embedding requests to Gemini API format and processes responses.
  */
-import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
 import { HttpError } from '../utils/error.mjs';
 import { processEmbeddingsResponse } from '../transformers/response.mjs';
+import { transformRequest } from '../transformers/request.mjs';
 import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/index.mjs';
 
 /**
@@ -26,37 +26,21 @@ export async function handleEmbeddings(req, apiKey, genAI) {
   }
 
   // Determine the actual model name for Gemini API
-  let model;
-  if (req.model.startsWith("models/")) {
-    model = req.model;
-  } else {
-    // Use default embedding model for non-Gemini model names
-    if (!req.model.startsWith("gemini-")) {
-      req.model = DEFAULT_EMBEDDINGS_MODEL;
-    }
-    model = "models/" + req.model;
-  }
+  // Transform the request using the unified transformRequest function
+  const body = await transformRequest(req);
 
-  // Normalize input to array format for batch processing
-  if (!Array.isArray(req.input)) {
-    req.input = [req.input];
-  }
+  // Configure Gemini model for embeddings using the model from the transformed body
+  const geminiEmbeddingsModel = genAI.getGenerativeModel({ model: body.model });
 
-  // Configure Gemini model for embeddings
-  const geminiEmbeddingsModel = genAI.getGenerativeModel({ model });
-
-  // Call Gemini embedContent API
-  const response = await geminiEmbeddingsModel.embedContent({
-    content: { parts: req.input.map(text => ({ text })) },
-    outputDimensionality: req.dimensions,
-  });
+  // Call Gemini embedContent API with the directly compatible body
+  const response = await geminiEmbeddingsModel.embedContent(body);
 
   // The `response` object from the library is different from a standard `Response` object.
   // Process Gemini response to OpenAI format
-  const body = JSON.stringify(processEmbeddingsResponse(response, req.model), null, "  ");
+  const responseBody = JSON.stringify(processEmbeddingsResponse(response, req.model), null, "  ");
 
   // Create a new Response object with the transformed body
-  return new Response(body, {
+  return new Response(responseBody, {
     headers: fixCors(new Headers({ 'Content-Type': 'application/json' }))
   });
 }

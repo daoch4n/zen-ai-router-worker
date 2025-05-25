@@ -1,0 +1,35 @@
+# Task ID: 5
+# Title: Remove Custom Header Factory (src/utils/auth.mjs)
+# Status: in-progress
+# Dependencies: 1
+# Priority: medium
+# Description: Delete the `makeHeaders` function from `src/utils/auth.mjs` and remove any imports or usages of it, as the js-genai SDK automatically handles authentication headers.
+# Details:
+1.  **Delete `makeHeaders` function:** Remove the entire `makeHeaders` function from `src/utils/auth.mjs`.
+    ```javascript
+    // src/utils/auth.mjs
+    // REMOVE THE ENTIRE FUNCTION:
+    // export function makeHeaders(apiKey) {
+    //     return {
+    //         'x-goog-api-key': apiKey,
+    //         'x-goog-api-client': API_CLIENT,
+    //     };
+    // }
+    ```
+2.  **Remove imports and usages:** Remove any `import` statements for `makeHeaders` from other files (e.g., `src/handlers/models.mjs` after Task 1.1 is complete).
+    ```javascript
+    // Any file importing makeHeaders (e.g., src/handlers/models.mjs)
+    // REMOVE: import { makeHeaders } from '../utils/auth.mjs';
+    ```
+3.  **Remove `API_CLIENT` constant:** If the `API_CLIENT` constant in `src/constants/index.mjs` is no longer used by any other part of the application code after `makeHeaders` is removed, it can also be deleted.
+    ```javascript
+    // src/constants/index.mjs
+    // If API_CLIENT is only used by makeHeaders, REMOVE IT:
+    // export const API_CLIENT = '...';
+    ```
+
+# Test Strategy:
+1.  Verify that `src/utils/auth.mjs` no longer contains the `makeHeaders` function.
+2.  Perform integration tests for all API endpoints (`/models`, `/chat/completions`, `/embeddings`) to ensure they continue to function correctly and are authenticated.
+3.  Confirm that no other files attempt to import or use `makeHeaders`.
+4.  Check `src/constants/index.mjs` to ensure `API_CLIENT` is removed if it has no other consumers.

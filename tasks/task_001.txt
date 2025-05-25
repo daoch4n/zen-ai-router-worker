@@ -1,0 +1,62 @@
+# Task ID: 1
+# Title: Refactor Models Handler (src/handlers/models.mjs) to Use js-genai SDK
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Refactor the `handleModels` function in `src/handlers/models.mjs` to use the `genAI.listModels()` method from the `@google/generative-ai` SDK instead of a direct `Workspace` call and custom header utility.
+# Details:
+1.  **Modify `src/worker.mjs`:** Ensure the `genAI` instance (initialized with `new GoogleGenerativeAI(env.GOOGLE_API_KEY)`) is passed as an argument to the `handleModels` function. This will align its signature with `handleCompletions` and `handleEmbeddings`.
+    ```javascript
+    // In handleRequest or similar, where handleModels is called
+    import { GoogleGenerativeAI } from '@google/generative-ai';
+    // ...
+    const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
+    // ...
+    // Update the call to handleModels
+    // For example: handleModels(request, env, genAI);
+    ```
+2.  **Modify `src/handlers/models.mjs`:**
+    *   Update the function signature to accept the `genAI` instance.
+    *   Remove the direct `Workspace` call to `${BASE_URL}/${API_VERSION}/models`.
+    *   Remove the `import` and usage of `makeHeaders` from `../utils/auth.mjs`.
+    *   Call the appropriate model listing method on the `genAI` instance (e.g., `await genAI.listModels()`).
+    *   Adapt the existing transformation logic to iterate over the SDK response (`models` array from `genAI.listModels()`) and format it into the OpenAI-compatible model list structure. Ensure `id` is derived from `model.name` (e.g., `model.name.replace("models/", "")`).
+    ```javascript
+    // src/handlers/models.mjs
+    export async function handleModels(request, env, genAI) {
+        // Remove direct Workspace fetch call and makeHeaders usage
+        // const headers = makeHeaders(env.GOOGLE_API_KEY); // REMOVE THIS
+        // const response = await fetch(`${BASE_URL}/${API_VERSION}/models`, { headers }); // REMOVE THIS
+
+        // Use genAI.listModels()
+        const { models } = await genAI.listModels(); // SDK returns { models: [...] }
+
+        // Adapt transformation logic to SDK's Model objects
+        const openAIModels = models.map(model => {
+            const id = model.name.replace("models/", "");
+            return {
+                id: id,
+                object: "model",
+                created: Date.now(), // Or a fixed value if not available from SDK
+                owned_by: "google",
+                permission: [],
+                // Add other necessary fields like capabilities, token limits if available in SDK model object
+                // Example:
+                // capabilities: model.capabilities,
+                // input_token_limit: model.inputTokenLimit,
+                // output_token_limit: model.outputTokenLimit,
+            };
+        });
+
+        return new Response(JSON.stringify({ data: openAIModels, object: "list" }), {
+            headers: { 'Content-Type': 'application/json' }
+        });
+    }
+    ```
+
+# Test Strategy:
+1.  Send a GET request to the `/models` endpoint of the Cloudflare worker.
+2.  Verify that the response is a valid JSON array of models in the OpenAI format.
+3.  Confirm that the `id` field for each model is correctly derived (e.g., `gemini-pro` from `models/gemini-pro`).
+4.  Inspect the worker's logs (if available) or use a debugger to confirm that the `genAI.listModels()` method was invoked and no direct `fetch` call to the Gemini `/models` endpoint was made.
+5.  Ensure `makeHeaders` is no longer imported or used in `src/handlers/models.mjs`.

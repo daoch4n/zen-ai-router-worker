@@ -3,7 +3,7 @@
  * and transform them to OpenAI-compatible streaming format.
  */
 import { transformCandidatesDelta, checkPromptBlock, transformUsage } from './response.mjs';
-import { RESPONSE_LINE_REGEX, STREAM_DELIMITER } from '../constants/index.mjs';
+import { STREAM_DELIMITER } from '../constants/index.mjs';
 
 /**
  * Formats an object as a server-sent event data line.
@@ -18,62 +18,23 @@ export const sseline = (obj) => {
 };
 
 /**
- * Transform stream function that parses incoming Gemini SSE chunks.
- * Buffers partial data and extracts complete JSON objects for processing.
- *
- * @param {string} chunk - Raw text chunk from Gemini stream
- * @param {TransformStreamDefaultController} controller - Stream controller for output
- * @this {Object} Transform stream context with buffer property
- */
-export function parseStream(chunk, controller) {
-  this.buffer += chunk;
-  do {
-    const match = this.buffer.match(RESPONSE_LINE_REGEX);
-    if (!match) { break; }
-    controller.enqueue(match[1]);
-    this.buffer = this.buffer.substring(match[0].length);
-  } while (true); // eslint-disable-line no-constant-condition
-}
-
-/**
- * Flush function that handles any remaining buffered data when stream ends.
- * Logs errors for incomplete data and marks buffer issues for downstream handling.
- *
- * @param {TransformStreamDefaultController} controller - Stream controller for output
- * @this {Object} Transform stream context with buffer and shared properties
- */
-export function parseStreamFlush(controller) {
-  if (this.buffer) {
-    console.error("Invalid data:", this.buffer);
-    controller.enqueue(this.buffer);
-    this.shared.is_buffers_rest = true;
-  }
-}
-
-/**
  * Transform stream function that converts Gemini streaming responses to OpenAI format.
  * Handles candidate processing, content filtering, and streaming protocol compliance.
  *
- * @param {string} line - JSON string from parsed Gemini stream
+ * @param {import("@google/generative-ai").StreamGenerateContentResponse} data - StreamGenerateContentResponse object from Gemini stream
  * @param {TransformStreamDefaultController} controller - Stream controller for output
  * @this {Object} Transform stream context with id, model, thinkingMode, and other properties
  */
-export function toOpenAiStream(line, controller) {
-  let data;
-  try {
-    data = JSON.parse(line);
-    if (!data || (!data.candidates && !data.promptFeedback)) {
-      throw new Error("Invalid or empty completion chunk object from Gemini.");
-    }
-  } catch (err) {
-    console.error("Error processing stream chunk:", err);
+export function toOpenAiStream(data, controller) {
+  if (!data || (!data.candidates && !data.promptFeedback)) {
+    console.error("Invalid or empty completion chunk object from Gemini:", data);
     controller.enqueue(sseline({
       id: this.id,
       object: "chat.completion.chunk",
       model: this.model,
       choices: [{
         index: 0,
-        delta: { content: `Error: Could not parse Gemini stream chunk. ${err.message}` },
+        delta: { content: `Error: Invalid or empty completion chunk object from Gemini.` },
         finish_reason: "error",
       }],
     }));
@@ -109,7 +70,7 @@ export function toOpenAiStream(line, controller) {
         delta: {
           role: "assistant",
           ...(cand.delta.content !== "" && { content: cand.delta.content }),
-          ...(cand.tool_calls && { tool_calls: cand.tool_calls }),
+          ...(cand.toolCalls && { tool_calls: cand.toolCalls }),
         },
         tool_calls: undefined, // Clear tool_calls from top level of choice
         finish_reason: null, // Clear finish_reason for initial chunk
@@ -122,10 +83,10 @@ export function toOpenAiStream(line, controller) {
   if (cand.delta && cand.delta.content !== "") {
     currentDelta.content = cand.delta.content;
   }
-  if (cand.tool_calls) {
-    currentDelta.tool_calls = cand.tool_calls;
+  if (cand.toolCalls) {
+    currentDelta.tool_calls = cand.toolCalls;
   }
-  cand.tool_calls = undefined; // Ensure tool_calls are not duplicated in subsequent chunks
+  cand.toolCalls = undefined; // Ensure tool_calls are not duplicated in subsequent chunks
 
   // Enqueue the current chunk if it contains new content or tool calls
   if (Object.keys(currentDelta).length > 0) {

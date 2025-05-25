@@ -22,103 +22,15 @@ import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } fro
  * @returns {Object} Gemini-compatible generation configuration
  * @throws {HttpError} When unsupported response format is specified
  */
-export const transformConfig = (req, thinkingConfig = null) => {
-  const generationConfig = {};
-  const customConfig = {};
-
-  // Map OpenAI parameter names to Gemini equivalents for generationConfig
-  for (const key of Object.keys(req)) {
-    const matchedKey = FIELDS_MAP[key];
-    if (matchedKey) {
-      switch (key) {
-        case "max_tokens":
-          // Ensure max_output_tokens is a positive integer
-          const maxOutputTokens = parseInt(req[key], 10);
-          if (!isNaN(maxOutputTokens) && maxOutputTokens > 0) {
-            generationConfig[matchedKey] = maxOutputTokens;
-          } else {
-            console.warn(`Invalid max_tokens value: ${req[key]}. Must be a positive integer.`);
-          }
-          break;
-        case "temperature":
-          // Ensure temperature is a valid float between 0.0 and 2.0
-          const temperature = parseFloat(req[key]);
-          if (!isNaN(temperature) && temperature >= 0.0 && temperature <= 2.0) {
-            generationConfig[matchedKey] = temperature;
-          } else {
-            console.warn(`Invalid temperature value: ${req[key]}. Must be between 0.0 and 2.0.`);
-          }
-          break;
-        case "top_p":
-          // Ensure top_p is a valid float between 0.0 and 1.0
-          const topP = parseFloat(req[key]);
-          if (!isNaN(topP) && topP >= 0.0 && topP <= 1.0) {
-            generationConfig[matchedKey] = topP;
-          } else {
-            console.warn(`Invalid top_p value: ${req[key]}. Must be between 0.0 and 1.0.`);
-          }
-          break;
-        case "top_k":
-          // Ensure top_k is a non-negative integer
-          const topK = parseInt(req[key], 10);
-          if (!isNaN(topK) && topK >= 0) {
-            generationConfig[matchedKey] = topK;
-          } else {
-            console.warn(`Invalid top_k value: ${req[key]}. Must be a non-negative integer.`);
-          }
-          break;
-        case "stop_sequences":
-          // Ensure stop_sequences is an array of strings
-          if (Array.isArray(req[key]) && req[key].every(item => typeof item === 'string')) {
-            generationConfig[matchedKey] = req[key];
-          } else {
-            console.warn(`Invalid stop_sequences value: ${req[key]}. Must be an array of strings.`);
-          }
-          break;
-        case "reasoning_effort":
-          const budget = getBudgetFromLevel(req[key]);
-          if (budget > 0) {
-            customConfig.thinkingConfig = customConfig.thinkingConfig || {};
-            customConfig.thinkingConfig.thinkingBudget = budget;
-          }
-          break;
-        default:
-          // For other mapped fields, directly assign to generationConfig
-          generationConfig[matchedKey] = req[key];
-          break;
-      }
-    }
-  }
-
-  // Apply thinking configuration from model name parsing
-  if (thinkingConfig) {
-    customConfig.thinkingConfig = customConfig.thinkingConfig || {};
-    Object.assign(customConfig.thinkingConfig, thinkingConfig);
-  }
-
-  // Handle response format specifications
-  if (req.response_format) {
-    switch (req.response_format.type) {
-      case "json_schema":
-        adjustSchema(req.response_format);
-        customConfig.responseSchema = req.response_format.json_schema?.schema;
-        if (customConfig.responseSchema && "enum" in customConfig.responseSchema) {
-          customConfig.responseMimeType = "text/x.enum";
-          break;
-        }
-        // eslint-disable-next-line no-fallthrough
-      case "json_object":
-        customConfig.responseMimeType = "application/json";
-        break;
-      case "text":
-        customConfig.responseMimeType = "text/plain";
-        break;
-      default:
-        throw new HttpError("Unsupported response_format.type", 400);
-    }
-  }
-  return { generationConfig, ...customConfig };
-};
+export function transformConfig(openAiConfig) {
+    const generationConfig = {};
+    if (openAiConfig.temperature !== undefined) generationConfig.temperature = openAiConfig.temperature;
+    if (openAiConfig.top_p !== undefined) generationConfig.topP = openAiConfig.top_p;
+    if (openAiConfig.top_k !== undefined) generationConfig.topK = openAiConfig.top_k;
+    if (openAiConfig.max_tokens !== undefined) generationConfig.maxOutputTokens = openAiConfig.max_tokens;
+    if (openAiConfig.stop_sequences !== undefined) generationConfig.stopSequences = openAiConfig.stop_sequences;
+    return generationConfig; // Matches GenerationConfig interface
+}
 
 /**
  * Transforms OpenAI message content to Gemini-compatible parts format.
@@ -255,65 +167,42 @@ export const transformFnCalls = ({ tool_calls }) => {
  * @returns {Promise<Object>} Object with system_instruction and contents for Gemini API
  * @throws {HttpError} When unknown message role is encountered
  */
-export const transformMessages = async (messages) => {
-  if (!messages) { return; }
-
-  const contents = [];
-  let system_instruction;
-
-  // Ensure system_instruction is the first message if present
-  if (messages[0]?.role === "system") {
-    system_instruction = { parts: await transformMsg(messages[0]) };
-    messages = messages.slice(1); // Remove system message from the main flow
-  }
-
-  for (const item of messages) {
-    // Validate message content
-    if (typeof item.content === 'undefined' || item.content === null) {
-      throw new HttpError(`Message content cannot be null or undefined for role: "${item.role}"`, 400);
-    }
-    if (Array.isArray(item.content) && item.content.length === 0) {
-      throw new HttpError(`Message content array cannot be empty for role: "${item.role}"`, 400);
-    }
-
-    switch (item.role) {
-      case "tool": {
-        // Ensure the last content entry is a function call for proper grouping
-        const lastContent = contents[contents.length - 1];
-        if (!lastContent || !lastContent.parts || !lastContent.parts.calls) {
-          throw new HttpError("Tool message received without a preceding function call context.", 400);
+export function transformMessages(messages) {
+    const contents = [];
+    for (const msg of messages) {
+        const parts = [];
+        if (msg.content) {
+            parts.push({ text: msg.content }); // Matches Part interface for text
         }
-        transformFnResponse(item, lastContent.parts);
-        continue;
-      }
+        if (msg.tool_calls && msg.tool_calls.length > 0) {
+            for (const toolCall of msg.tool_calls) {
+                parts.push({
+                    functionCall: {
+                        name: toolCall.function.name,
+                        args: toolCall.function.arguments // Ensure this is already parsed JSON
+                    }
+                });
+            }
+        }
+        if (msg.role === "tool" && msg.tool_call_id && msg.content) {
+            parts.push({
+                functionResponse: {
+                    name: msg.tool_call_id, // Assuming tool_call_id maps to function name for response
+                    response: {
+                        result: msg.content // Or parse if content is JSON string
+                    }
+                }
+            });
+        }
 
-      case "assistant":
-        // Map assistant role to model for Gemini API
-        item.role = "model";
-        break;
-
-      case "user":
-        // User role maps directly
-        break;
-
-      default:
-        throw new HttpError(`Unknown message role: "${item.role}"`, 400);
+        if (msg.role === "user") {
+            contents.push({ role: "user", parts: parts }); // Matches Content interface
+        } else if (msg.role === "assistant") {
+            contents.push({ role: "model", parts: parts }); // Matches Content interface
+        }
     }
-
-    contents.push({
-      role: item.role,
-      parts: item.tool_calls ? transformFnCalls(item) : await transformMsg(item)
-    });
-  }
-
-  // Ensure conversation doesn't start with a model message, if system instruction is not present
-  if (!system_instruction && contents.length > 0 && contents[0].role === "model") {
-    // If the first message is a model message, prepend a dummy user message
-    contents.unshift({ role: "user", parts: [{ text: "" }] });
-  }
-
-  return { system_instruction, contents };
-};
+    return contents;
+}
 
 /**
  * Transforms OpenAI tools and tool choice configuration to Gemini format.
@@ -325,50 +214,22 @@ export const transformMessages = async (messages) => {
  * @param {Object|string} [req.tool_choice] - Tool calling preference
  * @returns {Object} Object with tools and tool_config for Gemini API
  */
-export const transformTools = (req) => {
-  const tools = [];
-  let toolConfig = undefined;
-
-  if (req.tools) {
-    const functionDeclarations = req.tools
-      .filter(tool => tool.type === "function")
-      .map(tool => {
-        adjustSchema(tool);
-        return tool.function;
-      });
-
-    if (functionDeclarations.length > 0) {
-      tools.push({ functionDeclarations });
-    }
-  }
-
-  if (req.tool_choice) {
-    let mode;
-    let allowedFunctionNames;
-
-    if (typeof req.tool_choice === "string") {
-      if (req.tool_choice === "none") {
-        mode = "NONE";
-      } else if (req.tool_choice === "auto") {
-        mode = "AUTO";
-      }
-    } else if (req.tool_choice.type === "function" && req.tool_choice.function?.name) {
-      mode = "ANY";
-      allowedFunctionNames = [req.tool_choice.function.name];
-    }
-
-    if (mode) {
-      toolConfig = {
-        functionCallingConfig: {
-          mode,
-          allowedFunctionNames,
-        },
-      };
-    }
-  }
-
-  return { tools, toolConfig };
-};
+export function transformTools(openAiTools) {
+    if (!openAiTools || openAiTools.length === 0) return undefined;
+    const tools = openAiTools.map(tool => {
+        if (tool.type === "function" && tool.function) {
+            return {
+                functionDeclarations: [{
+                    name: tool.function.name,
+                    description: tool.function.description,
+                    parameters: tool.function.parameters // Ensure this matches Schema type
+                }]
+            };
+        }
+        return null;
+    }).filter(Boolean);
+    return tools.length > 0 ? tools : undefined; // Matches Tool interface
+}
 
 /**
  * Transforms OpenAI embedding request to Gemini API format.
@@ -406,25 +267,16 @@ export const transformEmbedRequest = (req) => {
  * @param {Object} [thinkingConfig] - Optional thinking configuration from model parsing
  * @returns {Promise<Object>} Complete Gemini API request object
  */
-export const transformRequest = async (req, thinkingConfig = null) => {
-  // Determine if it's a chat completion or embedding request
-  if (req.messages) {
-    // Chat completion request
-    const { generationConfig, ...customConfig } = transformConfig(req, thinkingConfig);
-    const { tools, toolConfig } = transformTools(req);
-
-    return {
-      ...await transformMessages(req.messages),
-      safetySettings: SAFETY_SETTINGS,
-      generationConfig,
-      tools,
-      toolConfig,
-      ...customConfig,
-    };
-  } else if (req.input) {
-    // Embedding request
-    return transformEmbedRequest(req);
-  } else {
-    throw new HttpError("Invalid request: missing 'messages' or 'input' field.", 400);
-  }
-};
+export async function transformRequest(openAiRequest) {
+    if (openAiRequest.messages) {
+        const requestBody = {};
+        requestBody.contents = transformMessages(openAiRequest.messages);
+        requestBody.generationConfig = transformConfig(openAiRequest);
+        requestBody.tools = transformTools(openAiRequest.tools);
+        return requestBody; // This will be GenerateContentRequest
+    } else if (openAiRequest.input) {
+        return transformEmbedRequest(openAiRequest); // This will be EmbedContentRequest
+    } else {
+        throw new HttpError("Invalid request: missing 'messages' or 'input' field.", 400);
+    }
+}

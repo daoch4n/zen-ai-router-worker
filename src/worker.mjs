@@ -79,7 +79,7 @@ async function fetch(request, env) {
         if (!(request.method === "GET")) {
           throw new Error("Assertion failed: expected GET request");
         }
-        return handleModels(apiKey)
+        return handleModels(genAI)
           .catch(errHandler);
 
       default:

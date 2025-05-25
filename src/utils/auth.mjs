@@ -5,19 +5,6 @@
 import { HttpError } from './error.mjs';
 import { API_CLIENT } from '../constants/index.mjs';
 
-/**
- * Creates HTTP headers for Gemini API requests with authentication and client identification.
- * Includes Google API client identifier and optional API key for authenticated requests.
- *
- * @param {string} apiKey - Google API key for Gemini access
- * @param {Object} [more] - Additional headers to include in the request
- * @returns {Object} Complete headers object for Gemini API requests
- */
-export const makeHeaders = (apiKey, more) => ({
-  "x-goog-api-client": API_CLIENT,
-  ...(apiKey && { "x-goog-api-key": apiKey }),
-  ...more
-});
 
 /**
  * Validates worker access and retrieves a random Google API key from environment.

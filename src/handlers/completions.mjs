@@ -2,13 +2,12 @@
  * Handler for OpenAI-compatible chat completions endpoint.
  * Transforms OpenAI requests to Gemini API format and processes responses.
  */
-import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
-import { generateId, parseModelName, getBudgetFromLevel } from '../utils/helpers.mjs';
+import { generateId, parseModelName, getBudgetFromLevel, adjustSchema } from '../utils/helpers.mjs';
 import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
-import { parseStream, parseStreamFlush, toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
-import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constants/index.mjs';
+import { toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
+import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES, FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP } from '../constants/index.mjs';
 
 /**
  * Processes chat completion requests by transforming OpenAI format to Gemini API,
@@ -43,27 +42,59 @@ export async function handleCompletions(req, apiKey, genAI) {
   }
 
   // Configure thinking capabilities for reasoning-enhanced models
-  let thinkingConfig = null;
-  if (mode === THINKING_MODES.THINKING || mode === THINKING_MODES.REFINED) {
-    const thinkingBudget = getBudgetFromLevel(budget);
-    if (thinkingBudget > 0) {
-      thinkingConfig = {
-        thinkingBudget,
-        includeThoughts: mode === THINKING_MODES.THINKING,
-      };
-    }
+  let systemInstruction;
+  // Check if the first message is a system message and extract it
+  if (req.messages && req.messages.length > 0 && req.messages[0].role === "system") {
+      const systemMessage = req.messages.shift(); // Remove system message from the array
+      // Assuming system message content is always text for now, based on simplified transformMessages
+      systemInstruction = { parts: [{ text: systemMessage.content }] };
   }
 
-  let body = await transformRequest(req, thinkingConfig);
+  let body = await transformRequest(req); // No thinkingConfig passed here, as it's a top-level field
+
+  body.safetySettings = SAFETY_SETTINGS;
+
+  if (systemInstruction) {
+      body.systemInstruction = systemInstruction;
+  }
+
+  let toolConfig;
+  if (req.tool_choice) {
+      let mode;
+      let allowedFunctionNames;
+
+      if (typeof req.tool_choice === "string") {
+          if (req.tool_choice === "none") {
+              mode = "NONE";
+          } else if (req.tool_choice === "auto") {
+              mode = "AUTO";
+          }
+      } else if (req.tool_choice.type === "function" && req.tool_choice.function?.name) {
+          mode = "ANY";
+          allowedFunctionNames = [req.tool_choice.function.name];
+      }
+
+      if (mode) {
+          toolConfig = {
+              functionCallingConfig: {
+                  mode,
+                  allowedFunctionNames,
+              },
+          };
+      }
+  }
+  if (toolConfig) {
+      body.toolConfig = toolConfig;
+  }
 
   // Enable Google Search tool for search-capable models
   switch (true) {
-    case model.endsWith(":search"):
-      model = model.substring(0, model.length - 7);
+      case model.endsWith(":search"):
+          model = model.substring(0, model.length - 7);
       // eslint-disable-next-line no-fallthrough
-    case originalModel.endsWith("-search-preview"):
-      body.tools = body.tools || [];
-      body.tools.push({googleSearch: {}});
+      case originalModel.endsWith("-search-preview"):
+          body.tools = body.tools || [];
+          body.tools.push({googleSearch: {}});
   }
 
   // Configure Gemini model
@@ -87,21 +118,26 @@ export async function handleCompletions(req, apiKey, genAI) {
 
   if (req.stream) {
     // Process streaming response through transformation pipeline
-    const stream = rawResponse
-      .pipeThrough(new TransformStream({
-        transform: parseStream,
-        flush: parseStreamFlush,
-        buffer: "",
-        shared,
-      }))
-      .pipeThrough(new TransformStream({
+    // Convert AsyncGenerator to ReadableStream for pipeThrough
+    const readableStream = new ReadableStream({
+        async start(controller) {
+            for await (const chunk of rawResponse) {
+                controller.enqueue(chunk);
+            }
+            controller.close();
+        }
+    });
+
+    const openAiStreamTransformer = new TransformStream({
         transform: toOpenAiStream,
         flush: toOpenAiStreamFlush,
         streamIncludeUsage: req.stream_options?.include_usage,
         model, id, last: [],
         thinkingMode: mode,
         shared,
-      }))
+    });
+
+    const stream = readableStream.pipeThrough(openAiStreamTransformer)
       .pipeThrough(new TextEncoderStream());
 
     // Create a new Response object with the transformed stream

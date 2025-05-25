@@ -144,23 +144,44 @@ export const checkPromptBlock = (choices, promptFeedback, key) => {
  * @param {string} [thinkingMode] - Thinking mode for content processing
  * @returns {string} JSON string of OpenAI-compatible completion response
  */
-export const processCompletionsResponse = (data, model, id, thinkingMode = THINKING_MODES.STANDARD) => {
-  const obj = {
-    id,
-    choices: data.candidates.map(cand => transformCandidatesMessage(cand, thinkingMode)),
-    created: Math.floor(Date.now()/1000),
-    model: data.modelVersion ?? model,
-    object: "chat.completion",
-    usage: data.usageMetadata && transformUsage(data.usageMetadata),
-  };
+export function processCompletionsResponse(sdkResponse, modelName) {
+    // sdkResponse is already a GenerateContentResponse object
+    const choices = sdkResponse.candidates.map((candidate, index) => {
+        const message = {
+            role: "assistant",
+            content: candidate.content?.parts.map(part => part.text).join("") || "",
+            tool_calls: candidate.content?.parts.filter(part => part.functionCall).map(part => ({
+                id: `call_${Date.now()}_${index}`,
+                type: "function",
+                function: {
+                    name: part.functionCall.name,
+                    arguments: JSON.stringify(part.functionCall.args)
+                }
+            })) || []
+        };
 
-  // Handle content filtering when no candidates are returned
-  if (obj.choices.length === 0 ) {
-    checkPromptBlock(obj.choices, data.promptFeedback, "message");
-  }
+        return {
+            index: index,
+            message: message,
+            finish_reason: candidate.finishReason || "stop"
+        };
+    });
 
-  return JSON.stringify(obj);
-};
+    const usage = {
+        prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+        completion_tokens: sdkResponse.usageMetadata?.candidatesTokenCount || 0,
+        total_tokens: (sdkResponse.usageMetadata?.promptTokenCount || 0) + (sdkResponse.usageMetadata?.candidatesTokenCount || 0)
+    };
+
+    return {
+        id: `chatcmpl-${Date.now()}`,
+        object: "chat.completion",
+        created: Math.floor(Date.now() / 1000),
+        model: modelName,
+        choices: choices,
+        usage: usage
+    };
+}
 
 /**
  * Transforms a single Gemini embedding object to OpenAI embedding format.
@@ -191,23 +212,23 @@ export const transformEmbedding = (embeddingData, index) => {
  * @param {string} model - Requested model name
  * @returns {Object} OpenAI-compatible embedding response object
  */
-export const processEmbeddingsResponse = (data, model) => {
-  let embeddingsArray = [];
+export function processEmbeddingsResponse(sdkResponse, modelName) {
+    // sdkResponse is already an EmbedContentResponse object
+    const embeddings = sdkResponse.embeddings.map(embedding => ({
+        object: "embedding",
+        embedding: embedding.values,
+        index: 0
+    }));
 
-  // Check if it's a batch embedding response (batchEmbedContents)
-  if (data.embeddings && Array.isArray(data.embeddings)) {
-    embeddingsArray = data.embeddings.map((emb, index) => transformEmbedding(emb, index));
-  } else if (data.embedding) {
-    // Single embedding response (embedContent)
-    embeddingsArray.push(transformEmbedding(data.embedding, 0));
-  } else {
-    throw new Error("Invalid embedding response structure from Gemini API");
-  }
+    const usage = {
+        prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+        total_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0
+    };
 
-  return {
-    object: "list",
-    data: embeddingsArray,
-    model: model,
-    usage: transformUsage(data.usageMetadata),
-  };
-};
+    return {
+        object: "list",
+        data: embeddings,
+        model: modelName,
+        usage: usage
+    };
+}

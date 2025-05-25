@@ -1,0 +1,105 @@
+# Task ID: 2
+# Title: Align Request Transformation with js-genai Input Types
+# Status: done
+# Dependencies: 1
+# Priority: high
+# Description: Modify request transformation functions in `src/transformers/request.mjs` to produce objects directly compatible with js-genai SDK input types (e.g., `GenerateContentRequest`, `EmbedContentRequest`, `Content`, `Part`, `GenerationConfig`, `Tool`).
+# Details:
+Review and modify functions in `src/transformers/request.mjs` to ensure their output matches js-genai SDK's typed interfaces. The `body` variable in handlers (`src/handlers/completions.mjs`, `src/handlers/embeddings.mjs`) should then be directly passable to SDK methods.
+
+**Key Refactoring Steps:**
+1.  **`transformMessages`:** Output `contents` array should contain `Content` objects, with `Part` objects for text, function calls, and function responses. Use the structure `{text: "..."}`, `{functionCall: {...}}`, `{functionResponse: {...}}}`.
+    ```javascript
+    // src/transformers/request.mjs
+    export function transformMessages(messages) {
+        const contents = [];
+        for (const msg of messages) {
+            const parts = [];
+            if (msg.content) {
+                parts.push({ text: msg.content }); // Matches Part interface for text
+            }
+            if (msg.tool_calls && msg.tool_calls.length > 0) {
+                for (const toolCall of msg.tool_calls) {
+                    parts.push({
+                        functionCall: {
+                            name: toolCall.function.name,
+                            args: toolCall.function.arguments // Ensure this is already parsed JSON
+                        }
+                    });
+                }
+            }
+            if (msg.role === "tool" && msg.tool_call_id && msg.content) {
+                parts.push({
+                    functionResponse: {
+                        name: msg.tool_call_id, // Assuming tool_call_id maps to function name for response
+                        response: {
+                            result: msg.content // Or parse if content is JSON string
+                        }
+                    }
+                });
+            }
+
+            if (msg.role === "user") {
+                contents.push({ role: "user", parts: parts }); // Matches Content interface
+            } else if (msg.role === "assistant") {
+                contents.push({ role: "model", parts: parts }); // Matches Content interface
+            }
+        }
+        return contents;
+    }
+    ```
+2.  **`transformConfig`:** Output `generationConfig` object should match js-genai's `GenerationConfig` interface (e.g., `temperature`, `topP`, `topK`, `maxOutputTokens`, `stopSequences`).
+    ```javascript
+    // src/transformers/request.mjs
+    export function transformConfig(openAiConfig) {
+        const generationConfig = {};
+        if (openAiConfig.temperature !== undefined) generationConfig.temperature = openAiConfig.temperature;
+        if (openAiConfig.top_p !== undefined) generationConfig.topP = openAiConfig.top_p;
+        if (openAiConfig.top_k !== undefined) generationConfig.topK = openAiConfig.top_k;
+        if (openAiConfig.max_tokens !== undefined) generationConfig.maxOutputTokens = openAiConfig.max_tokens;
+        if (openAiConfig.stop_sequences !== undefined) generationConfig.stopSequences = openAiConfig.stop_sequences;
+        return generationConfig; // Matches GenerationConfig interface
+    }
+    ```
+3.  **`transformTools`:** Output `tools` array should contain `Tool` objects, specifically `functionDeclarations` matching the `FunctionDeclaration` interface.
+    ```javascript
+    // src/transformers/request.mjs
+    export function transformTools(openAiTools) {
+        if (!openAiTools || openAiTools.length === 0) return undefined;
+        const tools = openAiTools.map(tool => {
+            if (tool.type === "function" && tool.function) {
+                return {
+                    functionDeclarations: [{
+                        name: tool.function.name,
+                        description: tool.function.description,
+                        parameters: tool.function.parameters // Ensure this matches Schema type
+                    }]
+                };
+            }
+            return null;
+        }).filter(Boolean);
+        return tools.length > 0 ? tools : undefined; // Matches Tool interface
+    }
+    ```
+4.  **`transformRequest`:** Aggregate these typed parts into a complete `GenerateContentRequest` (for completions) or `EmbedContentRequest` (for embeddings).
+    ```javascript
+    // src/transformers/request.mjs
+    export async function transformRequest(openAiRequest) {
+        const requestBody = {};
+        requestBody.contents = transformMessages(openAiRequest.messages);
+        requestBody.generationConfig = transformConfig(openAiRequest);
+        requestBody.tools = transformTools(openAiRequest.tools);
+        if (openAiRequest.input) { // For embeddings
+            requestBody.content = { parts: [{ text: openAiRequest.input }] };
+        }
+        return requestBody; // This will be GenerateContentRequest or EmbedContentRequest
+    }
+    ```
+
+# Test Strategy:
+1.  Run existing unit tests for `src/transformers/request.mjs` (if any) and ensure they pass.
+2.  Perform integration tests for `/chat/completions` and `/embeddings` endpoints.
+3.  Send various types of requests (text-only, with tools/functions, with different generation configs) to `/chat/completions`.
+4.  Send requests to `/embeddings`.
+5.  Verify that the responses are correct and match the expected output.
+6.  Use a debugger or logging to inspect the `body` object passed to `geminiModel.generateContent` or `geminiModel.embedContent` in the handlers, confirming it adheres to js-genai's `GenerateContentRequest` or `EmbedContentRequest` structure.

@@ -1,0 +1,118 @@
+# Task ID: 4
+# Title: Refactor Stream Parsing Logic in src/transformers/stream.mjs
+# Status: done
+# Dependencies: 3
+# Priority: high
+# Description: Simplify stream handling by removing custom SSE parsing logic (`parseStream`, `parseStreamFlush`, `RESPONSE_LINE_REGEX`) and directly processing `StreamGenerateContentResponse` objects yielded by the js-genai SDK's `AsyncGenerator` in `src/transformers/stream.mjs`.
+# Details:
+1.  **Modify `src/handlers/completions.mjs`:**
+    *   Recognize that `rawResponse` (which is `response.stream` from `geminiModel.generateContentStream()`) is already an `AsyncGenerator<StreamGenerateContentResponse>`.
+    *   Remove the first `TransformStream` that uses `parseStream` and `parseStreamFlush`.
+    *   Directly pipe the `rawResponse` (converted to a `ReadableStream`) to the `TransformStream` that uses `toOpenAiStream` and `toOpenAiStreamFlush`.
+    ```javascript
+    // src/handlers/completions.mjs
+    import { toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
+    // ...
+    async function handleCompletions(request, env, genAI) {
+        // ...
+        if (isStream) {
+            const geminiModel = genAI.getGenerativeModel({ model: modelId });
+            const rawResponse = await geminiModel.generateContentStream(body); // rawResponse is AsyncGenerator<StreamGenerateContentResponse>
+
+            // REMOVE THE FIRST TRANSFORMSTREAM THAT USES parseStream/parseStreamFlush
+            // const transformStream = new TransformStream({
+            //     transform: parseStream,
+            //     flush: parseStreamFlush
+            // });
+            // const openAiStream = rawResponse.stream.pipeThrough(transformStream); // REMOVE THIS LINE
+
+            const openAiStreamTransformer = new TransformStream({
+                transform: toOpenAiStream,
+                flush: toOpenAiStreamFlush
+            });
+
+            // Convert AsyncGenerator to ReadableStream for pipeThrough
+            const readableStream = new ReadableStream({
+                async start(controller) {
+                    for await (const chunk of rawResponse.stream) {
+                        controller.enqueue(chunk);
+                    }
+                    controller.close();
+                }
+            });
+
+            return new Response(readableStream.pipeThrough(openAiStreamTransformer), {
+                headers: {
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive',
+                    ...corsHeaders
+                }
+            });
+        }
+        // ...
+    }
+    ```
+2.  **Modify `src/transformers/stream.mjs`:**
+    *   Remove `parseStream` and `parseStreamFlush` functions.
+    *   Modify `toOpenAiStream`: Its first parameter (`chunk`) will now be a `StreamGenerateContentResponse` object directly. Remove `JSON.parse(line)` and adapt logic to access fields from this typed object.
+    ```javascript
+    // src/transformers/stream.mjs
+    // REMOVE parseStream and parseStreamFlush functions
+
+    export async function toOpenAiStream(chunk, controller) {
+        // chunk is now a StreamGenerateContentResponse object
+        const data = chunk;
+
+        const choices = [];
+        if (data.candidates && data.candidates.length > 0) {
+            data.candidates.forEach((candidate, index) => {
+                const message = {
+                    role: "assistant",
+                    content: candidate.content?.parts.map(part => part.text).join("") || "",
+                    tool_calls: candidate.content?.parts.filter(part => part.functionCall).map(part => ({
+                        id: `call_${Date.now()}_${index}_stream`,
+                        type: "function",
+                        function: {
+                            name: part.functionCall.name,
+                            arguments: JSON.stringify(part.functionCall.args)
+                        }
+                    })) || []
+                };
+
+                choices.push({
+                    index: index,
+                    delta: message,
+                    finish_reason: candidate.finishReason || null
+                });
+            });
+        }
+
+        const openAiChunk = {
+            id: `chatcmpl-${Date.now()}`,
+            object: "chat.completion.chunk",
+            created: Math.floor(Date.now() / 1000),
+            model: "gemini-pro", // Or the actual model name
+            choices: choices
+        };
+
+        controller.enqueue(`data: ${JSON.stringify(openAiChunk)}\n\n`);
+    }
+
+    export function toOpenAiStreamFlush(controller) {
+        controller.enqueue("data: [DONE]\n\n");
+    }
+    ```
+3.  **`src/constants/index.mjs` modification:**
+    *   Remove `RESPONSE_LINE_REGEX` if it's no longer used elsewhere.
+    ```javascript
+    // src/constants/index.mjs
+    // REMOVE: export const RESPONSE_LINE_REGEX = /data: (.*)/;
+    ```
+
+# Test Strategy:
+1.  Send a streaming POST request to the `/chat/completions` endpoint.
+2.  Verify that the response is a valid Server-Sent Events (SSE) stream in the OpenAI format.
+3.  Confirm that the stream correctly delivers content chunks and a `[DONE]` message at the end.
+4.  Ensure that the custom SSE parsing logic (functions `parseStream`, `parseStreamFlush`, and constant `RESPONSE_LINE_REGEX`) is removed from the codebase.
+5.  Verify that `toOpenAiStream` directly processes `StreamGenerateContentResponse` objects without attempting `JSON.parse`.

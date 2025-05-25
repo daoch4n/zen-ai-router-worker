@@ -1,0 +1,81 @@
+# Task ID: 3
+# Title: Consume Typed SDK Responses in Transformers
+# Status: done
+# Dependencies: 2
+# Priority: high
+# Description: Modify response transformation functions in `src/transformers/response.mjs` to directly accept and process the typed response objects returned by the js-genai SDK (e.g., `GenerateContentResponse`, `EmbedContentResponse`), eliminating the need for manual JSON parsing.
+# Details:
+Identify that in `src/handlers/completions.mjs`, `response.response` (for non-streaming) is already the structured `GenerateContentResponse` from the SDK. Similarly for `src/handlers/embeddings.mjs`, `response` from `geminiEmbeddingsModel.embedContent()` is the structured `EmbedContentResponse`.
+
+**Key Refactoring Steps:**
+1.  Modify `processCompletionsResponse` in `src/transformers/response.mjs` to accept the `GenerateContentResponse` object directly as its `data` parameter (instead of needing `JSON.parse` on text).
+2.  Modify `processEmbeddingsResponse` to accept the `EmbedContentResponse` object directly as its `data` parameter.
+3.  Adapt the internal logic of these and other relevant functions (e.g., `transformCandidates`, `transformUsage`) to access fields from these typed SDK response objects instead of assuming generic JSON object structures.
+    ```javascript
+    // src/transformers/response.mjs
+    export function processCompletionsResponse(sdkResponse, modelName) {
+        // sdkResponse is already a GenerateContentResponse object
+        const choices = sdkResponse.candidates.map((candidate, index) => {
+            const message = {
+                role: "assistant",
+                content: candidate.content?.parts.map(part => part.text).join("") || "",
+                tool_calls: candidate.content?.parts.filter(part => part.functionCall).map(part => ({
+                    id: `call_${Date.now()}_${index}`,
+                    type: "function",
+                    function: {
+                        name: part.functionCall.name,
+                        arguments: JSON.stringify(part.functionCall.args)
+                    }
+                })) || []
+            };
+
+            return {
+                index: index,
+                message: message,
+                finish_reason: candidate.finishReason || "stop"
+            };
+        });
+
+        const usage = {
+            prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+            completion_tokens: sdkResponse.usageMetadata?.candidatesTokenCount || 0,
+            total_tokens: (sdkResponse.usageMetadata?.promptTokenCount || 0) + (sdkResponse.usageMetadata?.candidatesTokenCount || 0)
+        };
+
+        return {
+            id: `chatcmpl-${Date.now()}`,
+            object: "chat.completion",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: choices,
+            usage: usage
+        };
+    }
+
+    export function processEmbeddingsResponse(sdkResponse, modelName) {
+        // sdkResponse is already an EmbedContentResponse object
+        const embeddings = sdkResponse.embeddings.map(embedding => ({
+            object: "embedding",
+            embedding: embedding.values,
+            index: 0
+        }));
+
+        const usage = {
+            prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+            total_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0
+        };
+
+        return {
+            object: "list",
+            data: embeddings,
+            model: modelName,
+            usage: usage
+        };
+    }
+    ```
+
+# Test Strategy:
+1.  Run existing unit tests for `src/transformers/response.mjs` (if any) and ensure they pass.
+2.  Perform integration tests for `/chat/completions` (non-streaming) and `/embeddings` endpoints.
+3.  Verify that the final OpenAI-formatted responses are correct and contain the expected data (e.g., message content, tool calls, embeddings, token usage).
+4.  Confirm that `JSON.parse` calls on direct SDK response objects are removed within these transformation functions.
