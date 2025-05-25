@@ -5,3 +5,8 @@ node_modules
 /output/
 /wrangler.toml
 /coverage/
+.roo/
+.roomodes
+.taskmasterconfig
+logs/
+scripts/
