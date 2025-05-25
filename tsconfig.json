@@ -13,14 +13,12 @@
     "noEmit": true,
     "types": ["@cloudflare/workers-types"],
     "paths": {
-      "backend-worker-template/*": ["./backend-worker-template/src/*"],
       "orchestrator-worker/*": ["./orchestrator-worker/src/*"],
       "src/*": ["./src/*"]
     }
   },
   "include": [
     "src/**/*.ts",
-    "backend-worker-template/src/**/*.ts",
     "orchestrator-worker/src/**/*.ts"
   ],
   "exclude": [
