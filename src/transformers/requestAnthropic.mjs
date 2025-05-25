@@ -1,6 +1,9 @@
 import {
   DEFAULT_ANTHROPIC_VERSION
 } from '../constants/index.mjs';
+import {
+  MalformedRequestError
+} from '../utils/error.mjs'; // Import MalformedRequestError
 
 /**
  * Recursively removes unsupported fields from a JSON schema for Gemini.
@@ -90,31 +93,89 @@ export async function transformAnthropicToOpenAIRequest(anthropicReq, env) {
         if (block.type === "text") {
           textContent.push(block.text);
         } else if (block.type === "tool_result" && message.role === "user") {
+          // FR5.2: Validate incoming tool_result blocks
+          if (!block.tool_use_id || typeof block.tool_use_id !== 'string') {
+            throw new MalformedRequestError("Malformed tool_result block: missing or invalid 'tool_use_id'");
+          }
+          if (block.content === undefined) { // Check for existence of content, can be null
+            throw new MalformedRequestError(`Malformed tool_result block for tool_use_id '${block.tool_use_id}': missing 'content'`);
+          }
+          // If content is a string, try parsing it as JSON, or keep as is
+          let toolContent;
+          if (typeof block.content === 'string') {
+            try {
+              toolContent = JSON.parse(block.content);
+            } catch (e) {
+              // If it's a string but not valid JSON, keep as is.
+              // This allows plain text tool results.
+              toolContent = block.content;
+            }
+          } else if (typeof block.content === 'object' && block.content !== null) {
+            toolContent = block.content;
+          } else {
+            // If content is not string or object, it's malformed for a tool_result
+            throw new MalformedRequestError(`Malformed tool_result block for tool_use_id '${block.tool_use_id}': 'content' must be a string or object`);
+          }
+
           let toolName = `UNKNOWN_TOOL_NAME_FOR_${block.tool_use_id}`;
-          try {
-            if (env.conversationStateDO) {
-              const response = await env.conversationStateDO.fetch(`/retrieve?tool_use_id=${block.tool_use_id}`);
-              if (response.ok) {
-                const { tool_name } = await response.json();
-                if (tool_name) {
-                  toolName = tool_name;
+          const MAX_RETRIES = DO_MAX_RETRIES;
+          const RETRY_DELAY_MS = DO_RETRY_DELAY_MS; // 200ms backoff
+
+          let lastError = null;
+          let toolNameFound = false;
+
+          for (let i = 0; i <= MAX_RETRIES; i++) {
+            try {
+              if (env.conversationStateDO) {
+                const response = await env.conversationStateDO.fetch(`/retrieve?tool_use_id=${block.tool_use_id}`);
+                if (response.ok) {
+                  const { tool_name } = await response.json();
+                  if (tool_name) {
+                    toolName = tool_name;
+                    toolNameFound = true;
+                    break; // Exit retry loop on success
+                  } else {
+                    console.warn(`ConversationStateDO response missing tool_name for tool_use_id: ${block.tool_use_id}`);
+                    lastError = new Error(`ConversationStateDO response missing tool_name for tool_use_id: ${block.tool_use_id}`);
+                  }
                 } else {
-                  console.warn(`ConversationStateDO response missing tool_name for tool_use_id: ${block.tool_use_id}`);
+                  console.error(`Failed to retrieve tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}, Status: ${response.status}`);
+                  lastError = new Error(`DO retrieval failed with status: ${response.status}`);
+                  if (response.status === 404) {
+                    // If 404, no need to retry, it's not found
+                    throw new DOOperationError(`Tool use ID '${block.tool_use_id}' not found in ConversationStateDO.`, null, true);
+                  }
                 }
               } else {
-                console.error(`Failed to retrieve tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}, Status: ${response.status}`);
+                console.warn("ConversationStateDO stub not available in env.");
+                lastError = new Error("ConversationStateDO stub not available.");
+                break; // No point in retrying if stub is not available
               }
-            } else {
-              console.warn("ConversationStateDO stub not available in env.");
+            } catch (error) {
+              console.error(`Error fetching tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}`, error);
+              lastError = error;
             }
-          } catch (error) {
-            console.error(`Error fetching tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}`, error);
+
+            if (i < MAX_RETRIES) {
+              await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+            }
+          }
+
+          if (!toolNameFound) {
+            if (lastError instanceof DOOperationError) {
+              throw lastError; // Re-throw if already a specific DO error
+            } else if (lastError) {
+              throw new DOOperationError(`Failed to retrieve tool name for tool_use_id '${block.tool_use_id}' from ConversationStateDO after ${MAX_RETRIES + 1} attempts.`, lastError);
+            } else {
+              // This case should ideally not be reached if lastError is always set on failure
+              throw new DOOperationError(`Tool use ID '${block.tool_use_id}' not found or unknown error during retrieval from ConversationStateDO.`, null, true);
+            }
           }
 
           openAIReq.messages.push({
             role: "function",
             name: toolName,
-            content: JSON.stringify(block.content)
+            content: JSON.stringify(toolContent) // Ensure content is stringified for OpenAI's 'function' role
           });
         }
         // Image blocks are not directly supported by standard OpenAI Chat API

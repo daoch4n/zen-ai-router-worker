@@ -1,6 +1,13 @@
 import {
   generateId
 } from '../utils/helpers.mjs';
+import {
+  DO_MAX_RETRIES,
+  DO_RETRY_DELAY_MS
+} from '../constants/index.mjs';
+import {
+  randomUUID
+} from 'node:crypto';
 
 /**
  * Transforms an OpenAI chat completion response into an Anthropic-compatible response body.
@@ -10,7 +17,7 @@ import {
  * @param {string} openAIRequestId - The ID from the OpenAI request, for traceability.
  * @returns {Object} The transformed Anthropic-compatible response body.
  */
-export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName, openAIRequestId) {
+export async function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName, openAIRequestId, conversationStateDOBinding) {
   const anthropicRes = {
     id: openAIRequestId || `msg_${generateId()}`, // Use OpenAI ID or generate new Anthropic ID
     type: "message", // Fixed type for successful response
@@ -60,42 +67,164 @@ export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName
   // 1. Map content
   if (message.tool_calls && message.tool_calls.length > 0) {
     // Handle OpenAI's newer `message.tool_calls` (array of tool calls)
-    message.tool_calls.forEach(toolCall => {
+    for (const toolCall of message.tool_calls) { // Use for...of for async operations
+      const toolUseId = toolCall.id || `toolu_${randomUUID()}`;
+      const toolName = toolCall.function.name;
+      let toolResultContent = {};
+      let isToolError = false;
+
       try {
-        anthropicRes.content.push({
-          type: "tool_use",
-          id: toolCall.id || `toolu_${generateId()}`, // Use tool call ID or generate new
-          name: toolCall.function.name,
-          input: JSON.parse(toolCall.function.arguments) // Parse JSON string into object
-        });
+        toolResultContent = JSON.parse(toolCall.function.arguments);
+        // Check for the custom `is_error` flag from our proxy's tool execution
+        if (toolResultContent && typeof toolResultContent === 'object' && toolResultContent.is_error === true) {
+          isToolError = true;
+        }
       } catch (e) {
         console.error("Failed to parse tool_calls arguments:", e, toolCall.function.arguments);
+        // If parsing fails, consider it an error and set a generic message
+        toolResultContent = { error: "Malformed tool result content from upstream." };
+        isToolError = true;
+      }
+
+      if (isToolError) {
         anthropicRes.content.push({
-          type: "tool_use",
-          id: toolCall.id || `toolu_${generateId()}`,
-          name: toolCall.function.name,
-          input: {} // Fallback to empty object on parsing failure
+          type: "tool_result",
+          tool_use_id: toolUseId, // Anthropic uses tool_use_id here
+          is_error: true,
+          content: toolResultContent.error || "An unknown tool execution error occurred.",
+        });
+      } else {
+        anthropicRes.content.push({
+          type: "tool_use", // This should be tool_use if the LLM is asking to use a tool
+          id: toolUseId,
+          name: toolName,
+          input: toolResultContent // Use the parsed content as input
         });
       }
-    });
+
+      // Make internal fetch call to ConversationStateDO for tool_use tracking
+      if (conversationStateDOBinding && openAIRequestId) {
+        const MAX_RETRIES = DO_MAX_RETRIES;
+        const RETRY_DELAY_MS = DO_RETRY_DELAY_MS;
+        let storageSuccess = false;
+
+        for (let i = 0; i <= MAX_RETRIES; i++) {
+          try {
+            const doId = conversationStateDOBinding.idFromName(openAIRequestId);
+            const stub = conversationStateDOBinding.get(doId);
+            const storeResponse = await stub.fetch('/store', {
+              method: 'POST',
+              body: JSON.stringify({
+                tool_use_id: toolUseId,
+                tool_name: toolName,
+                is_error: isToolError,
+                content: toolResultContent // Store the full content for debugging
+              }),
+              headers: {
+                'Content-Type': 'application/json'
+              }
+            });
+
+            if (storeResponse.ok) {
+              console.log(`Successfully stored tool use/result: ${toolUseId} for conversation: ${openAIRequestId}`);
+              storageSuccess = true;
+              break; // Exit retry loop on success
+            } else {
+              console.error(`Failed to store tool use/result in ConversationStateDO for tool_use_id: ${toolUseId}, Status: ${storeResponse.status}`);
+            }
+          } catch (e) {
+            console.error(`Error during DO storage attempt ${i + 1} for tool_use_id: ${toolUseId}`, e);
+          }
+
+          if (i < MAX_RETRIES) {
+            await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+          }
+        }
+
+        if (!storageSuccess) {
+          console.error(`AGGRESSIVE LOGGING: Failed to store tool use/result for tool_use_id: ${toolUseId} after ${MAX_RETRIES + 1} attempts. This might lead to future tool_result processing issues.`);
+          // Optionally, consider adding a warning to the response if the schema allows and it's critical.
+          // For now, aggressive logging is the chosen approach to avoid breaking Anthropic schema.
+        }
+      }
+    }
     anthropicRes.stop_reason = "tool_use"; // Set stop reason for tool calls
   } else if (message.function_call) {
     // Keep legacy support for `message.function_call`
+    const toolUseId = `toolu_${randomUUID()}`;
+    const toolName = message.function_call.name;
+    let toolResultContent = {};
+    let isToolError = false;
+
     try {
-      anthropicRes.content.push({
-        type: "tool_use",
-        id: `toolu_${generateId()}`, // Generate a unique ID for this tool call
-        name: message.function_call.name,
-        input: JSON.parse(message.function_call.arguments) // Parse JSON string into object
-      });
+      toolResultContent = JSON.parse(message.function_call.arguments);
+      if (toolResultContent && typeof toolResultContent === 'object' && toolResultContent.is_error === true) {
+        isToolError = true;
+      }
     } catch (e) {
       console.error("Failed to parse function_call arguments:", e, message.function_call.arguments);
+      toolResultContent = { error: "Malformed tool result content from upstream (legacy)." };
+      isToolError = true;
+    }
+
+    if (isToolError) {
+      anthropicRes.content.push({
+        type: "tool_result",
+        tool_use_id: toolUseId,
+        is_error: true,
+        content: toolResultContent.error || "An unknown tool execution error occurred (legacy).",
+      });
+    } else {
       anthropicRes.content.push({
         type: "tool_use",
-        id: `toolu_${generateId()}`,
-        name: message.function_call.name,
-        input: {} // Fallback to empty object on parsing failure
+        id: toolUseId,
+        name: toolName,
+        input: toolResultContent
       });
+    }
+
+    // Make internal fetch call to ConversationStateDO
+    if (conversationStateDOBinding && openAIRequestId) {
+      const MAX_RETRIES = DO_MAX_RETRIES;
+      const RETRY_DELAY_MS = DO_RETRY_DELAY_MS;
+      let storageSuccess = false;
+
+      for (let i = 0; i <= MAX_RETRIES; i++) {
+        try {
+          const doId = conversationStateDOBinding.idFromName(openAIRequestId);
+          const stub = conversationStateDOBinding.get(doId);
+          const storeResponse = await stub.fetch('/store', {
+            method: 'POST',
+            body: JSON.stringify({
+              tool_use_id: toolUseId,
+              tool_name: toolName,
+              is_error: isToolError,
+              content: toolResultContent
+            }),
+            headers: {
+              'Content-Type': 'application/json'
+            }
+          });
+
+          if (storeResponse.ok) {
+            console.log(`Successfully stored tool use/result (legacy): ${toolUseId} for conversation: ${openAIRequestId}`);
+            storageSuccess = true;
+            break; // Exit retry loop on success
+          } else {
+            console.error(`Failed to store tool use/result (legacy) in ConversationStateDO for tool_use_id: ${toolUseId}, Status: ${storeResponse.status}`);
+          }
+        } catch (e) {
+          console.error(`Error during DO storage attempt ${i + 1} (legacy) for tool_use_id: ${toolUseId}`, e);
+        }
+
+        if (i < MAX_RETRIES) {
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY_MS));
+        }
+      }
+
+      if (!storageSuccess) {
+        console.error(`AGGRESSIVE LOGGING: Failed to store tool use/result (legacy) for tool_use_id: ${toolUseId} after ${MAX_RETRIES + 1} attempts. This might lead to future tool_result processing issues.`);
+      }
     }
   } else if (message.content !== null) {
     // Text Content

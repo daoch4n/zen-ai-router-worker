@@ -70,3 +70,7 @@ export const REASONS_MAP = {
 export const STREAM_DELIMITER = "\n\n";
 export const RESPONSE_LINE_REGEX = /^data: (.*)(?:\n\n|\r\r|\r\n\r\n)/;
 export const CONTENT_SEPARATOR = "\n\n|>";
+
+// Durable Object (DO) retry constants
+export const DO_MAX_RETRIES = 2;
+export const DO_RETRY_DELAY_MS = 200;
