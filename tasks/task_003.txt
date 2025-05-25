@@ -1,0 +1,41 @@
+# Task ID: 3
+# Title: Implement Conversation ID Management in Main Worker
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Implement the logic within the main Cloudflare Worker to derive a unique `conversationId` for each request and obtain the corresponding `DurableObjectStub`.
+# Details:
+1. In the main Worker's `fetch` handler, check for `request.headers.get('X-Conversation-ID')` (FR2.2).
+2. If present, use it as `conversationId`. If not, generate a new UUID (e.g., `crypto.randomUUID()`) prefixed with `conv_`.
+3. Obtain the DO ID using `env.CONVERSATION_STATE.idFromName(conversationId)` (FR2.3).
+4. Obtain the `DurableObjectStub` using `env.CONVERSATION_STATE.get(doId)` (FR2.4).
+5. Pass this `DurableObjectStub` to subsequent request/response transformation functions.
+
+# Test Strategy:
+Send requests with and without `X-Conversation-ID` header. Verify that a consistent `conversationId` is used for subsequent requests with the header, and a new unique ID is generated when absent. Log the derived `conversationId` and DO ID to confirm correct derivation and stub retrieval.
+
+# Subtasks:
+## 1. Determine Conversation ID [pending]
+### Dependencies: None
+### Description: Check the incoming request for the 'X-Conversation-ID' header. If found, use its value. If the header is absent, generate a new UUID to serve as the conversation ID.
+### Details:
+This step ensures a unique identifier is available for the conversation, either provided by the client or newly created.
+
+## 2. Obtain Durable Object ID [pending]
+### Dependencies: 3.1
+### Description: Using the determined conversation ID (from Subtask 1), call `env.DurableObjectName.idFromName(conversationId)` to derive the unique Durable Object ID for this conversation.
+### Details:
+The `idFromName` method ensures that the same conversation ID always maps to the same Durable Object instance.
+
+## 3. Retrieve Durable Object Stub [pending]
+### Dependencies: 3.2
+### Description: With the Durable Object ID obtained in Subtask 2, call `env.DurableObjectName.get(durableObjectId)` to retrieve the Durable Object stub, which allows interaction with the Durable Object instance.
+### Details:
+The stub is the primary interface for sending requests to and receiving responses from the Durable Object.
+
+## 4. Pass Stub to Transformation Functions [pending]
+### Dependencies: 3.3
+### Description: Ensure the retrieved Durable Object stub (from Subtask 3) is correctly passed as an argument or part of the context to any subsequent transformation or processing functions that require interaction with the Durable Object.
+### Details:
+This step is crucial for maintaining state and performing operations within the Durable Object's context throughout the request lifecycle.
+

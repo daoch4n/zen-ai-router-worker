@@ -1,0 +1,49 @@
+# Task ID: 7
+# Title: Implement ConversationStateDO Lifecycle Management
+# Status: pending
+# Dependencies: 2, 3
+# Priority: medium
+# Description: Implement lifecycle management for `ConversationStateDO` instances, including inactivity-based cleanup using Cloudflare Alarms and an explicit API endpoint for conversation termination.
+# Details:
+1. **Inactivity Alarm (FR6.1):** In `ConversationStateDO`, upon creation or any activity (e.g., `/store`, `/retrieve`), call `this.state.storage.setAlarm(Date.now() + INACTIVITY_TIMEOUT_MS)`. Ensure any new activity clears existing alarms and sets a new one.
+2. **Alarm Handler Action (FR6.2):** Implement the `alarm()` method in `ConversationStateDO`. This method should call the full cleanup method (`deleteAll()` and `deleteAlarm()`) implemented in Task 2.
+3. **Explicit Cleanup API (FR6.3):** In the main Worker, expose a `POST /v1/conversations/{conversationId}/terminate` endpoint. When called, retrieve the `DurableObjectStub` for the given `conversationId` and make an internal `fetch` call to its `/clear_conversation_state` endpoint.
+   ```javascript
+   // In ConversationStateDO
+   async alarm() {
+     await this.clearConversationState(); // Calls deleteAll() and deleteAlarm()
+   }
+   // In main Worker for /terminate endpoint
+   const doId = env.CONVERSATION_STATE.idFromName(conversationId);
+   const stub = env.CONVERSATION_STATE.get(doId);
+   await stub.fetch('/clear_conversation_state', { method: 'POST' });
+   ```
+
+# Test Strategy:
+1. For inactivity alarm: Perform a tool-use conversation, then wait for the inactivity period. Verify the DO state is cleaned up (e.g., by attempting to retrieve a mapping and expecting failure). 2. For explicit cleanup: Call the `/terminate` endpoint for an active conversation. Verify that the DO state for that `conversationId` is immediately cleared.
+
+# Subtasks:
+## 1. Implement Inactivity Alarm Setting and Resetting in ConversationStateDO [pending]
+### Dependencies: None
+### Description: Add logic within the `ConversationStateDO` to set `state.storage.setAlarm()` whenever a new message or activity occurs, and to reset/reschedule the alarm on subsequent activities. Define the inactivity duration (e.g., 5 minutes).
+### Details:
+This involves modifying the `fetch` method or a dedicated activity tracking method within the DO to call `state.storage.setAlarm(Date.now() + INACTIVITY_TIMEOUT_MS)`. Ensure existing alarms are cleared before setting new ones if needed.
+
+## 2. Implement `alarm()` Handler for Conversation Termination in ConversationStateDO [pending]
+### Dependencies: 7.1
+### Description: Create the `alarm()` method within the `ConversationStateDO`. This method will be automatically invoked by Cloudflare when the set alarm fires. Implement the logic to terminate the conversation, such as clearing relevant state, marking the conversation as inactive, or performing cleanup.
+### Details:
+The `alarm()` method should contain the core logic for what happens when a conversation is deemed inactive. This might involve setting a 'terminated' flag, clearing `state.storage` entries, or logging the termination.
+
+## 3. Create `/terminate` API Endpoint in Main Worker [pending]
+### Dependencies: None
+### Description: Develop a new API endpoint, `/terminate`, in the main Cloudflare Worker. This endpoint should accept a conversation identifier (e.g., `conversationId`) as a parameter to specify which conversation DO to target for termination.
+### Details:
+The endpoint should be a POST request, accepting a JSON body with the `conversationId`. It will need to instantiate the correct `ConversationStateDO` stub using the provided ID.
+
+## 4. Integrate `/terminate` Endpoint with ConversationStateDO and Alarm Management [pending]
+### Dependencies: 7.2, 7.3
+### Description: Modify the `/terminate` endpoint to call a specific method on the `ConversationStateDO` instance to trigger immediate termination. Ensure this manual termination correctly interacts with and potentially cancels any pending inactivity alarms for that DO.
+### Details:
+The worker will call a method like `doStub.terminate()` on the DO. The `terminate()` method in the DO should clear its state and explicitly call `state.storage.setAlarm(0)` to cancel any pending inactivity alarms, preventing them from firing after manual termination.
+

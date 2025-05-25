@@ -1,0 +1,57 @@
+# Task ID: 5
+# Title: Implement State Retrieval in Request Transformation
+# Status: pending
+# Dependencies: 2, 3
+# Priority: high
+# Description: Modify the `requestAnthropic.mjs` transformation logic to retrieve the original `tool_name` from the `ConversationStateDO` using the provided `tool_use_id` in incoming `tool_result` blocks.
+# Details:
+1. Locate the `requestAnthropic.mjs` module or equivalent request transformation logic.
+2. When processing an incoming Anthropic client request containing a `tool_result` block, extract the `tool_use_id`.
+3. Make an internal `fetch` call to the `ConversationStateDO` stub's `/retrieve` endpoint, passing the `tool_use_id` (FR4.1).
+   ```javascript
+   // Inside request transformation logic
+   const toolUseId = getToolUseIdFromAnthropicToolResult();
+   const response = await conversationStateDOStub.fetch(`/retrieve?tool_use_id=${toolUseId}`);
+   if (response.ok) {
+     const { tool_name } = await response.json();
+     // Use tool_name to populate the 'name' field for the downstream model
+   } else {
+     // Handle retrieval failure as per FR5.3
+   }
+   ```
+4. If `tool_name` is successfully retrieved, use it to populate the `name` field in the message sent to the downstream model (e.g., OpenAI function message).
+
+# Test Strategy:
+Perform a multi-turn conversation: 1) Send a request that triggers a tool call (Task 4). 2) Send a subsequent request with the `tool_result` block containing the `tool_use_id`. Verify that the proxy correctly transforms the `tool_result` into the downstream model's format, using the original `tool_name` retrieved from the DO. Simulate `tool_use_id` not found to test error path.
+
+# Subtasks:
+## 1. Parse Incoming `tool_result` Blocks and Extract `tool_use_id` [pending]
+### Dependencies: None
+### Description: Identify and parse `tool_result` blocks within the incoming request payload. Extract the `tool_use_id` from each relevant block to prepare for state retrieval.
+### Details:
+Focus on robust parsing, handling potential variations in `tool_result` block structure and ensuring all necessary `tool_use_id`s are captured.
+
+## 2. Initiate Internal `fetch` Call to `ConversationStateDO` [pending]
+### Dependencies: 5.1
+### Description: Construct and execute an internal `fetch` request to the `ConversationStateDO`'s `/retrieve` endpoint, using the extracted `tool_use_id` as a parameter to fetch associated state.
+### Details:
+Ensure correct endpoint URL, request method (e.g., GET), and proper parameter formatting for the `tool_use_id` in the fetch call.
+
+## 3. Process `ConversationStateDO` Response and Extract `tool_name` [pending]
+### Dependencies: 5.2
+### Description: Parse the JSON response received from the `ConversationStateDO`. Validate the response structure and reliably extract the `tool_name` associated with the `tool_use_id`.
+### Details:
+Implement validation for the DO response schema and handle cases of missing fields or malformed data to ensure `tool_name` is correctly extracted.
+
+## 4. Transform Request with Retrieved `tool_name` [pending]
+### Dependencies: 5.3
+### Description: Modify the original incoming request payload by incorporating the retrieved `tool_name` into the appropriate structure for the downstream model, completing the request transformation.
+### Details:
+Define the exact transformation logic and identify the target field(s) where the `tool_name` should be inserted or used within the downstream model's request format.
+
+## 5. Implement Robust Error Handling and Logging for State Retrieval [pending]
+### Dependencies: 5.1, 5.2, 5.3, 5.4
+### Description: Add comprehensive error handling mechanisms for all steps of the state retrieval and transformation process, including parsing failures, network issues during `fetch` calls, and invalid DO responses. Implement logging for critical events and errors.
+### Details:
+Define specific error codes/messages, consider retry logic for transient failures, and establish clear logging levels for debugging and monitoring the state retrieval pipeline.
+

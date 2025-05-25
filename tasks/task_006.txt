@@ -1,0 +1,52 @@
+# Task ID: 6
+# Title: Implement Core Error Handling for Tool Results and DO Operations
+# Status: pending
+# Dependencies: 4, 5
+# Priority: high
+# Description: Implement robust error handling for external tool execution failures, malformed client `tool_result` blocks, and transient `ConversationStateDO` operation failures during storage and retrieval.
+# Details:
+1. **External Tool Errors (FR5.1):** When an external tool execution fails, construct an Anthropic `tool_result` content block with `is_error: true` and a descriptive error message. Send this back to the LLM.
+2. **Malformed Client `tool_result` (FR5.2):** Before processing, validate incoming `tool_result` blocks (e.g., check for `tool_use_id`, valid content structure). If malformed, return an Anthropic-style `invalid_request_error` (HTTP 400) to the client.
+3. **DO Operation Failures - Retrieval (FR5.3):** Implement a retry mechanism (e.g., 1-2 retries with short backoff) for `ConversationStateDO` `/retrieve` calls. If retries exhaust or `tool_use_id` is not found, return an Anthropic-style `api_error` (HTTP 500) to the client.
+4. **DO Operation Failures - Storage (FR5.4):** Implement a retry mechanism for `ConversationStateDO` `/store` calls. If retries exhaust, log the error aggressively and potentially add a warning to the response sent to the client, indicating potential future `tool_result` processing issues.
+
+# Test Strategy:
+1. Simulate an external tool failure and verify the proxy returns a `tool_result` with `is_error: true`. 2. Send a `tool_result` with missing `tool_use_id` or invalid structure and confirm HTTP 400. 3. Simulate DO retrieval failure (e.g., by deleting the mapping manually or introducing a fault) and verify retry logic and subsequent HTTP 500. 4. Simulate DO storage failure and verify retries and aggressive logging.
+
+# Subtasks:
+## 1. Define Common Error Handling Framework [pending]
+### Dependencies: None
+### Description: Establish a consistent framework for error identification, classification, logging, and propagation across the system to ensure uniformity in error responses.
+### Details:
+This includes defining common error codes, error message structures, and a centralized logging approach for all error types.
+
+## 2. Implement External Tool Error Handling [pending]
+### Dependencies: 6.1
+### Description: Develop and integrate error handling logic for failures originating from calls to external tools, ensuring graceful degradation and informative error messages.
+### Details:
+Focus on capturing specific error codes/messages from external APIs, translating them into internal error types, and handling timeouts or connection issues.
+
+## 3. Implement Malformed Client `tool_result` Block Handling [pending]
+### Dependencies: 6.1
+### Description: Implement robust validation and error handling for client-provided `tool_result` blocks that are malformed, incomplete, or contain invalid data.
+### Details:
+This involves schema validation, data type checks, and providing clear feedback to the client about the malformed input.
+
+## 4. Implement DO Retrieval Failure Handling with Retry [pending]
+### Dependencies: 6.1
+### Description: Develop error handling for failures encountered during Data Object (DO) retrieval operations, incorporating appropriate retry logic with exponential backoff.
+### Details:
+Address network issues, temporary service unavailability, and other transient errors. Define maximum retry attempts and fallback mechanisms.
+
+## 5. Implement DO Storage Failure Handling with Retry and Logging [pending]
+### Dependencies: 6.1
+### Description: Implement comprehensive error handling for failures during Data Object (DO) storage operations, including retry logic, detailed logging, and alerting.
+### Details:
+Focus on ensuring data integrity, handling persistent storage failures, and logging sufficient context for debugging and operational monitoring.
+
+## 6. Consolidate and Refine Retry Mechanisms [pending]
+### Dependencies: 6.4, 6.5
+### Description: Review, standardize, and optimize retry policies, backoff strategies, and potential circuit breaker patterns across all Data Object (DO) operations and other relevant components.
+### Details:
+Analyze common failure modes to establish consistent and effective retry parameters, minimizing system load during outages while maximizing resilience.
+

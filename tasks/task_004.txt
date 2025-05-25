@@ -1,0 +1,57 @@
+# Task ID: 4
+# Title: Implement State Persistence in Response Transformation
+# Status: pending
+# Dependencies: 2, 3
+# Priority: high
+# Description: Modify the `responseAnthropic.mjs` transformation logic to extract `tool_use_id` and `tool_name` from downstream model responses and persist them in the `ConversationStateDO`.
+# Details:
+1. Locate the `responseAnthropic.mjs` module or equivalent response transformation logic.
+2. When processing a downstream model's response that contains tool/function calls, iterate through each identified tool call.
+3. For each tool call, extract or generate a `tool_use_id` and identify the `tool_name`.
+4. Make an internal `fetch` call to the `ConversationStateDO` stub's `/store` endpoint, passing the `tool_use_id` and `tool_name` (FR3.1).
+   ```javascript
+   // Inside response transformation logic
+   const toolUseId = generateUniqueToolUseId(); // Or extract from downstream model if applicable
+   const toolName = getToolNameFromDownstreamResponse();
+   await conversationStateDOStub.fetch('/store', {
+     method: 'POST',
+     body: JSON.stringify({ tool_use_id: toolUseId, tool_name: toolName }),
+     headers: { 'Content-Type': 'application/json' }
+   });
+   // Construct Anthropic tool_use block with toolUseId
+   ```
+
+# Test Strategy:
+Send a request that triggers a tool call from the downstream model. Intercept the response from the proxy and verify that the Anthropic `tool_use` block contains a `tool_use_id`. Query the `ConversationStateDO` directly (e.g., via a test endpoint or logs) to confirm the `tool_use_id` to `tool_name` mapping was successfully stored.
+
+# Subtasks:
+## 1. Parse Anthropic Response for Tool Calls [pending]
+### Dependencies: None
+### Description: Examine the Anthropic model's response (e.g., `tool_use` blocks within `content` array) to identify if any tool calls were made. This involves iterating through the response structure.
+### Details:
+Check for `type: 'tool_use'` in the `content` array of the Anthropic response. If found, proceed to extract details.
+
+## 2. Extract Tool Call Data [pending]
+### Dependencies: 4.1
+### Description: For each identified tool call, extract the `tool_name` and the `input` arguments (parameters) required for the tool's execution.
+### Details:
+Access `tool_use.name` and `tool_use.input` from the parsed tool_use block. Ensure proper handling of different input types (e.g., JSON objects).
+
+## 3. Generate Unique `tool_use_id` [pending]
+### Dependencies: 4.2
+### Description: Generate a unique identifier for each tool call instance. This ID will be used for tracking the tool call's state within the `ConversationStateDO`.
+### Details:
+Utilize a robust method for ID generation (e.g., UUID v4) to ensure uniqueness across multiple tool calls and conversations.
+
+## 4. Prepare Payload and Make Internal `fetch` Call to ConversationStateDO [pending]
+### Dependencies: 4.2, 4.3
+### Description: Construct the payload containing the extracted tool data and the generated `tool_use_id`. Then, make an internal `fetch` call to the `ConversationStateDO`'s `/store` endpoint to persist this information.
+### Details:
+The payload should include `tool_name`, `input`, and `tool_use_id`. The `fetch` call should target the `ConversationStateDO` instance associated with the current conversation.
+
+## 5. Handle `fetch` Call Response and Errors [pending]
+### Dependencies: 4.4
+### Description: Process the response from the `ConversationStateDO`'s `/store` endpoint. This includes confirming successful storage or handling any errors that occurred during the internal `fetch` call.
+### Details:
+Check the HTTP status code and response body from the DO. Implement error logging and appropriate fallback mechanisms if the storage fails.
+

@@ -1,0 +1,40 @@
+# Task ID: 8
+# Title: Implement Advanced Error Handling and Resilience
+# Status: pending
+# Dependencies: 6
+# Priority: medium
+# Description: Enhance error handling to specifically address `ConversationStateDO` overload or unavailability scenarios, ensuring appropriate client responses and robust retry mechanisms.
+# Details:
+1. **DO Overload/Unavailable (FR5.5):** Implement a more sophisticated retry mechanism (e.g., exponential backoff) for all `ConversationStateDO` interactions (store, retrieve, delete, clear). This should be applied to the `fetch` calls made to the DO stub.
+2. If retries are exhausted due to persistent DO issues (e.g., network errors, 5xx responses from DO), return an Anthropic-style `overloaded_error` (HTTP 529) or `api_error` (HTTP 500) to the client.
+3. Review and refine existing retry mechanisms from Task 6 to ensure consistency and robustness across all DO operations.
+4. Ensure comprehensive logging for all error paths, especially for retry attempts and final failure states.
+
+# Test Strategy:
+1. Simulate DO overload/unavailability (e.g., by intentionally delaying DO responses or making it return errors) and verify that the proxy implements exponential backoff and returns the correct Anthropic-style error (HTTP 529/500) after retries are exhausted. 2. Review logs to confirm retry attempts and error messages are correctly recorded.
+
+# Subtasks:
+## 1. Design Common Retry Utility [pending]
+### Dependencies: None
+### Description: Define the interface, parameters (e.g., max retries, initial delay, backoff factor), and core logic for a reusable retry utility. Consider how it will integrate with existing asynchronous operations.
+### Details:
+Outline the `RetryConfig` structure, `executeWithRetry` function signature, and error handling strategy for general use.
+
+## 2. Implement Exponential Backoff Logic [pending]
+### Dependencies: 8.1
+### Description: Develop the core implementation of the retry utility, incorporating exponential backoff for delays between retry attempts. Ensure it can be applied to any `ConversationStateDO` `fetch` call.
+### Details:
+Implement the delay calculation (e.g., `delay = initial_delay * (backoff_factor ^ attempt)`), jitter, and retry loop within the utility.
+
+## 3. Integrate and Handle Exhausted Retries for Anthropic Errors [pending]
+### Dependencies: 8.2
+### Description: Apply the newly developed retry utility to all `ConversationStateDO` `fetch` calls. Specifically, handle cases where retries are exhausted for Anthropic-specific HTTP 529 (Too Many Requests) and 500 (Internal Server Error) responses by returning appropriate error messages.
+### Details:
+Modify `ConversationStateDO` `fetch` methods to wrap calls with the retry utility. Implement specific error mapping for 529/500 status codes upon final failure.
+
+## 4. Implement Comprehensive Retry and Failure Logging [pending]
+### Dependencies: 8.3
+### Description: Add detailed logging for every retry attempt (including attempt number, delay, and error) and for the final failure state (including the specific error and whether retries were exhausted) across all `ConversationStateDO` `fetch` calls.
+### Details:
+Integrate logging statements within the retry utility and at the point of final error handling in `ConversationStateDO` to provide visibility into resilience behavior.
+

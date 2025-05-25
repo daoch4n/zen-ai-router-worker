@@ -1,0 +1,558 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "dependencies": [],
+      "description": "Initialize the Cloudflare Worker project, configure it to use Durable Objects, and define the necessary bindings for the ConversationStateDO. This sets up the foundational environment for state management.",
+      "priority": "high",
+      "testStrategy": "Deploy a minimal Worker and DO. Verify that the Worker can successfully obtain a DO stub using `env.CONVERSATION_STATE.idFromName('test')` without errors. Check Cloudflare dashboard for DO binding configuration.",
+      "status": "done",
+      "details": "1. Initialize a new Cloudflare Worker project using `wrangler init`.\n2. Configure `wrangler.toml` to define a Durable Object binding, e.g., `[[durable_objects.bindings]] name = \"CONVERSATION_STATE\" class_name = \"ConversationStateDO\"`.\n3. Create placeholder files for the main Worker (`src/index.js` or `src/worker.js`) and the Durable Object (`src/ConversationStateDO.js`).\n4. Ensure the Worker can access the DO environment variable `env.CONVERSATION_STATE`.",
+      "title": "Cloudflare Worker and Durable Object Project Setup",
+      "subtasks": []
+    },
+    {
+      "testStrategy": "Write unit tests for `ConversationStateDO` methods. Test `/store` and then `/retrieve` to ensure data persistence and retrieval. Test `/delete_mapping` to confirm specific key removal. Test `/clear_conversation_state` to verify all data and alarms are removed. Use `miniflare` for local testing.",
+      "status": "pending",
+      "title": "Implement ConversationStateDO Core Logic",
+      "priority": "high",
+      "id": 2,
+      "description": "Implement the core functionality of the `ConversationStateDO` including endpoints for storing, retrieving, and deleting tool mappings, and a method for full state cleanup.",
+      "dependencies": [
+        1
+      ],
+      "details": "1. Create `src/ConversationStateDO.js` (or similar) and define the `ConversationStateDO` class extending `DurableObject`. \n2. Implement the constructor to initialize `this.state.storage`.\n3. Implement `handleRequest(request)` to route requests to specific methods based on URL path (e.g., `/store`, `/retrieve`, `/delete_mapping`, `/clear_conversation_state`).\n4. `/store` (FR1.2): Accept `tool_use_id` and `tool_name`. Use `this.state.storage.put(tool_use_id, tool_name)` (FR1.6).\n5. `/retrieve` (FR1.3): Accept `tool_use_id`. Use `this.state.storage.get(tool_use_id)`.\n6. `/delete_mapping` (FR1.4): Accept `tool_use_id`. Use `this.state.storage.delete(tool_use_id)`.\n7. `/clear_conversation_state` (FR1.5): Implement a method that calls `this.state.storage.deleteAll()` and `this.state.storage.deleteAlarm()`.",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Initialize ConversationStateDO and Basic Request Handling",
+          "description": "Create the `ConversationStateDO` class, define its constructor to accept `state` and `env`, and set up the initial `handleRequest` method to parse incoming request URLs and methods.",
+          "dependencies": [],
+          "details": "Define `ConversationStateDO` class with `state` and `env` in constructor. Implement `handleRequest` to extract `URL` path and `method` for routing.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Implement `/store` Endpoint Logic",
+          "description": "Develop the internal logic for the `/store` endpoint, responsible for persisting key-value pairs (e.g., conversation state segments) using `state.storage.put()`. This logic should handle parsing the request body.",
+          "dependencies": [
+            1
+          ],
+          "details": "Logic should handle `PUT` or `POST` requests. Parse request body for `key` and `value`. Use `state.storage.put(key, value)`. Return appropriate success/error response.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Implement `/retrieve` Endpoint Logic",
+          "description": "Develop the internal logic for the `/retrieve` endpoint, responsible for fetching a specific value associated with a given key using `state.storage.get()`. This logic should handle parsing URL query parameters.",
+          "dependencies": [
+            1
+          ],
+          "details": "Logic should handle `GET` requests. Parse URL query parameters for the `key`. Use `state.storage.get(key)`. Return the retrieved value or a 404 if not found.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Implement `/delete_mapping` Endpoint Logic",
+          "description": "Develop the internal logic for the `/delete_mapping` endpoint, responsible for removing a specific key-value pair using `state.storage.delete()`. This logic should handle parsing URL query parameters.",
+          "dependencies": [
+            1
+          ],
+          "details": "Logic should handle `DELETE` requests. Parse URL query parameters for the `key` to be deleted. Use `state.storage.delete(key)`. Return success/error response.",
+          "status": "pending"
+        },
+        {
+          "id": 5,
+          "title": "Implement `/clear_conversation_state` Endpoint Logic",
+          "description": "Develop the internal logic for the `/clear_conversation_state` endpoint, responsible for clearing all stored data for the current Durable Object instance using `state.storage.deleteAll()`.",
+          "dependencies": [
+            1
+          ],
+          "details": "Logic should handle `DELETE` or `POST` requests. Call `state.storage.deleteAll()`. Return success response.",
+          "status": "pending"
+        },
+        {
+          "id": 6,
+          "title": "Integrate Endpoint Logic into `handleRequest` Routing",
+          "description": "Modify the `handleRequest` method to correctly route incoming requests to the respective `/store`, `/retrieve`, `/delete_mapping`, and `/clear_conversation_state` logic based on the URL path and HTTP method.",
+          "dependencies": [
+            2,
+            3,
+            4,
+            5
+          ],
+          "details": "Use `if/else if` or `switch` statements based on `request.url.pathname` and `request.method` to call the appropriate internal handler functions for each endpoint. Handle unknown paths/methods with a 404/405 response.",
+          "status": "pending"
+        },
+        {
+          "id": 7,
+          "title": "Set up Miniflare for Local Testing and Basic Tests",
+          "description": "Configure `miniflare` to run the `ConversationStateDO` locally and write basic integration tests to verify the functionality of all implemented endpoints (`/store`, `/retrieve`, `/delete_mapping`, `/clear_conversation_state`).",
+          "dependencies": [
+            6
+          ],
+          "details": "Set up `miniflare` environment. Write test cases using `fetch` to interact with the DO, asserting expected responses for storing, retrieving, deleting specific keys, and clearing all state.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "title": "Implement Conversation ID Management in Main Worker",
+      "description": "Implement the logic within the main Cloudflare Worker to derive a unique `conversationId` for each request and obtain the corresponding `DurableObjectStub`.",
+      "status": "pending",
+      "dependencies": [
+        1
+      ],
+      "priority": "high",
+      "id": 3,
+      "testStrategy": "Send requests with and without `X-Conversation-ID` header. Verify that a consistent `conversationId` is used for subsequent requests with the header, and a new unique ID is generated when absent. Log the derived `conversationId` and DO ID to confirm correct derivation and stub retrieval.",
+      "details": "1. In the main Worker's `fetch` handler, check for `request.headers.get('X-Conversation-ID')` (FR2.2).\n2. If present, use it as `conversationId`. If not, generate a new UUID (e.g., `crypto.randomUUID()`) prefixed with `conv_`.\n3. Obtain the DO ID using `env.CONVERSATION_STATE.idFromName(conversationId)` (FR2.3).\n4. Obtain the `DurableObjectStub` using `env.CONVERSATION_STATE.get(doId)` (FR2.4).\n5. Pass this `DurableObjectStub` to subsequent request/response transformation functions.",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Determine Conversation ID",
+          "description": "Check the incoming request for the 'X-Conversation-ID' header. If found, use its value. If the header is absent, generate a new UUID to serve as the conversation ID.",
+          "dependencies": [],
+          "details": "This step ensures a unique identifier is available for the conversation, either provided by the client or newly created.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Obtain Durable Object ID",
+          "description": "Using the determined conversation ID (from Subtask 1), call `env.DurableObjectName.idFromName(conversationId)` to derive the unique Durable Object ID for this conversation.",
+          "dependencies": [
+            1
+          ],
+          "details": "The `idFromName` method ensures that the same conversation ID always maps to the same Durable Object instance.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Retrieve Durable Object Stub",
+          "description": "With the Durable Object ID obtained in Subtask 2, call `env.DurableObjectName.get(durableObjectId)` to retrieve the Durable Object stub, which allows interaction with the Durable Object instance.",
+          "dependencies": [
+            2
+          ],
+          "details": "The stub is the primary interface for sending requests to and receiving responses from the Durable Object.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Pass Stub to Transformation Functions",
+          "description": "Ensure the retrieved Durable Object stub (from Subtask 3) is correctly passed as an argument or part of the context to any subsequent transformation or processing functions that require interaction with the Durable Object.",
+          "dependencies": [
+            3
+          ],
+          "details": "This step is crucial for maintaining state and performing operations within the Durable Object's context throughout the request lifecycle.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "testStrategy": "Send a request that triggers a tool call from the downstream model. Intercept the response from the proxy and verify that the Anthropic `tool_use` block contains a `tool_use_id`. Query the `ConversationStateDO` directly (e.g., via a test endpoint or logs) to confirm the `tool_use_id` to `tool_name` mapping was successfully stored.",
+      "dependencies": [
+        2,
+        3
+      ],
+      "status": "pending",
+      "priority": "high",
+      "details": "1. Locate the `responseAnthropic.mjs` module or equivalent response transformation logic.\n2. When processing a downstream model's response that contains tool/function calls, iterate through each identified tool call.\n3. For each tool call, extract or generate a `tool_use_id` and identify the `tool_name`.\n4. Make an internal `fetch` call to the `ConversationStateDO` stub's `/store` endpoint, passing the `tool_use_id` and `tool_name` (FR3.1).\n   ```javascript\n   // Inside response transformation logic\n   const toolUseId = generateUniqueToolUseId(); // Or extract from downstream model if applicable\n   const toolName = getToolNameFromDownstreamResponse();\n   await conversationStateDOStub.fetch('/store', {\n     method: 'POST',\n     body: JSON.stringify({ tool_use_id: toolUseId, tool_name: toolName }),\n     headers: { 'Content-Type': 'application/json' }\n   });\n   // Construct Anthropic tool_use block with toolUseId\n   ```",
+      "description": "Modify the `responseAnthropic.mjs` transformation logic to extract `tool_use_id` and `tool_name` from downstream model responses and persist them in the `ConversationStateDO`.",
+      "title": "Implement State Persistence in Response Transformation",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Parse Anthropic Response for Tool Calls",
+          "description": "Examine the Anthropic model's response (e.g., `tool_use` blocks within `content` array) to identify if any tool calls were made. This involves iterating through the response structure.",
+          "dependencies": [],
+          "details": "Check for `type: 'tool_use'` in the `content` array of the Anthropic response. If found, proceed to extract details.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Extract Tool Call Data",
+          "description": "For each identified tool call, extract the `tool_name` and the `input` arguments (parameters) required for the tool's execution.",
+          "dependencies": [
+            1
+          ],
+          "details": "Access `tool_use.name` and `tool_use.input` from the parsed tool_use block. Ensure proper handling of different input types (e.g., JSON objects).",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Generate Unique `tool_use_id`",
+          "description": "Generate a unique identifier for each tool call instance. This ID will be used for tracking the tool call's state within the `ConversationStateDO`.",
+          "dependencies": [
+            2
+          ],
+          "details": "Utilize a robust method for ID generation (e.g., UUID v4) to ensure uniqueness across multiple tool calls and conversations.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Prepare Payload and Make Internal `fetch` Call to ConversationStateDO",
+          "description": "Construct the payload containing the extracted tool data and the generated `tool_use_id`. Then, make an internal `fetch` call to the `ConversationStateDO`'s `/store` endpoint to persist this information.",
+          "dependencies": [
+            2,
+            3
+          ],
+          "details": "The payload should include `tool_name`, `input`, and `tool_use_id`. The `fetch` call should target the `ConversationStateDO` instance associated with the current conversation.",
+          "status": "pending"
+        },
+        {
+          "id": 5,
+          "title": "Handle `fetch` Call Response and Errors",
+          "description": "Process the response from the `ConversationStateDO`'s `/store` endpoint. This includes confirming successful storage or handling any errors that occurred during the internal `fetch` call.",
+          "dependencies": [
+            4
+          ],
+          "details": "Check the HTTP status code and response body from the DO. Implement error logging and appropriate fallback mechanisms if the storage fails.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "details": "1. Locate the `requestAnthropic.mjs` module or equivalent request transformation logic.\n2. When processing an incoming Anthropic client request containing a `tool_result` block, extract the `tool_use_id`.\n3. Make an internal `fetch` call to the `ConversationStateDO` stub's `/retrieve` endpoint, passing the `tool_use_id` (FR4.1).\n   ```javascript\n   // Inside request transformation logic\n   const toolUseId = getToolUseIdFromAnthropicToolResult();\n   const response = await conversationStateDOStub.fetch(`/retrieve?tool_use_id=${toolUseId}`);\n   if (response.ok) {\n     const { tool_name } = await response.json();\n     // Use tool_name to populate the 'name' field for the downstream model\n   } else {\n     // Handle retrieval failure as per FR5.3\n   }\n   ```\n4. If `tool_name` is successfully retrieved, use it to populate the `name` field in the message sent to the downstream model (e.g., OpenAI function message).",
+      "testStrategy": "Perform a multi-turn conversation: 1) Send a request that triggers a tool call (Task 4). 2) Send a subsequent request with the `tool_result` block containing the `tool_use_id`. Verify that the proxy correctly transforms the `tool_result` into the downstream model's format, using the original `tool_name` retrieved from the DO. Simulate `tool_use_id` not found to test error path.",
+      "id": 5,
+      "status": "pending",
+      "priority": "high",
+      "description": "Modify the `requestAnthropic.mjs` transformation logic to retrieve the original `tool_name` from the `ConversationStateDO` using the provided `tool_use_id` in incoming `tool_result` blocks.",
+      "title": "Implement State Retrieval in Request Transformation",
+      "dependencies": [
+        2,
+        3
+      ],
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Parse Incoming `tool_result` Blocks and Extract `tool_use_id`",
+          "description": "Identify and parse `tool_result` blocks within the incoming request payload. Extract the `tool_use_id` from each relevant block to prepare for state retrieval.",
+          "dependencies": [],
+          "details": "Focus on robust parsing, handling potential variations in `tool_result` block structure and ensuring all necessary `tool_use_id`s are captured.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Initiate Internal `fetch` Call to `ConversationStateDO`",
+          "description": "Construct and execute an internal `fetch` request to the `ConversationStateDO`'s `/retrieve` endpoint, using the extracted `tool_use_id` as a parameter to fetch associated state.",
+          "dependencies": [
+            1
+          ],
+          "details": "Ensure correct endpoint URL, request method (e.g., GET), and proper parameter formatting for the `tool_use_id` in the fetch call.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Process `ConversationStateDO` Response and Extract `tool_name`",
+          "description": "Parse the JSON response received from the `ConversationStateDO`. Validate the response structure and reliably extract the `tool_name` associated with the `tool_use_id`.",
+          "dependencies": [
+            2
+          ],
+          "details": "Implement validation for the DO response schema and handle cases of missing fields or malformed data to ensure `tool_name` is correctly extracted.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Transform Request with Retrieved `tool_name`",
+          "description": "Modify the original incoming request payload by incorporating the retrieved `tool_name` into the appropriate structure for the downstream model, completing the request transformation.",
+          "dependencies": [
+            3
+          ],
+          "details": "Define the exact transformation logic and identify the target field(s) where the `tool_name` should be inserted or used within the downstream model's request format.",
+          "status": "pending"
+        },
+        {
+          "id": 5,
+          "title": "Implement Robust Error Handling and Logging for State Retrieval",
+          "description": "Add comprehensive error handling mechanisms for all steps of the state retrieval and transformation process, including parsing failures, network issues during `fetch` calls, and invalid DO responses. Implement logging for critical events and errors.",
+          "dependencies": [
+            1,
+            2,
+            3,
+            4
+          ],
+          "details": "Define specific error codes/messages, consider retry logic for transient failures, and establish clear logging levels for debugging and monitoring the state retrieval pipeline.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "testStrategy": "1. Simulate an external tool failure and verify the proxy returns a `tool_result` with `is_error: true`. 2. Send a `tool_result` with missing `tool_use_id` or invalid structure and confirm HTTP 400. 3. Simulate DO retrieval failure (e.g., by deleting the mapping manually or introducing a fault) and verify retry logic and subsequent HTTP 500. 4. Simulate DO storage failure and verify retries and aggressive logging.",
+      "title": "Implement Core Error Handling for Tool Results and DO Operations",
+      "priority": "high",
+      "id": 6,
+      "dependencies": [
+        4,
+        5
+      ],
+      "description": "Implement robust error handling for external tool execution failures, malformed client `tool_result` blocks, and transient `ConversationStateDO` operation failures during storage and retrieval.",
+      "details": "1. **External Tool Errors (FR5.1):** When an external tool execution fails, construct an Anthropic `tool_result` content block with `is_error: true` and a descriptive error message. Send this back to the LLM.\n2. **Malformed Client `tool_result` (FR5.2):** Before processing, validate incoming `tool_result` blocks (e.g., check for `tool_use_id`, valid content structure). If malformed, return an Anthropic-style `invalid_request_error` (HTTP 400) to the client.\n3. **DO Operation Failures - Retrieval (FR5.3):** Implement a retry mechanism (e.g., 1-2 retries with short backoff) for `ConversationStateDO` `/retrieve` calls. If retries exhaust or `tool_use_id` is not found, return an Anthropic-style `api_error` (HTTP 500) to the client.\n4. **DO Operation Failures - Storage (FR5.4):** Implement a retry mechanism for `ConversationStateDO` `/store` calls. If retries exhaust, log the error aggressively and potentially add a warning to the response sent to the client, indicating potential future `tool_result` processing issues.",
+      "status": "pending",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Define Common Error Handling Framework",
+          "description": "Establish a consistent framework for error identification, classification, logging, and propagation across the system to ensure uniformity in error responses.",
+          "dependencies": [],
+          "details": "This includes defining common error codes, error message structures, and a centralized logging approach for all error types.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Implement External Tool Error Handling",
+          "description": "Develop and integrate error handling logic for failures originating from calls to external tools, ensuring graceful degradation and informative error messages.",
+          "dependencies": [
+            1
+          ],
+          "details": "Focus on capturing specific error codes/messages from external APIs, translating them into internal error types, and handling timeouts or connection issues.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Implement Malformed Client `tool_result` Block Handling",
+          "description": "Implement robust validation and error handling for client-provided `tool_result` blocks that are malformed, incomplete, or contain invalid data.",
+          "dependencies": [
+            1
+          ],
+          "details": "This involves schema validation, data type checks, and providing clear feedback to the client about the malformed input.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Implement DO Retrieval Failure Handling with Retry",
+          "description": "Develop error handling for failures encountered during Data Object (DO) retrieval operations, incorporating appropriate retry logic with exponential backoff.",
+          "dependencies": [
+            1
+          ],
+          "details": "Address network issues, temporary service unavailability, and other transient errors. Define maximum retry attempts and fallback mechanisms.",
+          "status": "pending"
+        },
+        {
+          "id": 5,
+          "title": "Implement DO Storage Failure Handling with Retry and Logging",
+          "description": "Implement comprehensive error handling for failures during Data Object (DO) storage operations, including retry logic, detailed logging, and alerting.",
+          "dependencies": [
+            1
+          ],
+          "details": "Focus on ensuring data integrity, handling persistent storage failures, and logging sufficient context for debugging and operational monitoring.",
+          "status": "pending"
+        },
+        {
+          "id": 6,
+          "title": "Consolidate and Refine Retry Mechanisms",
+          "description": "Review, standardize, and optimize retry policies, backoff strategies, and potential circuit breaker patterns across all Data Object (DO) operations and other relevant components.",
+          "dependencies": [
+            4,
+            5
+          ],
+          "details": "Analyze common failure modes to establish consistent and effective retry parameters, minimizing system load during outages while maximizing resilience.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "title": "Implement ConversationStateDO Lifecycle Management",
+      "dependencies": [
+        2,
+        3
+      ],
+      "priority": "medium",
+      "description": "Implement lifecycle management for `ConversationStateDO` instances, including inactivity-based cleanup using Cloudflare Alarms and an explicit API endpoint for conversation termination.",
+      "id": 7,
+      "testStrategy": "1. For inactivity alarm: Perform a tool-use conversation, then wait for the inactivity period. Verify the DO state is cleaned up (e.g., by attempting to retrieve a mapping and expecting failure). 2. For explicit cleanup: Call the `/terminate` endpoint for an active conversation. Verify that the DO state for that `conversationId` is immediately cleared.",
+      "status": "pending",
+      "details": "1. **Inactivity Alarm (FR6.1):** In `ConversationStateDO`, upon creation or any activity (e.g., `/store`, `/retrieve`), call `this.state.storage.setAlarm(Date.now() + INACTIVITY_TIMEOUT_MS)`. Ensure any new activity clears existing alarms and sets a new one.\n2. **Alarm Handler Action (FR6.2):** Implement the `alarm()` method in `ConversationStateDO`. This method should call the full cleanup method (`deleteAll()` and `deleteAlarm()`) implemented in Task 2.\n3. **Explicit Cleanup API (FR6.3):** In the main Worker, expose a `POST /v1/conversations/{conversationId}/terminate` endpoint. When called, retrieve the `DurableObjectStub` for the given `conversationId` and make an internal `fetch` call to its `/clear_conversation_state` endpoint.\n   ```javascript\n   // In ConversationStateDO\n   async alarm() {\n     await this.clearConversationState(); // Calls deleteAll() and deleteAlarm()\n   }\n   // In main Worker for /terminate endpoint\n   const doId = env.CONVERSATION_STATE.idFromName(conversationId);\n   const stub = env.CONVERSATION_STATE.get(doId);\n   await stub.fetch('/clear_conversation_state', { method: 'POST' });\n   ```",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Implement Inactivity Alarm Setting and Resetting in ConversationStateDO",
+          "description": "Add logic within the `ConversationStateDO` to set `state.storage.setAlarm()` whenever a new message or activity occurs, and to reset/reschedule the alarm on subsequent activities. Define the inactivity duration (e.g., 5 minutes).",
+          "dependencies": [],
+          "details": "This involves modifying the `fetch` method or a dedicated activity tracking method within the DO to call `state.storage.setAlarm(Date.now() + INACTIVITY_TIMEOUT_MS)`. Ensure existing alarms are cleared before setting new ones if needed.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Implement `alarm()` Handler for Conversation Termination in ConversationStateDO",
+          "description": "Create the `alarm()` method within the `ConversationStateDO`. This method will be automatically invoked by Cloudflare when the set alarm fires. Implement the logic to terminate the conversation, such as clearing relevant state, marking the conversation as inactive, or performing cleanup.",
+          "dependencies": [
+            1
+          ],
+          "details": "The `alarm()` method should contain the core logic for what happens when a conversation is deemed inactive. This might involve setting a 'terminated' flag, clearing `state.storage` entries, or logging the termination.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Create `/terminate` API Endpoint in Main Worker",
+          "description": "Develop a new API endpoint, `/terminate`, in the main Cloudflare Worker. This endpoint should accept a conversation identifier (e.g., `conversationId`) as a parameter to specify which conversation DO to target for termination.",
+          "dependencies": [],
+          "details": "The endpoint should be a POST request, accepting a JSON body with the `conversationId`. It will need to instantiate the correct `ConversationStateDO` stub using the provided ID.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Integrate `/terminate` Endpoint with ConversationStateDO and Alarm Management",
+          "description": "Modify the `/terminate` endpoint to call a specific method on the `ConversationStateDO` instance to trigger immediate termination. Ensure this manual termination correctly interacts with and potentially cancels any pending inactivity alarms for that DO.",
+          "dependencies": [
+            2,
+            3
+          ],
+          "details": "The worker will call a method like `doStub.terminate()` on the DO. The `terminate()` method in the DO should clear its state and explicitly call `state.storage.setAlarm(0)` to cancel any pending inactivity alarms, preventing them from firing after manual termination.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "status": "pending",
+      "details": "1. **DO Overload/Unavailable (FR5.5):** Implement a more sophisticated retry mechanism (e.g., exponential backoff) for all `ConversationStateDO` interactions (store, retrieve, delete, clear). This should be applied to the `fetch` calls made to the DO stub.\n2. If retries are exhausted due to persistent DO issues (e.g., network errors, 5xx responses from DO), return an Anthropic-style `overloaded_error` (HTTP 529) or `api_error` (HTTP 500) to the client.\n3. Review and refine existing retry mechanisms from Task 6 to ensure consistency and robustness across all DO operations.\n4. Ensure comprehensive logging for all error paths, especially for retry attempts and final failure states.",
+      "description": "Enhance error handling to specifically address `ConversationStateDO` overload or unavailability scenarios, ensuring appropriate client responses and robust retry mechanisms.",
+      "priority": "medium",
+      "title": "Implement Advanced Error Handling and Resilience",
+      "id": 8,
+      "testStrategy": "1. Simulate DO overload/unavailability (e.g., by intentionally delaying DO responses or making it return errors) and verify that the proxy implements exponential backoff and returns the correct Anthropic-style error (HTTP 529/500) after retries are exhausted. 2. Review logs to confirm retry attempts and error messages are correctly recorded.",
+      "dependencies": [
+        6
+      ],
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Design Common Retry Utility",
+          "description": "Define the interface, parameters (e.g., max retries, initial delay, backoff factor), and core logic for a reusable retry utility. Consider how it will integrate with existing asynchronous operations.",
+          "dependencies": [],
+          "details": "Outline the `RetryConfig` structure, `executeWithRetry` function signature, and error handling strategy for general use.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Implement Exponential Backoff Logic",
+          "description": "Develop the core implementation of the retry utility, incorporating exponential backoff for delays between retry attempts. Ensure it can be applied to any `ConversationStateDO` `fetch` call.",
+          "dependencies": [
+            1
+          ],
+          "details": "Implement the delay calculation (e.g., `delay = initial_delay * (backoff_factor ^ attempt)`), jitter, and retry loop within the utility.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Integrate and Handle Exhausted Retries for Anthropic Errors",
+          "description": "Apply the newly developed retry utility to all `ConversationStateDO` `fetch` calls. Specifically, handle cases where retries are exhausted for Anthropic-specific HTTP 529 (Too Many Requests) and 500 (Internal Server Error) responses by returning appropriate error messages.",
+          "dependencies": [
+            2
+          ],
+          "details": "Modify `ConversationStateDO` `fetch` methods to wrap calls with the retry utility. Implement specific error mapping for 529/500 status codes upon final failure.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Implement Comprehensive Retry and Failure Logging",
+          "description": "Add detailed logging for every retry attempt (including attempt number, delay, and error) and for the final failure state (including the specific error and whether retries were exhausted) across all `ConversationStateDO` `fetch` calls.",
+          "dependencies": [
+            3
+          ],
+          "details": "Integrate logging statements within the retry utility and at the point of final error handling in `ConversationStateDO` to provide visibility into resilience behavior.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "priority": "medium",
+      "status": "pending",
+      "description": "Integrate monitoring and logging capabilities to track `ConversationStateDO` performance, usage, and error rates, providing visibility into the state management layer.",
+      "details": "1. **DO Metrics (NFR7):** Utilize Cloudflare Workers' built-in metrics (e.g., `context.waitUntil` for async operations, `console.log` for custom metrics that can be parsed by a logging solution) to track:\n    *   `ConversationStateDO` request counts (store, retrieve, delete, clear).\n    *   Latency of DO operations.\n    *   Storage metrics (e.g., number of keys, total storage size).\n    *   Number of active DO instances.\n    *   Cleanup operations triggered by alarms or explicit API.\n2. **Error Rates (NFR7):** Log all errors related to DO operations and tool name mapping failures, including retry attempts and final outcomes. Categorize errors for easier analysis.\n3. Integrate with existing logging infrastructure (e.g., Cloudflare Logpush to an external sink) to centralize logs.\n4. Set up basic alerts for high error rates or unexpected DO behavior.",
+      "dependencies": [
+        4,
+        5,
+        6,
+        7,
+        8
+      ],
+      "testStrategy": "Perform various test scenarios (successful, error, cleanup). Verify that relevant metrics are emitted and logs are generated for each operation. Check Cloudflare dashboard for DO metrics. Confirm that error conditions trigger appropriate log entries and potential alerts.",
+      "title": "Implement Monitoring and Logging",
+      "subtasks": [
+        {
+          "id": 1,
+          "title": "Identify Key Durable Object Metrics",
+          "description": "Define and document the essential metrics for Durable Object operations (e.g., invocations, latency, errors) and state (e.g., memory usage, storage operations, active instances).",
+          "dependencies": [],
+          "details": "Collaborate with development and operations teams to list critical performance indicators and health metrics for Durable Objects.",
+          "status": "pending"
+        },
+        {
+          "id": 2,
+          "title": "Implement Custom Metrics via console.log",
+          "description": "Integrate custom logging within Cloudflare Workers using `console.log` to emit identified key metrics (e.g., DO invocation counts, specific error types) in a structured format (e.g., JSON).",
+          "dependencies": [
+            1
+          ],
+          "details": "Modify Worker code to emit structured logs for each identified metric, ensuring they are easily parseable by log aggregation systems.",
+          "status": "pending"
+        },
+        {
+          "id": 3,
+          "title": "Implement Asynchronous Metric Reporting with context.waitUntil",
+          "description": "Utilize `context.waitUntil` in Cloudflare Workers to send non-blocking, asynchronous metric data (e.g., to an external analytics service or for more complex custom metrics) without delaying the main response.",
+          "dependencies": [
+            1,
+            2
+          ],
+          "details": "Develop helper functions or modules to push metrics asynchronously using `context.waitUntil` for operations that don't need to block the main request path.",
+          "status": "pending"
+        },
+        {
+          "id": 4,
+          "title": "Configure Cloudflare Logpush for Observability",
+          "description": "Set up Cloudflare Logpush to forward Worker logs (including custom `console.log` metrics) to a chosen log aggregation and analysis platform (e.g., S3, Google Cloud Storage, Splunk, Datadog).",
+          "dependencies": [
+            2
+          ],
+          "details": "Access Cloudflare dashboard, configure Logpush job, select appropriate log fields, and verify data ingestion into the target platform.",
+          "status": "pending"
+        },
+        {
+          "id": 5,
+          "title": "Define Initial Alert Conditions for High Error Rates",
+          "description": "Establish baseline alert conditions for high error rates detected in Durable Object operations, leveraging the ingested logs and metrics.",
+          "dependencies": [
+            4
+          ],
+          "details": "Configure alerts in the chosen log analysis platform for thresholds like '5xx error rate > X% over Y minutes' or 'specific DO error count > Z over T period'.",
+          "status": "pending"
+        },
+        {
+          "id": 6,
+          "title": "Define Initial Alert Conditions for Unusual DO Behavior",
+          "description": "Set up initial alert conditions for unusual or anomalous Durable Object behavior, such as unexpected latency spikes, unusual invocation patterns, or excessive resource consumption.",
+          "dependencies": [
+            4
+          ],
+          "details": "Configure alerts for deviations from normal operational patterns, e.g., 'DO latency > X ms for Y minutes' or 'DO storage operations spike by Z%'.",
+          "status": "pending"
+        }
+      ]
+    },
+    {
+      "details": "1. **Unit Tests:** Ensure all individual components (`ConversationStateDO` methods, transformation functions, error handlers) have thorough unit tests.\n2. **Integration Tests:** Develop end-to-end integration tests covering multi-turn tool-based conversations, including:\n    *   Successful tool call -> tool result flow.\n    *   External tool failure handling.\n    *   Malformed client `tool_result` handling.\n    *   DO storage/retrieval failures and retries.\n    *   Inactivity-based DO cleanup.\n    *   Explicit conversation termination.\n3. **Performance Testing (NFR1):** Measure latency added by DO interactions (P95 < 50ms).\n4. **Scalability Testing (NFR2):** Simulate high concurrent conversations to ensure the solution scales.\n5. **Security Review (NFR5):** Verify `conversationId` isolation.\n6. **Documentation:** Update the API documentation to reflect the new `X-Conversation-ID` header and the `/v1/conversations/{conversationId}/terminate` endpoint. Document internal architecture and deployment steps.\n7. **Release Criteria (MVP):** Verify all MVP criteria (FR1-FR5, FR6.1-FR6.3, NFR1-NFR5, SM1-SM3) are met.",
+      "dependencies": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7,
+        8,
+        9
+      ],
+      "status": "pending",
+      "description": "Conduct comprehensive testing of all implemented features, including functional, non-functional, and integration tests. Update documentation and prepare the solution for deployment.",
+      "title": "Comprehensive Testing and Documentation",
+      "id": 10,
+      "testStrategy": "Execute the full suite of unit and integration tests. Analyze test results against success metrics (SM1, SM2, SM3). Conduct load testing to validate NFRs. Review updated documentation for accuracy and completeness. Obtain sign-off from relevant stakeholders.",
+      "priority": "medium",
+      "subtasks": []
+    }
+  ]
+}

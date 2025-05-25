@@ -1,0 +1,61 @@
+# Task ID: 2
+# Title: Implement ConversationStateDO Core Logic
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Implement the core functionality of the `ConversationStateDO` including endpoints for storing, retrieving, and deleting tool mappings, and a method for full state cleanup.
+# Details:
+1. Create `src/ConversationStateDO.js` (or similar) and define the `ConversationStateDO` class extending `DurableObject`. 
+2. Implement the constructor to initialize `this.state.storage`.
+3. Implement `handleRequest(request)` to route requests to specific methods based on URL path (e.g., `/store`, `/retrieve`, `/delete_mapping`, `/clear_conversation_state`).
+4. `/store` (FR1.2): Accept `tool_use_id` and `tool_name`. Use `this.state.storage.put(tool_use_id, tool_name)` (FR1.6).
+5. `/retrieve` (FR1.3): Accept `tool_use_id`. Use `this.state.storage.get(tool_use_id)`.
+6. `/delete_mapping` (FR1.4): Accept `tool_use_id`. Use `this.state.storage.delete(tool_use_id)`.
+7. `/clear_conversation_state` (FR1.5): Implement a method that calls `this.state.storage.deleteAll()` and `this.state.storage.deleteAlarm()`.
+
+# Test Strategy:
+Write unit tests for `ConversationStateDO` methods. Test `/store` and then `/retrieve` to ensure data persistence and retrieval. Test `/delete_mapping` to confirm specific key removal. Test `/clear_conversation_state` to verify all data and alarms are removed. Use `miniflare` for local testing.
+
+# Subtasks:
+## 1. Initialize ConversationStateDO and Basic Request Handling [pending]
+### Dependencies: None
+### Description: Create the `ConversationStateDO` class, define its constructor to accept `state` and `env`, and set up the initial `handleRequest` method to parse incoming request URLs and methods.
+### Details:
+Define `ConversationStateDO` class with `state` and `env` in constructor. Implement `handleRequest` to extract `URL` path and `method` for routing.
+
+## 2. Implement `/store` Endpoint Logic [pending]
+### Dependencies: 2.1
+### Description: Develop the internal logic for the `/store` endpoint, responsible for persisting key-value pairs (e.g., conversation state segments) using `state.storage.put()`. This logic should handle parsing the request body.
+### Details:
+Logic should handle `PUT` or `POST` requests. Parse request body for `key` and `value`. Use `state.storage.put(key, value)`. Return appropriate success/error response.
+
+## 3. Implement `/retrieve` Endpoint Logic [pending]
+### Dependencies: 2.1
+### Description: Develop the internal logic for the `/retrieve` endpoint, responsible for fetching a specific value associated with a given key using `state.storage.get()`. This logic should handle parsing URL query parameters.
+### Details:
+Logic should handle `GET` requests. Parse URL query parameters for the `key`. Use `state.storage.get(key)`. Return the retrieved value or a 404 if not found.
+
+## 4. Implement `/delete_mapping` Endpoint Logic [pending]
+### Dependencies: 2.1
+### Description: Develop the internal logic for the `/delete_mapping` endpoint, responsible for removing a specific key-value pair using `state.storage.delete()`. This logic should handle parsing URL query parameters.
+### Details:
+Logic should handle `DELETE` requests. Parse URL query parameters for the `key` to be deleted. Use `state.storage.delete(key)`. Return success/error response.
+
+## 5. Implement `/clear_conversation_state` Endpoint Logic [pending]
+### Dependencies: 2.1
+### Description: Develop the internal logic for the `/clear_conversation_state` endpoint, responsible for clearing all stored data for the current Durable Object instance using `state.storage.deleteAll()`.
+### Details:
+Logic should handle `DELETE` or `POST` requests. Call `state.storage.deleteAll()`. Return success response.
+
+## 6. Integrate Endpoint Logic into `handleRequest` Routing [pending]
+### Dependencies: 2.2, 2.3, 2.4, 2.5
+### Description: Modify the `handleRequest` method to correctly route incoming requests to the respective `/store`, `/retrieve`, `/delete_mapping`, and `/clear_conversation_state` logic based on the URL path and HTTP method.
+### Details:
+Use `if/else if` or `switch` statements based on `request.url.pathname` and `request.method` to call the appropriate internal handler functions for each endpoint. Handle unknown paths/methods with a 404/405 response.
+
+## 7. Set up Miniflare for Local Testing and Basic Tests [pending]
+### Dependencies: 2.6
+### Description: Configure `miniflare` to run the `ConversationStateDO` locally and write basic integration tests to verify the functionality of all implemented endpoints (`/store`, `/retrieve`, `/delete_mapping`, `/clear_conversation_state`).
+### Details:
+Set up `miniflare` environment. Write test cases using `fetch` to interact with the DO, asserting expected responses for storing, retrieving, deleting specific keys, and clearing all state.
+
