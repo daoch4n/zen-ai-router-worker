@@ -16,6 +16,6 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          wranglerConfigFile: 'orchestrator-worker/wrangler.toml'
+          wranglerConfigFile: 'orchestrator/wrangler.toml'
           env: |
             BACKEND_SERVICE: zen-ai-router-worker # Explicitly bind to the main worker
