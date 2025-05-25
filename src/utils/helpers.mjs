@@ -60,8 +60,46 @@ export const parseImg = async (url) => {
 };
 
 /**
+ * List of JSON Schema properties that are not supported by Gemini API.
+ * These properties will be removed during schema adjustment.
+ */
+const UNSUPPORTED_SCHEMA_PROPERTIES = [
+  // JSON Schema Draft 7+ specific properties
+  '$schema',
+  '$id',
+  '$ref',
+  '$comment',
+
+  // Numeric validation keywords not supported by Gemini
+  'exclusiveMinimum',
+  'exclusiveMaximum',
+
+  // Complex composition keywords
+  'allOf',
+  'anyOf',
+  'oneOf',
+  'not',
+
+  // Conditional schema keywords
+  'if',
+  'then',
+  'else',
+
+  // Content validation (for strings)
+  'contentEncoding',
+  'contentMediaType',
+  'contentSchema',
+
+  // Additional Draft 7+ keywords
+  'readOnly',
+  'writeOnly',
+  'examples'
+];
+
+/**
  * Recursively adjusts JSON schema properties for Gemini API compatibility.
- * Removes unsupported properties that cause validation errors.
+ * Removes unsupported properties that cause validation errors and applies
+ * necessary transformations for compatibility.
  *
  * @param {Object|Array} schemaPart - Schema object or array to process
  */
@@ -77,6 +115,21 @@ export const adjustProps = (schemaPart) => {
     if (schemaPart.type === "object" && schemaPart.properties && schemaPart.additionalProperties === false) {
       delete schemaPart.additionalProperties;
     }
+
+    // Remove all unsupported schema properties
+    UNSUPPORTED_SCHEMA_PROPERTIES.forEach(prop => {
+      if (prop in schemaPart) {
+        delete schemaPart[prop];
+      }
+    });
+
+    // Transform 'const' to 'enum' with single value (Gemini supports enum but not const)
+    if ('const' in schemaPart) {
+      schemaPart.enum = [schemaPart.const];
+      delete schemaPart.const;
+    }
+
+    // Recursively process nested objects and arrays
     Object.values(schemaPart).forEach(adjustProps);
   }
 };

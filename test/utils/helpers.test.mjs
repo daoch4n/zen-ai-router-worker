@@ -7,7 +7,9 @@ import {
   parseImg,
   parseModelName,
   getBudgetFromLevel,
-  removeThinkingTags
+  removeThinkingTags,
+  adjustProps,
+  adjustSchema
 } from '../../src/utils/helpers.mjs';
 import { HttpError } from '../../src/utils/error.mjs';
 import { createMockResponse } from '../setup.mjs';
@@ -181,6 +183,233 @@ describe('helper utilities', () => {
       expect(removeThinkingTags(null)).toBe(null);
       expect(removeThinkingTags(undefined)).toBe(undefined);
       expect(removeThinkingTags('')).toBe('');
+    });
+  });
+
+  describe('adjustProps', () => {
+    it('should remove unsupported JSON schema properties', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' }
+        },
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        $id: 'https://example.com/schema',
+        exclusiveMinimum: 0,
+        exclusiveMaximum: 100,
+        allOf: [{ type: 'string' }],
+        anyOf: [{ type: 'string' }, { type: 'number' }],
+        oneOf: [{ type: 'string' }],
+        not: { type: 'null' },
+        if: { type: 'string' },
+        then: { minLength: 1 },
+        else: { maxLength: 0 },
+        readOnly: true,
+        writeOnly: false,
+        examples: ['example1', 'example2']
+      };
+
+      adjustProps(schema);
+
+      // Should remove all unsupported properties
+      expect(schema).not.toHaveProperty('$schema');
+      expect(schema).not.toHaveProperty('$id');
+      expect(schema).not.toHaveProperty('exclusiveMinimum');
+      expect(schema).not.toHaveProperty('exclusiveMaximum');
+      expect(schema).not.toHaveProperty('allOf');
+      expect(schema).not.toHaveProperty('anyOf');
+      expect(schema).not.toHaveProperty('oneOf');
+      expect(schema).not.toHaveProperty('not');
+      expect(schema).not.toHaveProperty('if');
+      expect(schema).not.toHaveProperty('then');
+      expect(schema).not.toHaveProperty('else');
+      expect(schema).not.toHaveProperty('readOnly');
+      expect(schema).not.toHaveProperty('writeOnly');
+      expect(schema).not.toHaveProperty('examples');
+
+      // Should preserve supported properties
+      expect(schema.type).toBe('object');
+      expect(schema.properties).toEqual({
+        name: { type: 'string' }
+      });
+    });
+
+    it('should transform const to enum', () => {
+      const schema = {
+        type: 'string',
+        const: 'fixed-value'
+      };
+
+      adjustProps(schema);
+
+      expect(schema).not.toHaveProperty('const');
+      expect(schema.enum).toEqual(['fixed-value']);
+      expect(schema.type).toBe('string');
+    });
+
+    it('should remove additionalProperties: false', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' }
+        },
+        additionalProperties: false
+      };
+
+      adjustProps(schema);
+
+      expect(schema).not.toHaveProperty('additionalProperties');
+      expect(schema.type).toBe('object');
+      expect(schema.properties).toEqual({
+        name: { type: 'string' }
+      });
+    });
+
+    it('should preserve additionalProperties: true', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          name: { type: 'string' }
+        },
+        additionalProperties: true
+      };
+
+      adjustProps(schema);
+
+      expect(schema.additionalProperties).toBe(true);
+    });
+
+    it('should handle nested objects recursively', () => {
+      const schema = {
+        type: 'object',
+        properties: {
+          user: {
+            type: 'object',
+            properties: {
+              name: {
+                type: 'string',
+                exclusiveMinimum: 0,
+                $schema: 'http://json-schema.org/draft-07/schema#'
+              }
+            },
+            additionalProperties: false
+          }
+        },
+        $id: 'root-schema'
+      };
+
+      adjustProps(schema);
+
+      expect(schema).not.toHaveProperty('$id');
+      expect(schema.properties.user).not.toHaveProperty('additionalProperties');
+      expect(schema.properties.user.properties.name).not.toHaveProperty('exclusiveMinimum');
+      expect(schema.properties.user.properties.name).not.toHaveProperty('$schema');
+      expect(schema.properties.user.properties.name.type).toBe('string');
+    });
+
+    it('should handle arrays recursively', () => {
+      const schema = {
+        type: 'array',
+        items: [
+          {
+            type: 'string',
+            exclusiveMinimum: 0
+          },
+          {
+            type: 'object',
+            properties: {
+              value: { type: 'number', $schema: 'test' }
+            },
+            additionalProperties: false
+          }
+        ]
+      };
+
+      adjustProps(schema);
+
+      expect(schema.items[0]).not.toHaveProperty('exclusiveMinimum');
+      expect(schema.items[0].type).toBe('string');
+      expect(schema.items[1]).not.toHaveProperty('additionalProperties');
+      expect(schema.items[1].properties.value).not.toHaveProperty('$schema');
+      expect(schema.items[1].properties.value.type).toBe('number');
+    });
+
+    it('should handle null and primitive values safely', () => {
+      expect(() => adjustProps(null)).not.toThrow();
+      expect(() => adjustProps(undefined)).not.toThrow();
+      expect(() => adjustProps('string')).not.toThrow();
+      expect(() => adjustProps(123)).not.toThrow();
+      expect(() => adjustProps(true)).not.toThrow();
+    });
+
+    it('should handle empty objects and arrays', () => {
+      const emptyObject = {};
+      const emptyArray = [];
+
+      adjustProps(emptyObject);
+      adjustProps(emptyArray);
+
+      expect(emptyObject).toEqual({});
+      expect(emptyArray).toEqual([]);
+    });
+  });
+
+  describe('adjustSchema', () => {
+    it('should remove strict property and adjust schema', () => {
+      const schema = {
+        type: 'function',
+        function: {
+          name: 'test_function',
+          description: 'A test function',
+          strict: true,
+          parameters: {
+            type: 'object',
+            properties: {
+              param1: {
+                type: 'string',
+                exclusiveMinimum: 0,
+                $schema: 'http://json-schema.org/draft-07/schema#'
+              }
+            },
+            additionalProperties: false,
+            required: ['param1']
+          }
+        }
+      };
+
+      adjustSchema(schema);
+
+      // Should remove strict property
+      expect(schema.function).not.toHaveProperty('strict');
+
+      // Should preserve function metadata
+      expect(schema.function.name).toBe('test_function');
+      expect(schema.function.description).toBe('A test function');
+
+      // Should adjust nested schema properties
+      expect(schema.function.parameters).not.toHaveProperty('additionalProperties');
+      expect(schema.function.parameters.properties.param1).not.toHaveProperty('exclusiveMinimum');
+      expect(schema.function.parameters.properties.param1).not.toHaveProperty('$schema');
+      expect(schema.function.parameters.properties.param1.type).toBe('string');
+      expect(schema.function.parameters.required).toEqual(['param1']);
+    });
+
+    it('should handle schema without strict property', () => {
+      const schema = {
+        type: 'function',
+        function: {
+          name: 'test_function',
+          parameters: {
+            type: 'object',
+            properties: {
+              param1: { type: 'string' }
+            }
+          }
+        }
+      };
+
+      expect(() => adjustSchema(schema)).not.toThrow();
+      expect(schema.function.name).toBe('test_function');
     });
   });
 });
