@@ -2,8 +2,13 @@ import {
   DEFAULT_ANTHROPIC_VERSION
 } from '../constants/index.mjs';
 import {
-  MalformedRequestError
-} from '../utils/error.mjs'; // Import MalformedRequestError
+  MalformedRequestError,
+  DOOperationError // Add DOOperationError import
+} from '../utils/error.mjs'; // Import MalformedRequestError and DOOperationError
+import {
+  DO_MAX_RETRIES, // Add DO_MAX_RETRIES import
+  DO_RETRY_DELAY_MS // Add DO_RETRY_DELAY_MS import
+} from '../constants/index.mjs';
 
 /**
  * Recursively removes unsupported fields from a JSON schema for Gemini.
