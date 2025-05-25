@@ -1,6 +1,6 @@
 # Task ID: 3
 # Title: Implement Conversation ID Management in Main Worker
-# Status: pending
+# Status: done
 # Dependencies: 1
 # Priority: high
 # Description: Implement the logic within the main Cloudflare Worker to derive a unique `conversationId` for each request and obtain the corresponding `DurableObjectStub`.
@@ -15,27 +15,42 @@
 Send requests with and without `X-Conversation-ID` header. Verify that a consistent `conversationId` is used for subsequent requests with the header, and a new unique ID is generated when absent. Log the derived `conversationId` and DO ID to confirm correct derivation and stub retrieval.
 
 # Subtasks:
-## 1. Determine Conversation ID [pending]
+## 1. Determine Conversation ID [done]
 ### Dependencies: None
 ### Description: Check the incoming request for the 'X-Conversation-ID' header. If found, use its value. If the header is absent, generate a new UUID to serve as the conversation ID.
 ### Details:
 This step ensures a unique identifier is available for the conversation, either provided by the client or newly created.
+<info added on 2025-05-25T11:39:56.482Z>
+The `fetch` handler in `src/worker.mjs` will be used to determine the conversation ID. The logic is as follows:
+1. Check for the `X-Conversation-ID` header in the incoming request.
+2. If the header is present, its value will be used as the `conversationId`.
+3. If the header is not present, a new UUID will be generated using `crypto.randomUUID()` and prefixed with `conv_` to serve as the `conversationId`.
+</info added on 2025-05-25T11:39:56.482Z>
 
-## 2. Obtain Durable Object ID [pending]
+## 2. Obtain Durable Object ID [done]
 ### Dependencies: 3.1
 ### Description: Using the determined conversation ID (from Subtask 1), call `env.DurableObjectName.idFromName(conversationId)` to derive the unique Durable Object ID for this conversation.
 ### Details:
 The `idFromName` method ensures that the same conversation ID always maps to the same Durable Object instance.
+<info added on 2025-05-25T11:40:10.745Z>
+The code for obtaining the Durable Object ID, `const doId = env.CONVERSATION_STATE.idFromName(conversationId);`, is already present in `src/worker.mjs` as part of the previous implementation. This fulfills the requirements of this subtask.
+</info added on 2025-05-25T11:40:10.745Z>
 
-## 3. Retrieve Durable Object Stub [pending]
+## 3. Retrieve Durable Object Stub [done]
 ### Dependencies: 3.2
 ### Description: With the Durable Object ID obtained in Subtask 2, call `env.DurableObjectName.get(durableObjectId)` to retrieve the Durable Object stub, which allows interaction with the Durable Object instance.
 ### Details:
 The stub is the primary interface for sending requests to and receiving responses from the Durable Object.
+<info added on 2025-05-25T11:40:18.892Z>
+The code for retrieving the Durable Object Stub, `const stub = env.CONVERSATION_STATE.get(doId);`, is already present in `src/worker.mjs` as part of the previous implementation. This fulfills the requirements of this subtask.
+</info added on 2025-05-25T11:40:18.892Z>
 
-## 4. Pass Stub to Transformation Functions [pending]
+## 4. Pass Stub to Transformation Functions [done]
 ### Dependencies: 3.3
 ### Description: Ensure the retrieved Durable Object stub (from Subtask 3) is correctly passed as an argument or part of the context to any subsequent transformation or processing functions that require interaction with the Durable Object.
 ### Details:
 This step is crucial for maintaining state and performing operations within the Durable Object's context throughout the request lifecycle.
+<info added on 2025-05-25T11:40:33.245Z>
+The `DurableObjectStub` is passed to subsequent request/response transformation functions implicitly by being the entry point for the request to the Durable Object via `stub.fetch(request)`. The Durable Object itself will then be responsible for handling any further transformations or interactions. No explicit modification is needed in `src/worker.mjs` for this subtask beyond what is already implemented.
+</info added on 2025-05-25T11:40:33.245Z>
 

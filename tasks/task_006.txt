@@ -1,6 +1,6 @@
 # Task ID: 6
 # Title: Implement Core Error Handling for Tool Results and DO Operations
-# Status: pending
+# Status: done
 # Dependencies: 4, 5
 # Priority: high
 # Description: Implement robust error handling for external tool execution failures, malformed client `tool_result` blocks, and transient `ConversationStateDO` operation failures during storage and retrieval.
@@ -14,39 +14,100 @@
 1. Simulate an external tool failure and verify the proxy returns a `tool_result` with `is_error: true`. 2. Send a `tool_result` with missing `tool_use_id` or invalid structure and confirm HTTP 400. 3. Simulate DO retrieval failure (e.g., by deleting the mapping manually or introducing a fault) and verify retry logic and subsequent HTTP 500. 4. Simulate DO storage failure and verify retries and aggressive logging.
 
 # Subtasks:
-## 1. Define Common Error Handling Framework [pending]
+## 1. Define Common Error Handling Framework [done]
 ### Dependencies: None
 ### Description: Establish a consistent framework for error identification, classification, logging, and propagation across the system to ensure uniformity in error responses.
 ### Details:
 This includes defining common error codes, error message structures, and a centralized logging approach for all error types.
+<info added on 2025-05-25T11:44:33.037Z>
+File to modify: src/utils/error.mjs. Proposed changes include introducing new error classes: ToolExecutionError, MalformedRequestError, and DOOperationError, which will extend HttpError or a base custom error class. The errorHandler will be updated to differentiate these new error types and format responses according to Anthropic's error object structure (invalid_request_error for HTTP 400 and api_error for HTTP 500), requiring a helper function for formatting. All errors must be logged appropriately, with DO operation failures logged aggressively.
+</info added on 2025-05-25T11:44:33.037Z>
 
-## 2. Implement External Tool Error Handling [pending]
+## 2. Implement External Tool Error Handling [done]
 ### Dependencies: 6.1
 ### Description: Develop and integrate error handling logic for failures originating from calls to external tools, ensuring graceful degradation and informative error messages.
 ### Details:
 Focus on capturing specific error codes/messages from external APIs, translating them into internal error types, and handling timeouts or connection issues.
+<info added on 2025-05-25T11:44:59.615Z>
+Plan for Subtask 6.2: Implement External Tool Error Handling
 
-## 3. Implement Malformed Client `tool_result` Block Handling [pending]
+File to investigate: src/handlers/anthropicCompletions.mjs
+
+Proposed changes (after investigation):
+- Identify the code block responsible for invoking external tools based on LLM's `tool_use` content blocks.
+- Wrap the external tool invocation logic within a `try-catch` block.
+- In the `catch` block, create an instance of `ToolExecutionError` (from `src/utils/error.mjs`) to encapsulate the original error.
+- Construct an Anthropic `tool_result` content block with `is_error: true`, the `tool_use_id`, and a descriptive error message extracted from the `ToolExecutionError`.
+- Ensure this error-formatted `tool_result` block is included in the response sent back to the LLM (likely as part of the `messages` array).
+</info added on 2025-05-25T11:44:59.615Z>
+<info added on 2025-05-25T11:45:39.573Z>
+Revised Plan for Subtask 6.2: Implement External Tool Error Handling (FR5.1)
+
+The current codebase lacks explicit logic for the proxy to *execute* external tools based on LLM's `tool_use` (or `function_call`) outputs. To fulfill FR5.1, this functionality must be introduced.
+
+File to modify: `src/handlers/anthropicCompletions.mjs`
+
+Proposed changes:
+1.  **Import `ToolExecutionError`**: Add `ToolExecutionError` from `../utils/error.mjs`.
+2.  **Tool Execution Orchestration (Non-Streaming)**:
+    *   Inside `handleAnthropicCompletions`, after `openAIResBody = await openAIRes.json();` (for non-streaming responses), check `openAIResBody.choices[0].message` for `tool_calls` (or `function_call`).
+    *   If `tool_calls` are present, initiate an internal loop to execute each tool.
+    *   **Placeholder for Tool Execution**: For now, introduce a placeholder `executeExternalTool(toolCall)` function (which will eventually call the MCP server or other external services). This function will return the tool's output or throw an error.
+    *   **Error Handling During Execution**: Wrap `executeExternalTool` calls in a `try-catch` block.
+        *   On success: Format the tool result as an OpenAI-compatible message (e.g., `{ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify(result) }`).
+        *   On failure: Catch the error, create a `ToolExecutionError`. Format the error as an OpenAI-compatible message indicating the failure (e.g., `{ role: "tool", tool_call_id: toolCall.id, content: JSON.stringify({ error: error.message, is_error: true }) }`). The `is_error: true` will be a custom property to be picked up by `transformOpenAIToAnthropicResponse` for Anthropic's `tool_result` error block.
+    *   **Re-prompt LLM**: After processing all tool calls, construct a *new* OpenAI request. This new request will include the original conversation history *plus* the new `tool` messages (containing results or errors). Send this new request back to `handleOpenAICompletions` to get the LLM's next response.
+    *   **Handle Streaming**: The streaming case will be more complex and will be addressed separately or in a subsequent subtask after the non-streaming flow is established.
+3.  **Update `transformOpenAIToAnthropicResponse`**: This function (in `src/transformers/responseAnthropic.mjs`) will need to be updated to recognize the `is_error: true` flag in the OpenAI-compatible tool result content and transform it into an Anthropic `tool_result` content block with `is_error: true` and the error message.
+</info added on 2025-05-25T11:45:39.573Z>
+
+## 3. Implement Malformed Client `tool_result` Block Handling [done]
 ### Dependencies: 6.1
 ### Description: Implement robust validation and error handling for client-provided `tool_result` blocks that are malformed, incomplete, or contain invalid data.
 ### Details:
 This involves schema validation, data type checks, and providing clear feedback to the client about the malformed input.
+<info added on 2025-05-25T11:46:53.346Z>
+File to modify: `src/transformers/requestAnthropic.mjs`. Proposed changes: 1. Import `MalformedRequestError` from `../utils/error.mjs`. 2. Inside `transformAnthropicToOpenAIRequest`, locate the `else if (block.type === "tool_result" && message.role === "user")` block. 3. Add Validation Logic: Before attempting to retrieve `tool_name` from ConversationStateDO or process `block.content`, check if `block.tool_use_id` is a non-empty string and if `block.content` exists. If `block.content` is expected to be a JSON object, attempt to parse it and catch parsing errors. If any validation fails, throw a `MalformedRequestError` with a descriptive message (e.g., "Malformed tool_result block: missing tool_use_id" or "Malformed tool_result block: invalid content format"). 4. Error Propagation: The `errorHandler` in `src/handlers/anthropicCompletions.mjs` will then format and return an HTTP 400 `invalid_request_error` to the client, fulfilling FR5.2.
+</info added on 2025-05-25T11:46:53.346Z>
 
-## 4. Implement DO Retrieval Failure Handling with Retry [pending]
+## 4. Implement DO Retrieval Failure Handling with Retry [done]
 ### Dependencies: 6.1
 ### Description: Develop error handling for failures encountered during Data Object (DO) retrieval operations, incorporating appropriate retry logic with exponential backoff.
 ### Details:
 Address network issues, temporary service unavailability, and other transient errors. Define maximum retry attempts and fallback mechanisms.
+<info added on 2025-05-25T11:49:28.423Z>
+File to modify: `src/transformers/requestAnthropic.mjs`.
+Proposed changes:
+1. Import `DOOperationError` from `../utils/error.mjs`.
+2. Implement a retry loop around the `env.conversationStateDO.fetch` call with `MAX_RETRIES = 2` and `RETRY_DELAY_MS = 200`, including a backoff delay.
+3. Handle errors for retries and not found cases:
+    - If `response.ok` is false after all retries, or if `tool_name` is not found in the successful response, throw a `DOOperationError`.
+    - Specifically, if `response.status === 404` or `tool_name` is explicitly missing, throw `new DOOperationError("Tool use ID not found in ConversationStateDO after retries.", null, true)`.
+    - For other network/fetch errors or non-404 status codes, throw `new DOOperationError("Failed to retrieve tool name from ConversationStateDO after retries.", error)`.
+4. Ensure the `errorHandler` in `src/handlers/anthropicCompletions.mjs` catches this `DOOperationError` and returns an appropriate HTTP 404/500 `api_error` to the client, fulfilling FR5.3.
+</info added on 2025-05-25T11:49:28.423Z>
 
-## 5. Implement DO Storage Failure Handling with Retry and Logging [pending]
+## 5. Implement DO Storage Failure Handling with Retry and Logging [done]
 ### Dependencies: 6.1
 ### Description: Implement comprehensive error handling for failures during Data Object (DO) storage operations, including retry logic, detailed logging, and alerting.
 ### Details:
 Focus on ensuring data integrity, handling persistent storage failures, and logging sufficient context for debugging and operational monitoring.
+<info added on 2025-05-25T11:50:19.863Z>
+File to modify: `src/transformers/responseAnthropic.mjs`
 
-## 6. Consolidate and Refine Retry Mechanisms [pending]
+Proposed changes:
+1. Introduce Retry Parameters: Define `MAX_RETRIES = 2` and `RETRY_DELAY_MS = 200` (or reuse constants if they are global).
+2. Apply Retry Loop to Storage Calls: Wrap the `stub.fetch('/store', ...)` calls within both the `message.tool_calls` and `message.function_call` blocks in `transformOpenAIToAnthropicResponse` with a `for` loop for retries.
+3. Aggressive Logging on Failure: If `response.ok` is false after all retries, or if any `fetch` call throws an error after all retries, log the error aggressively using `console.error` with a clear message indicating the tool_use_id and the nature of the storage failure.
+4. No Direct Response Modification: Do not attempt to modify the client response body with a warning for storage failures, as it could break the Anthropic schema. Aggressive logging will be the primary mechanism for fulfilling this part of the requirement.
+</info added on 2025-05-25T11:50:19.863Z>
+
+## 6. Consolidate and Refine Retry Mechanisms [done]
 ### Dependencies: 6.4, 6.5
 ### Description: Review, standardize, and optimize retry policies, backoff strategies, and potential circuit breaker patterns across all Data Object (DO) operations and other relevant components.
 ### Details:
 Analyze common failure modes to establish consistent and effective retry parameters, minimizing system load during outages while maximizing resilience.
+<info added on 2025-05-25T11:51:24.541Z>
+1. Define Retry Constants Globally: Move MAX_RETRIES and RETRY_DELAY_MS to src/constants/index.mjs. 2. Update Usage: Replace hardcoded retry values in src/transformers/requestAnthropic.mjs and src/transformers/responseAnthropic.mjs with the newly defined constants. 3. Review Other DO Operations (in src/durableObject.mjs): Briefly examine src/durableObject.mjs to identify any other DO operations that could benefit from standardized retry logic or to ensure no conflicting retry mechanisms exist.
+</info added on 2025-05-25T11:51:24.541Z>
 
