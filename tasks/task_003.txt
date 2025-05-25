@@ -1,0 +1,11 @@
+# Task ID: 3
+# Title: Rename orchestrator/src/index.ts to .mjs
+# Status: done
+# Dependencies: 2
+# Priority: high
+# Description: Rename the primary orchestrator worker entry point from `orchestrator/src/index.ts` to `orchestrator/src/index.mjs`.
+# Details:
+Execute `git mv orchestrator/src/index.ts orchestrator/src/index.mjs` to rename the file while preserving its Git history.
+
+# Test Strategy:
+Verify that `orchestrator/src/index.ts` no longer exists and `orchestrator/src/index.mjs` is present in its place. Confirm the file content remains intact.

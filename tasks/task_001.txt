@@ -1,0 +1,11 @@
+# Task ID: 1
+# Title: Create Dedicated Git Branch for Refactoring
+# Status: done
+# Dependencies: None
+# Priority: high
+# Description: Isolate all refactoring changes in a new, dedicated Git branch to ensure the main branch remains untouched and stable.
+# Details:
+Execute `git checkout -b feature/ts-to-js-refactor` to create and switch to the new branch.
+
+# Test Strategy:
+Verify that a new branch named `feature/ts-to-js-refactor` has been created and that the current working branch is set to it using `git branch` and `git status`.

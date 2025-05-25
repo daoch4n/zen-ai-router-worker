@@ -1,0 +1,11 @@
+# Task ID: 10
+# Title: Update package.json - Remove TypeScript Dependencies and Scripts
+# Status: done
+# Dependencies: 9
+# Priority: high
+# Description: Review `package.json` to remove `typescript` from `devDependencies` and update or remove any `scripts` that specifically invoke `tsc` or other TypeScript-related tools.
+# Details:
+In `package.json`, locate the `devDependencies` section and remove the `typescript` entry. Review the `scripts` section and remove or modify entries like `"build": "tsc"` or `"lint": "eslint . --ext .ts"`.
+
+# Test Strategy:
+Verify that `typescript` is no longer listed in `devDependencies` and that no `scripts` directly call `tsc` or other TypeScript tools. Run `npm install` to ensure dependencies are correctly updated.

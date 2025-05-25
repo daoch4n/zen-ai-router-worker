@@ -1,0 +1,11 @@
+# Task ID: 13
+# Title: Update jest.config.mjs for JavaScript Compatibility
+# Status: done
+# Dependencies: 12
+# Priority: high
+# Description: Review and update `jest.config.mjs` to remove any TypeScript-specific transformers or presets (e.g., `ts-jest`) to ensure compatibility with pure JavaScript testing.
+# Details:
+Open `jest.config.mjs`. If it includes `preset: 'ts-jest'` or similar TypeScript-specific configurations, replace it with a standard JavaScript configuration or remove the preset entirely if not needed.
+
+# Test Strategy:
+Review `jest.config.mjs` to confirm removal of TypeScript presets. Attempt to run Jest tests (`npm test`) to ensure the test runner functions correctly with pure JavaScript files.

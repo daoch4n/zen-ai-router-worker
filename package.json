@@ -1,7 +1,9 @@
 {
-  "name": "openai-gemini-mod",
-  "version": "1.5.0",
+  "name": "zen-ai-router-worker",
+  "version": "1.0.0",
   "type": "module",
+  "description": "A router/orchestrator worker for AI model requests",
+  "main": "index.js",
   "dependencies": {
     "@whatwg-node/server": "0.9"
   },
@@ -11,8 +13,10 @@
     "@jest/globals": "^29.7.0"
   },
   "scripts": {
-    "deploy": "wrangler deploy --env production",
-    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
-    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage"
-  }
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js"
+  },
+  "keywords": [],
+  "author": "zen-ai-dev[bot]",
+  "license": "MIT",
+  "private": true
 }

@@ -1,0 +1,30 @@
+{
+  "metadata": {
+    "pr_number": 5,
+    "repo": "daoch4n/zen-ai-router-worker",
+    "title": "Feat/load balancer worker",
+    "timestamp_utc": "2025-05-25T21:36:55.253693+00:00",
+    "review_tool": "I'm your Gemini AI Reviewer",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false
+  },
+  "review_comments": [
+    {
+      "file_path": ".dev.vars",
+      "github_diff_position": 1,
+      "comment_text_md": "**My Confidence: High**\n\nThe previous review stated that `PASS` was migrated to a `.env` file and marked this as addressed. However, `PASS=test_pass` is still present in `.dev.vars`. Storing sensitive credentials like passwords directly in `.dev.vars` is a security risk if this file is committed or shared. Please ensure this variable is moved to a `.env` file that is properly git-ignored, as per the previous resolution.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "security"
+    },
+    {
+      "file_path": ".dev.vars",
+      "github_diff_position": 2,
+      "comment_text_md": "**My Confidence: High**\n\nSimilar to `PASS`, the previous review indicated that `KEY1` was migrated to a `.env` file. However, `KEY1=test_key_xyz` remains in `.dev.vars`. Hardcoding API keys or other secrets directly in `.dev.vars` is a security vulnerability. These should be managed securely, ideally loaded from a secure source or set as environment variables outside of version control. Please move this to a git-ignored `.env` file.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "critical",
+      "detected_category_heuristic": "security"
+    }
+  ]
+}

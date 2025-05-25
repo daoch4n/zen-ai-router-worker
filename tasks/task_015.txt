@@ -1,0 +1,11 @@
+# Task ID: 15
+# Title: Local Development Server Verification
+# Status: done
+# Dependencies: 14
+# Priority: high
+# Description: Start both the orchestrator and backend Cloudflare Workers locally and manually test all critical API endpoints exposed by both workers to ensure they function as expected and return correct responses.
+# Details:
+Execute `flatpak-spawn --host wrangler dev` for both the orchestrator and any backend workers. Use tools like `curl` or a browser to manually hit all critical API endpoints and verify their responses.
+
+# Test Strategy:
+Document the successful responses and expected behavior for each critical API endpoint tested locally. Ensure no errors are reported by `wrangler dev`.

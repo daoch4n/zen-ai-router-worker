@@ -1,0 +1,11 @@
+# Task ID: 6
+# Title: Refactor orchestrator/src/index.mjs - Convert Enums
+# Status: done
+# Dependencies: 5
+# Priority: high
+# Description: Convert TypeScript `enum` declarations in `orchestrator/src/index.mjs` to plain JavaScript objects with `const` declarations, maintaining their functional equivalent.
+# Details:
+Example: `enum Status { Active, Inactive }` should be converted to `const Status = { Active: 'Active', Inactive: 'Inactive' };` or `const Status = Object.freeze({ Active: 'Active', Inactive: 'Inactive' });` for immutability.
+
+# Test Strategy:
+Code review `orchestrator/src/index.mjs` to confirm all `enum` declarations are replaced by plain JavaScript objects. Verify that references to enum members (e.g., `Status.Active`) are correctly updated and function as expected.

@@ -1,0 +1,11 @@
+# Task ID: 14
+# Title: Update GitHub Actions Workflow (cf-deploy.yml)
+# Status: done
+# Dependencies: 13
+# Priority: high
+# Description: Review and modify the GitHub Actions workflow for deployment (`.github/workflows/cf-deploy.yml`) to remove any build steps that involve TypeScript compilation.
+# Details:
+Edit `.github/workflows/cf-deploy.yml`. Remove steps that explicitly call `tsc` or `npm run build` if that script involves TypeScript compilation. The deployment process should now directly utilize the `.mjs` files.
+
+# Test Strategy:
+Review the `.github/workflows/cf-deploy.yml` file to confirm that all TypeScript compilation steps have been removed. Ensure the workflow is configured to deploy `.mjs` files directly.
