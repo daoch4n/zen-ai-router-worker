@@ -39,6 +39,36 @@ describe('ConversationStateDO', () => {
     expect(await response.text()).toBe('Mapping stored successfully');
   });
 
+  test('should return 400 for invalid store request (missing tool_use_id)', async () => {
+    const response = await doStub.fetch('http://test-do/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool_name: 'my_tool' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('Missing tool_use_id or tool_name');
+  });
+
+  test('should return 400 for invalid store request (missing tool_name)', async () => {
+    const response = await doStub.fetch('http://test-do/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tool_use_id: 'tool_use_123' }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('Missing tool_use_id or tool_name');
+  });
+
+  test('should return 400 for invalid store request (non-json body)', async () => {
+    const response = await doStub.fetch('http://test-do/store', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: 'invalid json',
+    });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('Invalid JSON body');
+  });
+
   test('should retrieve a tool mapping', async () => {
     const toolUseId = 'tool_use_456';
     const toolName = 'another_tool';
@@ -62,6 +92,12 @@ describe('ConversationStateDO', () => {
     expect(await response.text()).toBe('Mapping not found');
   });
 
+  test('should return 400 for retrieve request with missing tool_use_id', async () => {
+    const response = await doStub.fetch('http://test-do/retrieve');
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('Missing tool_use_id query parameter');
+  });
+
   test('should delete a tool mapping', async () => {
     const toolUseId = 'tool_use_789';
     const toolName = 'tool_to_delete';
@@ -80,6 +116,12 @@ describe('ConversationStateDO', () => {
 
     const retrieveResponse = await doStub.fetch(`http://test-do/retrieve?tool_use_id=${toolUseId}`);
     expect(retrieveResponse.status).toBe(404);
+  });
+
+  test('should return 400 for delete_mapping request with missing tool_use_id', async () => {
+    const response = await doStub.fetch('http://test-do/delete_mapping', { method: 'DELETE' });
+    expect(response.status).toBe(400);
+    expect(await response.text()).toBe('Missing tool_use_id query parameter');
   });
 
   test('should clear all conversation state', async () => {
@@ -105,4 +147,15 @@ describe('ConversationStateDO', () => {
     const retrieveResponse2 = await doStub.fetch('http://test-do/retrieve?tool_use_id=id2');
     expect(retrieveResponse2.status).toBe(404);
   });
+    test('should successfully clear conversation state when no state exists', async () => {
+        // Ensure no state exists initially
+        const retrieveResponse1 = await doStub.fetch('http://test-do/retrieve?tool_use_id=id1');
+        expect(retrieveResponse1.status).toBe(404);
+
+        const clearResponse = await doStub.fetch('http://test-do/clear_conversation_state', {
+          method: 'POST',
+        });
+        expect(clearResponse.status).toBe(200);
+        expect(await clearResponse.text()).toBe('Conversation state cleared successfully');
+      });
 });
