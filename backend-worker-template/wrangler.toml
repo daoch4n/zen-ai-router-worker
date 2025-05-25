@@ -1,0 +1,4 @@
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+# No 'name' field here, as it's set dynamically by the CI/CD.
+# No [[services]] bindings needed here as they are the target of RPC calls.
