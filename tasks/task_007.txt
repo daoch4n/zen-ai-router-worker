@@ -1,6 +1,6 @@
 # Task ID: 7
 # Title: Implement ConversationStateDO Lifecycle Management
-# Status: pending
+# Status: done
 # Dependencies: 2, 3
 # Priority: medium
 # Description: Implement lifecycle management for `ConversationStateDO` instances, including inactivity-based cleanup using Cloudflare Alarms and an explicit API endpoint for conversation termination.
@@ -23,25 +23,25 @@
 1. For inactivity alarm: Perform a tool-use conversation, then wait for the inactivity period. Verify the DO state is cleaned up (e.g., by attempting to retrieve a mapping and expecting failure). 2. For explicit cleanup: Call the `/terminate` endpoint for an active conversation. Verify that the DO state for that `conversationId` is immediately cleared.
 
 # Subtasks:
-## 1. Implement Inactivity Alarm Setting and Resetting in ConversationStateDO [pending]
+## 1. Implement Inactivity Alarm Setting and Resetting in ConversationStateDO [done]
 ### Dependencies: None
 ### Description: Add logic within the `ConversationStateDO` to set `state.storage.setAlarm()` whenever a new message or activity occurs, and to reset/reschedule the alarm on subsequent activities. Define the inactivity duration (e.g., 5 minutes).
 ### Details:
 This involves modifying the `fetch` method or a dedicated activity tracking method within the DO to call `state.storage.setAlarm(Date.now() + INACTIVITY_TIMEOUT_MS)`. Ensure existing alarms are cleared before setting new ones if needed.
 
-## 2. Implement `alarm()` Handler for Conversation Termination in ConversationStateDO [pending]
+## 2. Implement `alarm()` Handler for Conversation Termination in ConversationStateDO [done]
 ### Dependencies: 7.1
 ### Description: Create the `alarm()` method within the `ConversationStateDO`. This method will be automatically invoked by Cloudflare when the set alarm fires. Implement the logic to terminate the conversation, such as clearing relevant state, marking the conversation as inactive, or performing cleanup.
 ### Details:
 The `alarm()` method should contain the core logic for what happens when a conversation is deemed inactive. This might involve setting a 'terminated' flag, clearing `state.storage` entries, or logging the termination.
 
-## 3. Create `/terminate` API Endpoint in Main Worker [pending]
+## 3. Create `/terminate` API Endpoint in Main Worker [done]
 ### Dependencies: None
 ### Description: Develop a new API endpoint, `/terminate`, in the main Cloudflare Worker. This endpoint should accept a conversation identifier (e.g., `conversationId`) as a parameter to specify which conversation DO to target for termination.
 ### Details:
 The endpoint should be a POST request, accepting a JSON body with the `conversationId`. It will need to instantiate the correct `ConversationStateDO` stub using the provided ID.
 
-## 4. Integrate `/terminate` Endpoint with ConversationStateDO and Alarm Management [pending]
+## 4. Integrate `/terminate` Endpoint with ConversationStateDO and Alarm Management [done]
 ### Dependencies: 7.2, 7.3
 ### Description: Modify the `/terminate` endpoint to call a specific method on the `ConversationStateDO` instance to trigger immediate termination. Ensure this manual termination correctly interacts with and potentially cancels any pending inactivity alarms for that DO.
 ### Details:
