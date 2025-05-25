@@ -3,12 +3,13 @@
  * Handles message transformation, configuration mapping, and tool definitions.
  */
 import { HttpError } from '../utils/error.mjs';
-import { adjustSchema, parseImg, getBudgetFromLevel } from '../utils/helpers.mjs';
+import { parseImg, getBudgetFromLevel, adjustSchema } from '../utils/helpers.mjs';
 import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } from '../constants/index.mjs';
 
 /**
  * Transforms OpenAI-style request configuration parameters to Gemini API format.
  * Maps parameter names and handles special cases like response formatting and thinking configuration.
+ * Uses responseJsonSchema for JSON schema response formats.
  *
  * @param {Object} req - OpenAI request object containing configuration parameters
  * @param {number} [req.temperature] - Sampling temperature (0-2)
@@ -51,9 +52,9 @@ export const transformConfig = (req, thinkingConfig = null) => {
   if (req.response_format) {
     switch (req.response_format.type) {
       case "json_schema":
-        adjustSchema(req.response_format);
-        cfg.responseSchema = req.response_format.json_schema?.schema;
-        if (cfg.responseSchema && "enum" in cfg.responseSchema) {
+        // Use responseJsonSchema for JSON schema response formats
+        cfg.responseJsonSchema = req.response_format.json_schema?.schema;
+        if (cfg.responseJsonSchema && "enum" in cfg.responseJsonSchema) {
           cfg.responseMimeType = "text/x.enum";
           break;
         }
@@ -281,6 +282,7 @@ export const transformMessages = async (messages) => {
 /**
  * Transforms OpenAI tools and tool choice configuration to Gemini format.
  * Handles function declarations and calling mode configuration.
+ * Applies schema adjustments to ensure Gemini API compatibility.
  *
  * @param {Object} req - OpenAI request object
  * @param {Array} [req.tools] - Array of tool definitions
@@ -291,9 +293,12 @@ export const transformTools = (req) => {
   let tools, tool_config;
 
   if (req.tools) {
-    // Extract and adjust function tool schemas
+    // Extract function tool schemas and apply Gemini compatibility adjustments
     const funcs = req.tools.filter(tool => tool.type === "function");
-    funcs.forEach(adjustSchema);
+    // Apply schema adjustments to remove unsupported properties and ensure compatibility
+    funcs.forEach(schema => {
+      adjustSchema(schema);
+    });
     tools = [{ function_declarations: funcs.map(schema => schema.function) }];
   }
 
