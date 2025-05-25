@@ -50,7 +50,7 @@ function cleanGeminiSchema(schema) {
  * @param {Object} anthropicReq - The incoming Anthropic request body.
  * @returns {Object} The transformed OpenAI-compatible request body.
  */
-export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
+export async function transformAnthropicToOpenAIRequest(anthropicReq, env) {
   const openAIReq = {};
 
   // 1. Model mapping
@@ -90,27 +90,31 @@ export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
         if (block.type === "text") {
           textContent.push(block.text);
         } else if (block.type === "tool_result" && message.role === "user") {
-          // Map Anthropic tool_result (user turn) to OpenAI function role
-          // The name of the tool needs to be tracked from the assistant's previous tool_use.
-          // CRITICAL BUG: Tool name mapping for tool_result messages is complex in a stateless proxy.
-          // The `tool_use_id` is an internal identifier. To get the actual tool `name` for OpenAI's `function` role,
-          // the proxy would ideally need to track the `tool_use_id` to `tool_name` mapping from the *previous*
-          // assistant's `tool_use` message. This requires state management across turns.
-          //
-          // CURRENT LIMITATION: Without state, we cannot reliably infer the tool name.
-          // For now, a placeholder name is used. This will likely cause failures in downstream systems
-          // that rely on accurate tool names.
-          //
-          // A robust solution would involve:
-          // 1. Storing the `tool_use_id` to `tool_name` mapping in a cache or database when the assistant
-          //    returns a `tool_use` message.
-          // 2. Retrieving the `tool_name` using the `tool_use_id` when a `tool_result` message is received.
-          //
-          // For this stateless proxy, this remains a significant gap.
+          let toolName = `UNKNOWN_TOOL_NAME_FOR_${block.tool_use_id}`;
+          try {
+            if (env.conversationStateDO) {
+              const response = await env.conversationStateDO.fetch(`/retrieve?tool_use_id=${block.tool_use_id}`);
+              if (response.ok) {
+                const { tool_name } = await response.json();
+                if (tool_name) {
+                  toolName = tool_name;
+                } else {
+                  console.warn(`ConversationStateDO response missing tool_name for tool_use_id: ${block.tool_use_id}`);
+                }
+              } else {
+                console.error(`Failed to retrieve tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}, Status: ${response.status}`);
+              }
+            } else {
+              console.warn("ConversationStateDO stub not available in env.");
+            }
+          } catch (error) {
+            console.error(`Error fetching tool name from ConversationStateDO for tool_use_id: ${block.tool_use_id}`, error);
+          }
+
           openAIReq.messages.push({
             role: "function",
-            name: `UNKNOWN_TOOL_NAME_FOR_${block.tool_use_id}`, // Placeholder due to stateless nature
-            content: JSON.stringify(block.content) // OpenAI expects stringified JSON
+            name: toolName,
+            content: JSON.stringify(block.content)
           });
         }
         // Image blocks are not directly supported by standard OpenAI Chat API
