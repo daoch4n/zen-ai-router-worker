@@ -1,0 +1,20 @@
+# Task ID: 5
+# Title: Configure Orchestrator Worker `wrangler.toml`
+# Status: done
+# Dependencies: 1
+# Priority: high
+# Description: Set up the basic `wrangler.toml` for the orchestrator worker, omitting explicit service bindings.
+# Details:
+Create `orchestrator-worker/wrangler.toml` with the following content:
+```toml
+# orchestrator-worker/wrangler.toml
+name = "router-orchestrator"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+
+# Service bindings will be dynamically added via GitHub Actions workflow.
+# No explicit [[services]] block needed here for backend workers.
+```
+
+# Test Strategy:
+Verify the `wrangler.toml` file exists in the `orchestrator-worker` directory and contains the specified configuration. Attempt to run `wrangler dev` from this directory to check for basic syntax validity.

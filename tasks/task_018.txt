@@ -1,0 +1,11 @@
+# Task ID: 18
+# Title: Perform Final Deployment and End-to-End Verification
+# Status: pending
+# Dependencies: 12, 16, 17
+# Priority: high
+# Description: Execute the updated GitHub Actions workflow to deploy the entire system (backend workers and orchestrator) to Cloudflare. Perform end-to-end tests to verify all functionality in the deployed environment.
+# Details:
+Trigger the '.github/workflows/cf-deploy.yml' workflow to deploy all backend workers and the orchestrator. Once deployed, send a series of HTTP requests to the orchestrator's unified endpoint. Monitor Cloudflare Worker logs for both the orchestrator and backend workers to confirm that requests are distributed using round-robin, RPC calls are successful, and error handling (e.g., 503 response) functions correctly when backend workers are simulated to fail.
+
+# Test Strategy:
+Deployment Verification: Confirm successful completion of the GitHub Actions workflow. Functional E2E Tests: Send a series of HTTP requests to the deployed orchestrator endpoint. Verify that responses are received, and inspect Cloudflare Worker logs (for both orchestrator and backend workers) to confirm: Requests are distributed round-robin. RPC calls are successful. Error handling (e.g., 503 response) works as expected if a backend worker is manually stopped or simulated to fail. Performance Check: Monitor Cloudflare Worker metrics for latency and resource usage to ensure minimal overhead.

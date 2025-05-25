@@ -1,0 +1,40 @@
+# Task ID: 13
+# Title: Modify GitHub Actions Workflow for Backend Worker Deployment
+# Status: done
+# Dependencies: 3, 4
+# Priority: high
+# Description: Update `.github/workflows/cf-deploy.yml` to include a step for iteratively deploying backend workers based on `KEY{num}` secrets.
+# Details:
+Modify `.github/workflows/cf-deploy.yml` to include the `Prepare Worker Environment Variables and Deploy Backend Workers` step:
+```yaml
+# Partial modification to .github/workflows/cf-deploy.yml
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare Worker Environment Variables and Deploy Backend Workers
+        id: prepare_and_deploy_backends # Add an ID to reference outputs
+        run: |
+          ORCHESTRATOR_SERVICE_BINDINGS_ARGS=""
+          for i in $(seq 1 100); do
+            KEY_NAME="KEY${i}"
+            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
+            if [ -z "$KEY_VALUE" ]; then
+              break # Stop if a KEY{num} secret is not found
+            fi
+            echo "Deploying backend worker: $KEY_VALUE"
+            flatpak-spawn --host npx wrangler publish --name "$KEY_VALUE" --compatibility-date 2024-05-01 --main backend-worker-template/src/index.ts
+            
+            # ... (rest of the script for orchestrator bindings)
+          done
+          # ... (output orchestrator_bindings)
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+```
+
+# Test Strategy:
+Configure GitHub secrets (e.g., `KEY1`, `KEY2`) and trigger the workflow. Verify in the GitHub Actions run logs that backend workers are deployed with the names corresponding to the `KEY` secret values.

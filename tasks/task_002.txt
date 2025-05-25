@@ -1,0 +1,19 @@
+# Task ID: 2
+# Title: Create Shared RPC Interface (`src/interfaces.ts`)
+# Status: done
+# Dependencies: 1
+# Priority: high
+# Description: Define the `BackendWorkerInterface` in `src/interfaces.ts` to ensure type-safe communication between the orchestrator and backend workers.
+# Details:
+Create `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` with the following content:
+```typescript
+// src/interfaces.ts
+
+export interface BackendWorkerInterface {
+  handleRequest(request: Request): Promise<Response>;
+}
+```
+Ensure this file is identical or symlinked/copied to both worker directories.
+
+# Test Strategy:
+Verify that `orchestrator-worker/src/interfaces.ts` and `backend-worker-template/src/interfaces.ts` exist and contain the correct interface definition. Check for TypeScript compilation errors related to this interface.

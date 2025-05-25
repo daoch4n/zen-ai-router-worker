@@ -1,0 +1,33 @@
+# Task ID: 16
+# Title: Document Local Development Setup
+# Status: done
+# Dependencies: 3, 5, 7, 8, 9, 10, 12
+# Priority: medium
+# Description: Provide clear instructions on how to set up and run the orchestrator and backend workers locally using `wrangler dev`.
+# Details:
+Add a section to `README.md` or a dedicated `LOCAL_DEV.md` file with instructions similar to section 8.6.C:
+```markdown
+## Local Development
+
+To run the orchestrator and backend workers locally, follow these steps:
+
+1.  **Start Backend Workers (in separate terminals):**
+    ```bash
+    flatpak-spawn --host npx wrangler dev --name my-backend-worker-1 --port 8081 --main backend-worker-template/src/index.ts
+    flatpak-spawn --host npx wrangler dev --name my-backend-worker-2 --port 8082 --main backend-worker-template/src/index.ts
+    # Add more as needed, adjusting names and ports
+    ```
+
+2.  **Start Orchestrator Worker (in another terminal):**
+    ```bash
+    flatpak-spawn --host npx wrangler dev --name router-orchestrator --main orchestrator-worker/src/index.ts --port 8080 \
+      --service BACKEND_SERVICE_1=my-backend-worker-1 \
+      --service BACKEND_SERVICE_2=my-backend-worker-2
+    # Include all active backend workers you started above
+    ```
+
+3.  **Test:** Send requests to `http://localhost:8080`.
+```
+
+# Test Strategy:
+Follow the documented local development steps precisely. Verify that all workers start successfully and that requests sent to the orchestrator's local URL are correctly routed to the locally running backend workers.
