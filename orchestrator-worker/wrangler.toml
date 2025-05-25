@@ -1,0 +1,7 @@
+# orchestrator-worker/wrangler.toml
+name = "router-orchestrator"
+main = "src/index.ts"
+compatibility_date = "2024-05-01"
+
+# Service bindings will be dynamically added via GitHub Actions workflow.
+# No explicit [[services]] block needed here for backend workers.
