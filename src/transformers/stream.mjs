@@ -62,13 +62,21 @@ export function toOpenAiStream(line, controller) {
   let data;
   try {
     data = JSON.parse(line);
-    if (!data.candidates) {
-      throw new Error("Invalid completion chunk object");
+    if (!data || (!data.candidates && !data.promptFeedback)) {
+      throw new Error("Invalid or empty completion chunk object from Gemini.");
     }
   } catch (err) {
-    console.error("Error parsing response:", err);
-    if (!this.shared.is_buffers_rest) { line =+ STREAM_DELIMITER; }
-    controller.enqueue(line);
+    console.error("Error processing stream chunk:", err);
+    controller.enqueue(sseline({
+      id: this.id,
+      object: "chat.completion.chunk",
+      model: this.model,
+      choices: [{
+        index: 0,
+        delta: { content: `Error: Could not parse Gemini stream chunk. ${err.message}` },
+        finish_reason: "error",
+      }],
+    }));
     return;
   }
 
@@ -78,7 +86,7 @@ export function toOpenAiStream(line, controller) {
     choices: data.candidates.map(cand => transformCandidatesDelta(cand, this.thinkingMode)),
     model: data.modelVersion ?? this.model,
     object: "chat.completion.chunk",
-    usage: data.usageMetadata && this.streamIncludeUsage ? null : undefined,
+    usage: undefined, // Will be populated in the final chunk if requested
   };
 
   // Handle content filtering blocks
@@ -91,30 +99,56 @@ export function toOpenAiStream(line, controller) {
   const cand = obj.choices[0];
   cand.index = cand.index || 0;
   const finish_reason = cand.finish_reason;
-  cand.finish_reason = null;
 
-  // Send initial chunk with role for new candidates
+  // Send initial chunk with role for new candidates if not already sent
   if (!this.last[cand.index]) {
     controller.enqueue(sseline({
       ...obj,
-      choices: [{ ...cand, tool_calls: undefined, delta: { role: "assistant", content: "" } }],
+      choices: [{
+        ...cand,
+        delta: {
+          role: "assistant",
+          ...(cand.delta.content !== "" && { content: cand.delta.content }),
+          ...(cand.tool_calls && { tool_calls: cand.tool_calls }),
+        },
+        tool_calls: undefined, // Clear tool_calls from top level of choice
+        finish_reason: null, // Clear finish_reason for initial chunk
+      }],
     }));
   }
 
-  // Send content delta if present
-  delete cand.delta.role;
-  if ("content" in cand.delta) {
+  // Prepare delta for subsequent chunks
+  const currentDelta = {};
+  if (cand.delta && cand.delta.content !== "") {
+    currentDelta.content = cand.delta.content;
+  }
+  if (cand.tool_calls) {
+    currentDelta.tool_calls = cand.tool_calls;
+  }
+  cand.tool_calls = undefined; // Ensure tool_calls are not duplicated in subsequent chunks
+
+  // Enqueue the current chunk if it contains new content or tool calls
+  if (Object.keys(currentDelta).length > 0) {
+    controller.enqueue(sseline({
+      ...obj,
+      choices: [{ ...cand, delta: currentDelta, finish_reason: null }],
+    }));
+  }
+
+  // If there's a finish reason, send a final chunk for this candidate with the reason
+  if (finish_reason) {
+    cand.finish_reason = finish_reason;
+    cand.delta = {}; // Clear delta for the final chunk
+    // Include usage metadata in the final chunk if requested and available
+    if (data.usageMetadata && this.streamIncludeUsage) {
+      obj.usage = transformUsage(data.usageMetadata);
+    }
     controller.enqueue(sseline(obj));
   }
 
-  // Prepare final chunk with finish reason and usage
-  cand.finish_reason = finish_reason;
-  if (data.usageMetadata && this.streamIncludeUsage) {
-    obj.usage = transformUsage(data.usageMetadata);
-  }
-  cand.delta = {};
+  // Store the last processed object for this candidate index
   this.last[cand.index] = obj;
-}
+};
 
 /**
  * Flush function that sends final chunks and stream termination signal.
@@ -124,10 +158,6 @@ export function toOpenAiStream(line, controller) {
  * @this {Object} Transform stream context with last array property
  */
 export function toOpenAiStreamFlush(controller) {
-  if (this.last.length > 0) {
-    for (const obj of this.last) {
-      controller.enqueue(sseline(obj));
-    }
-    controller.enqueue("data: [DONE]" + STREAM_DELIMITER);
-  }
+  // If there are any pending last chunks, ensure they are sent
+  controller.enqueue("data: [DONE]" + STREAM_DELIMITER);
 }

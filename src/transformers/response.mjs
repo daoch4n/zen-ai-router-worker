@@ -14,11 +14,20 @@ import { REASONS_MAP, CONTENT_SEPARATOR, THINKING_MODES } from '../constants/ind
  * @param {number} data.totalTokenCount - Total tokens consumed
  * @returns {Object} OpenAI-compatible usage object
  */
-export const transformUsage = (data) => ({
-  completion_tokens: data.candidatesTokenCount,
-  prompt_tokens: data.promptTokenCount,
-  total_tokens: data.totalTokenCount
-});
+export const transformUsage = (data) => {
+  if (!data) {
+    return {
+      completion_tokens: 0,
+      prompt_tokens: 0,
+      total_tokens: 0,
+    };
+  }
+  return {
+    completion_tokens: data.candidatesTokenCount || 0,
+    prompt_tokens: data.promptTokenCount || 0,
+    total_tokens: data.totalTokenCount || 0,
+  };
+};
 
 /**
  * Transforms Gemini candidate responses to OpenAI choice format.
@@ -36,7 +45,6 @@ export const transformUsage = (data) => ({
 export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STANDARD) => {
   const message = { role: "assistant", content: [] };
 
-  // Process each content part (text or function calls)
   for (const part of cand.content?.parts ?? []) {
     if (part.functionCall) {
       const fc = part.functionCall;
@@ -49,19 +57,20 @@ export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STA
           arguments: JSON.stringify(fc.args),
         }
       });
-    } else {
+    } else if (typeof part.text === 'string') {
       message.content.push(part.text);
     }
   }
 
-  let content = message.content.join(CONTENT_SEPARATOR) || null;
+  // Join content parts into a single string, or set to null if empty
+  const content = message.content.length > 0 ? message.content.join(CONTENT_SEPARATOR) : null;
 
-  // Apply thinking mode content filtering
-  if (thinkingMode === THINKING_MODES.REFINED && content) {
-    content = removeThinkingTags(content);
+  // Apply thinking mode content filtering if content exists
+  if (thinkingMode === THINKING_MODES.REFINED && content !== null) {
+    message.content = removeThinkingTags(content);
+  } else {
+    message.content = content;
   }
-
-  message.content = content;
 
   return {
     index: cand.index || 0,
@@ -151,4 +160,54 @@ export const processCompletionsResponse = (data, model, id, thinkingMode = THINK
   }
 
   return JSON.stringify(obj);
+};
+
+/**
+ * Transforms a single Gemini embedding object to OpenAI embedding format.
+ *
+ * @param {Object} embeddingData - Gemini embedding object with values array
+ * @param {Array<number>} embeddingData.values - Array of embedding values
+ * @param {number} index - Index of the embedding in the list
+ * @returns {Object} OpenAI-compatible embedding object
+ * @throws {Error} When embedding data is invalid
+ */
+export const transformEmbedding = (embeddingData, index) => {
+  if (!embeddingData || !Array.isArray(embeddingData.values)) {
+    throw new Error("Invalid embedding object received from Gemini API");
+  }
+
+  return {
+    object: "embedding",
+    index: index,
+    embedding: embeddingData.values,
+  };
+};
+
+/**
+ * Processes complete Gemini embedding response and converts to OpenAI embedding format.
+ * Handles single and batch embedding responses.
+ *
+ * @param {Object} data - Complete Gemini API embedding response (can be single or batch)
+ * @param {string} model - Requested model name
+ * @returns {Object} OpenAI-compatible embedding response object
+ */
+export const processEmbeddingsResponse = (data, model) => {
+  let embeddingsArray = [];
+
+  // Check if it's a batch embedding response (batchEmbedContents)
+  if (data.embeddings && Array.isArray(data.embeddings)) {
+    embeddingsArray = data.embeddings.map((emb, index) => transformEmbedding(emb, index));
+  } else if (data.embedding) {
+    // Single embedding response (embedContent)
+    embeddingsArray.push(transformEmbedding(data.embedding, 0));
+  } else {
+    throw new Error("Invalid embedding response structure from Gemini API");
+  }
+
+  return {
+    object: "list",
+    data: embeddingsArray,
+    model: model,
+    usage: transformUsage(data.usageMetadata),
+  };
 };

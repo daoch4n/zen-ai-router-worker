@@ -23,53 +23,101 @@ import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } fro
  * @throws {HttpError} When unsupported response format is specified
  */
 export const transformConfig = (req, thinkingConfig = null) => {
-  let cfg = {};
+  const generationConfig = {};
+  const customConfig = {};
 
-  // Map OpenAI parameter names to Gemini equivalents
-  for (let key in req) {
+  // Map OpenAI parameter names to Gemini equivalents for generationConfig
+  for (const key of Object.keys(req)) {
     const matchedKey = FIELDS_MAP[key];
     if (matchedKey) {
-      if (key === "reasoning_effort") {
-        // Convert reasoning effort level to thinking budget
-        const budget = getBudgetFromLevel(req[key]);
-        if (budget > 0) {
-          cfg.thinkingConfig = cfg.thinkingConfig || {};
-          cfg.thinkingConfig.thinkingBudget = budget;
-        }
-      } else {
-        cfg[matchedKey] = req[key];
+      switch (key) {
+        case "max_tokens":
+          // Ensure max_output_tokens is a positive integer
+          const maxOutputTokens = parseInt(req[key], 10);
+          if (!isNaN(maxOutputTokens) && maxOutputTokens > 0) {
+            generationConfig[matchedKey] = maxOutputTokens;
+          } else {
+            console.warn(`Invalid max_tokens value: ${req[key]}. Must be a positive integer.`);
+          }
+          break;
+        case "temperature":
+          // Ensure temperature is a valid float between 0.0 and 2.0
+          const temperature = parseFloat(req[key]);
+          if (!isNaN(temperature) && temperature >= 0.0 && temperature <= 2.0) {
+            generationConfig[matchedKey] = temperature;
+          } else {
+            console.warn(`Invalid temperature value: ${req[key]}. Must be between 0.0 and 2.0.`);
+          }
+          break;
+        case "top_p":
+          // Ensure top_p is a valid float between 0.0 and 1.0
+          const topP = parseFloat(req[key]);
+          if (!isNaN(topP) && topP >= 0.0 && topP <= 1.0) {
+            generationConfig[matchedKey] = topP;
+          } else {
+            console.warn(`Invalid top_p value: ${req[key]}. Must be between 0.0 and 1.0.`);
+          }
+          break;
+        case "top_k":
+          // Ensure top_k is a non-negative integer
+          const topK = parseInt(req[key], 10);
+          if (!isNaN(topK) && topK >= 0) {
+            generationConfig[matchedKey] = topK;
+          } else {
+            console.warn(`Invalid top_k value: ${req[key]}. Must be a non-negative integer.`);
+          }
+          break;
+        case "stop_sequences":
+          // Ensure stop_sequences is an array of strings
+          if (Array.isArray(req[key]) && req[key].every(item => typeof item === 'string')) {
+            generationConfig[matchedKey] = req[key];
+          } else {
+            console.warn(`Invalid stop_sequences value: ${req[key]}. Must be an array of strings.`);
+          }
+          break;
+        case "reasoning_effort":
+          const budget = getBudgetFromLevel(req[key]);
+          if (budget > 0) {
+            customConfig.thinkingConfig = customConfig.thinkingConfig || {};
+            customConfig.thinkingConfig.thinkingBudget = budget;
+          }
+          break;
+        default:
+          // For other mapped fields, directly assign to generationConfig
+          generationConfig[matchedKey] = req[key];
+          break;
       }
     }
   }
 
   // Apply thinking configuration from model name parsing
   if (thinkingConfig) {
-    cfg.thinkingConfig = cfg.thinkingConfig || {};
-    Object.assign(cfg.thinkingConfig, thinkingConfig);
+    customConfig.thinkingConfig = customConfig.thinkingConfig || {};
+    Object.assign(customConfig.thinkingConfig, thinkingConfig);
   }
 
   // Handle response format specifications
   if (req.response_format) {
     switch (req.response_format.type) {
       case "json_schema":
-        // Use responseJsonSchema for JSON schema response formats
-        cfg.responseJsonSchema = req.response_format.json_schema?.schema;
-        if (cfg.responseJsonSchema && "enum" in cfg.responseJsonSchema) {
-          cfg.responseMimeType = "text/x.enum";
+        adjustSchema(req.response_format);
+        customConfig.responseSchema = req.response_format.json_schema?.schema;
+        if (customConfig.responseSchema && "enum" in customConfig.responseSchema) {
+          customConfig.responseMimeType = "text/x.enum";
           break;
         }
         // eslint-disable-next-line no-fallthrough
       case "json_object":
-        cfg.responseMimeType = "application/json";
+        customConfig.responseMimeType = "application/json";
         break;
       case "text":
-        cfg.responseMimeType = "text/plain";
+        customConfig.responseMimeType = "text/plain";
         break;
       default:
         throw new HttpError("Unsupported response_format.type", 400);
     }
   }
-  return cfg;
+  return { generationConfig, ...customConfig };
 };
 
 /**
@@ -112,8 +160,8 @@ export const transformMsg = async ({ content }) => {
     }
   }
 
-  // Ensure at least one text part exists for image-only messages
-  if (content.every(item => item.type === "image_url")) {
+  // If all parts are image_url, add an empty text part to satisfy Gemini's requirement
+  if (parts.every(part => part.inlineData && part.inlineData.mimeType.startsWith('image/'))) {
     parts.push({ text: "" });
   }
   return parts;
@@ -135,7 +183,6 @@ export const transformFnResponse = ({ content, tool_call_id }, parts) => {
     throw new HttpError("No function calls found in the previous message", 400);
   }
 
-  // Parse and validate function response content
   let response;
   try {
     response = JSON.parse(content);
@@ -144,16 +191,16 @@ export const transformFnResponse = ({ content, tool_call_id }, parts) => {
     throw new HttpError("Invalid function response: " + content, 400);
   }
 
-  // Wrap primitive responses in result object for consistency
   if (typeof response !== "object" || response === null || Array.isArray(response)) {
     response = { result: response };
+  } else if (Object.keys(response).length === 0) {
+    response = { result: null };
   }
 
   if (!tool_call_id) {
     throw new HttpError("tool_call_id not specified", 400);
   }
 
-  // Validate tool call ID exists and hasn't been used
   const { i, name } = parts.calls[tool_call_id] ?? {};
   if (!name) {
     throw new HttpError("Unknown tool_call_id: " + tool_call_id, 400);
@@ -164,22 +211,12 @@ export const transformFnResponse = ({ content, tool_call_id }, parts) => {
 
   parts[i] = {
     functionResponse: {
-      id: tool_call_id.startsWith("call_") ? null : tool_call_id,
       name,
       response,
     }
   };
 };
 
-/**
- * Transforms OpenAI tool calls to Gemini function call format.
- * Parses function arguments and creates mapping for response correlation.
- *
- * @param {Object} message - OpenAI assistant message with tool calls
- * @param {Array} message.tool_calls - Array of tool call objects
- * @returns {Array} Array of Gemini function call parts with calls metadata
- * @throws {HttpError} When unsupported tool type or invalid arguments are encountered
- */
 export const transformFnCalls = ({ tool_calls }) => {
   const calls = {};
   const parts = tool_calls.map(({ function: { arguments: argstr, name }, id, type }, i) => {
@@ -187,27 +224,25 @@ export const transformFnCalls = ({ tool_calls }) => {
       throw new HttpError(`Unsupported tool_call type: "${type}"`, 400);
     }
 
-    // Parse function arguments from JSON string
-    let args;
-    try {
-      args = JSON.parse(argstr);
-    } catch (err) {
-      console.error("Error parsing function arguments:", err);
-      throw new HttpError("Invalid function arguments: " + argstr, 400);
+    let args = {};
+    if (argstr) {
+      try {
+        args = JSON.parse(argstr);
+      } catch (err) {
+        console.error("Error parsing function arguments:", err);
+        throw new HttpError("Invalid function arguments: " + argstr, 400);
+      }
     }
 
-    // Store call metadata for response correlation
-    calls[id] = {i, name};
+    calls[id] = { i, name };
     return {
       functionCall: {
-        id: id.startsWith("call_") ? null : id,
         name,
         args,
       }
     };
   });
 
-  // Attach calls metadata to parts array for response processing
   parts.calls = calls;
   return parts;
 };
@@ -226,29 +261,31 @@ export const transformMessages = async (messages) => {
   const contents = [];
   let system_instruction;
 
-  for (const item of messages) {
-    switch (item.role) {
-      case "system":
-        // Extract system instruction separately from conversation flow
-        system_instruction = { parts: await transformMsg(item) };
-        continue;
+  // Ensure system_instruction is the first message if present
+  if (messages[0]?.role === "system") {
+    system_instruction = { parts: await transformMsg(messages[0]) };
+    messages = messages.slice(1); // Remove system message from the main flow
+  }
 
-      case "tool":
-        // Handle function response messages by grouping with previous function calls
-        // eslint-disable-next-line no-case-declarations
-        let { role, parts } = contents[contents.length - 1] ?? {};
-        if (role !== "function") {
-          // Create new function response group if needed
-          const calls = parts?.calls;
-          parts = [];
-          parts.calls = calls;
-          contents.push({
-            role: "function",
-            parts
-          });
+  for (const item of messages) {
+    // Validate message content
+    if (typeof item.content === 'undefined' || item.content === null) {
+      throw new HttpError(`Message content cannot be null or undefined for role: "${item.role}"`, 400);
+    }
+    if (Array.isArray(item.content) && item.content.length === 0) {
+      throw new HttpError(`Message content array cannot be empty for role: "${item.role}"`, 400);
+    }
+
+    switch (item.role) {
+      case "tool": {
+        // Ensure the last content entry is a function call for proper grouping
+        const lastContent = contents[contents.length - 1];
+        if (!lastContent || !lastContent.parts || !lastContent.parts.calls) {
+          throw new HttpError("Tool message received without a preceding function call context.", 400);
         }
-        transformFnResponse(item, parts);
+        transformFnResponse(item, lastContent.parts);
         continue;
+      }
 
       case "assistant":
         // Map assistant role to model for Gemini API
@@ -269,11 +306,10 @@ export const transformMessages = async (messages) => {
     });
   }
 
-  // Ensure conversation starts with user message when system instruction exists
-  if (system_instruction) {
-    if (!contents[0]?.parts.some(part => part.text)) {
-      contents.unshift({ role: "user", parts: { text: " " } });
-    }
+  // Ensure conversation doesn't start with a model message, if system instruction is not present
+  if (!system_instruction && contents.length > 0 && contents[0].role === "model") {
+    // If the first message is a model message, prepend a dummy user message
+    contents.unshift({ role: "user", parts: [{ text: "" }] });
   }
 
   return { system_instruction, contents };
@@ -290,48 +326,105 @@ export const transformMessages = async (messages) => {
  * @returns {Object} Object with tools and tool_config for Gemini API
  */
 export const transformTools = (req) => {
-  let tools, tool_config;
+  const tools = [];
+  let toolConfig = undefined;
 
   if (req.tools) {
-    // Extract function tool schemas and apply Gemini compatibility adjustments
-    const funcs = req.tools.filter(tool => tool.type === "function");
-    // Apply schema adjustments to remove unsupported properties and ensure compatibility
-    funcs.forEach(schema => {
-      adjustSchema(schema);
-    });
-    tools = [{ function_declarations: funcs.map(schema => schema.function) }];
+    const functionDeclarations = req.tools
+      .filter(tool => tool.type === "function")
+      .map(tool => {
+        adjustSchema(tool);
+        return tool.function;
+      });
+
+    if (functionDeclarations.length > 0) {
+      tools.push({ functionDeclarations });
+    }
   }
 
   if (req.tool_choice) {
-    // Configure function calling behavior based on tool choice
-    const allowed_function_names = req.tool_choice?.type === "function"
-      ? [req.tool_choice?.function?.name]
-      : undefined;
+    let mode;
+    let allowedFunctionNames;
 
-    if (allowed_function_names || typeof req.tool_choice === "string") {
-      tool_config = {
-        function_calling_config: {
-          mode: allowed_function_names ? "ANY" : req.tool_choice.toUpperCase(),
-          allowed_function_names
-        }
+    if (typeof req.tool_choice === "string") {
+      if (req.tool_choice === "none") {
+        mode = "NONE";
+      } else if (req.tool_choice === "auto") {
+        mode = "AUTO";
+      }
+    } else if (req.tool_choice.type === "function" && req.tool_choice.function?.name) {
+      mode = "ANY";
+      allowedFunctionNames = [req.tool_choice.function.name];
+    }
+
+    if (mode) {
+      toolConfig = {
+        functionCallingConfig: {
+          mode,
+          allowedFunctionNames,
+        },
       };
     }
   }
 
-  return { tools, tool_config };
+  return { tools, toolConfig };
 };
+
+/**
+ * Transforms OpenAI embedding request to Gemini API format.
+ *
+ * @param {Object} req - OpenAI embedding request object
+ * @returns {Object} Gemini API embedding request object
+ * @throws {HttpError} When input is invalid
+ */
+export const transformEmbedRequest = (req) => {
+  if (!req.input || (Array.isArray(req.input) && req.input.length === 0)) {
+    throw new HttpError("Input cannot be empty for embedding request.", 400);
+  }
+
+  // Gemini's embedContent expects a single string or an array of strings/Parts.
+  // OpenAI's input can be a string or an array of strings.
+  // For now, we'll assume string or array of strings.
+  // If OpenAI's input could be more complex (e.g., objects with text/image),
+  // additional transformation would be needed.
+  const content = Array.isArray(req.input) ? req.input.map(text => ({ text })) : [{ text: req.input }];
+
+  return {
+    content: {
+      parts: content,
+    },
+    model: req.model, // Ensure model is passed for embedding requests
+  };
+};
+
 
 /**
  * Main request transformation function that combines all transformations.
  * Converts complete OpenAI request to Gemini API format.
  *
- * @param {Object} req - Complete OpenAI chat completion request
+ * @param {Object} req - Complete OpenAI chat completion or embedding request
  * @param {Object} [thinkingConfig] - Optional thinking configuration from model parsing
  * @returns {Promise<Object>} Complete Gemini API request object
  */
-export const transformRequest = async (req, thinkingConfig = null) => ({
-  ...await transformMessages(req.messages),
-  safetySettings: SAFETY_SETTINGS,
-  generationConfig: transformConfig(req, thinkingConfig),
-  ...transformTools(req),
-});
+export const transformRequest = async (req, thinkingConfig = null) => {
+  // Determine if it's a chat completion or embedding request
+  if (req.messages) {
+    // Chat completion request
+    const { generationConfig, ...customConfig } = transformConfig(req, thinkingConfig);
+    const { tools, toolConfig } = transformTools(req);
+
+    return {
+      ...await transformMessages(req.messages),
+      safetySettings: SAFETY_SETTINGS,
+      generationConfig,
+      tools,
+      toolConfig,
+      ...customConfig,
+    };
+  } else if (req.input) {
+    // Embedding request
+    return transformEmbedRequest(req);
+  } else {
+    throw new HttpError("Invalid request: missing 'messages' or 'input' field.", 400);
+  }
+};

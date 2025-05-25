@@ -23,7 +23,7 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constan
  * @returns {Promise<Response>} HTTP response with completion data or stream
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleCompletions(req, apiKey) {
+export async function handleCompletions(req, apiKey, genAI) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -66,57 +66,57 @@ export async function handleCompletions(req, apiKey) {
       body.tools.push({googleSearch: {}});
   }
 
-  // Construct Gemini API endpoint URL based on streaming preference
-  const TASK = req.stream ? "streamGenerateContent" : "generateContent";
-  let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
+  // Configure Gemini model
+  const geminiModel = genAI.getGenerativeModel({ model });
+
+  let response;
   if (req.stream) {
-    url += "?alt=sse";
+    // Use streamGenerateContent for streaming requests
+    response = await geminiModel.generateContentStream(body);
+  } else {
+    // Use generateContent for non-streaming requests
+    response = await geminiModel.generateContent(body);
   }
 
-  const response = await fetch(url, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify(body),
-  });
+  // The `response` object from the library is different from a standard `Response` object.
+  // We need to extract the `response.stream` or `response.response` for further processing.
+  const rawResponse = req.stream ? response.stream : response.response;
 
-  body = response.body;
-  if (response.ok) {
-    let id = "chatcmpl-" + generateId();
-    const shared = {};
+  let id = "chatcmpl-" + generateId();
+  const shared = {};
 
-    if (req.stream) {
-      // Process streaming response through transformation pipeline
-      body = response.body
-        .pipeThrough(new TextDecoderStream())
-        .pipeThrough(new TransformStream({
-          transform: parseStream,
-          flush: parseStreamFlush,
-          buffer: "",
-          shared,
-        }))
-        .pipeThrough(new TransformStream({
-          transform: toOpenAiStream,
-          flush: toOpenAiStreamFlush,
-          streamIncludeUsage: req.stream_options?.include_usage,
-          model, id, last: [],
-          thinkingMode: mode,
-          shared,
-        }))
-        .pipeThrough(new TextEncoderStream());
-    } else {
-      // Process non-streaming response
-      body = await response.text();
-      try {
-        body = JSON.parse(body);
-        if (!body.candidates) {
-          throw new Error("Invalid completion object");
-        }
-      } catch (err) {
-        console.error("Error parsing response:", err);
-        return new Response(body, fixCors(response));
-      }
-      body = processCompletionsResponse(body, model, id, mode);
+  if (req.stream) {
+    // Process streaming response through transformation pipeline
+    const stream = rawResponse
+      .pipeThrough(new TransformStream({
+        transform: parseStream,
+        flush: parseStreamFlush,
+        buffer: "",
+        shared,
+      }))
+      .pipeThrough(new TransformStream({
+        transform: toOpenAiStream,
+        flush: toOpenAiStreamFlush,
+        streamIncludeUsage: req.stream_options?.include_usage,
+        model, id, last: [],
+        thinkingMode: mode,
+        shared,
+      }))
+      .pipeThrough(new TextEncoderStream());
+
+    // Create a new Response object with the transformed stream
+    return new Response(stream, {
+      headers: fixCors(new Headers({ 'Content-Type': 'text/event-stream' }))
+    });
+  } else {
+    // Process non-streaming response
+    let responseBody = rawResponse;
+    if (!responseBody.candidates) {
+      throw new Error("Invalid completion object");
     }
+    responseBody = processCompletionsResponse(responseBody, model, id, mode);
+    return new Response(JSON.stringify(responseBody), {
+      headers: fixCors(new Headers({ 'Content-Type': 'application/json' }))
+    });
   }
-  return new Response(body, fixCors(response));
 }

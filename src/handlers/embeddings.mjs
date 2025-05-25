@@ -5,6 +5,7 @@
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
 import { HttpError } from '../utils/error.mjs';
+import { processEmbeddingsResponse } from '../transformers/response.mjs';
 import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/index.mjs';
 
 /**
@@ -19,7 +20,7 @@ import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/in
  * @returns {Promise<Response>} HTTP response with embedding data
  * @throws {HttpError} When model is not specified or request validation fails
  */
-export async function handleEmbeddings(req, apiKey) {
+export async function handleEmbeddings(req, apiKey, genAI) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
@@ -41,33 +42,21 @@ export async function handleEmbeddings(req, apiKey) {
     req.input = [req.input];
   }
 
-  // Call Gemini batch embedding API
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify({
-      "requests": req.input.map(text => ({
-        model,
-        content: { parts: { text } },
-        outputDimensionality: req.dimensions,
-      }))
-    })
+  // Configure Gemini model for embeddings
+  const geminiEmbeddingsModel = genAI.getGenerativeModel({ model });
+
+  // Call Gemini embedContent API
+  const response = await geminiEmbeddingsModel.embedContent({
+    content: { parts: req.input.map(text => ({ text })) },
+    outputDimensionality: req.dimensions,
   });
 
-  let { body } = response;
-  if (response.ok) {
-    // Transform Gemini response to OpenAI format
-    const { embeddings } = JSON.parse(await response.text());
-    body = JSON.stringify({
-      object: "list",
-      data: embeddings.map(({ values }, index) => ({
-        object: "embedding",
-        index,
-        embedding: values,
-      })),
-      model: req.model,
-    }, null, "  ");
-  }
+  // The `response` object from the library is different from a standard `Response` object.
+  // Process Gemini response to OpenAI format
+  const body = JSON.stringify(processEmbeddingsResponse(response, req.model), null, "  ");
 
-  return new Response(body, fixCors(response));
+  // Create a new Response object with the transformed body
+  return new Response(body, {
+    headers: fixCors(new Headers({ 'Content-Type': 'application/json' }))
+  });
 }

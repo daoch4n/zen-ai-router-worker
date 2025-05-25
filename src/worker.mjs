@@ -5,6 +5,7 @@
  * Provides OpenAI API compatibility for chat completions, embeddings,
  * and model listing while translating requests to Gemini API format.
  */
+import { GoogleGenerativeAI } from '@google/generative-ai';
 import {
   handleCompletions,
   handleEmbeddings,
@@ -43,6 +44,7 @@ async function fetch(request, env) {
 
   try {
     const apiKey = getRandomApiKey(request, env);
+    const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
 
     // Block requests from specific Cloudflare data centers that may have
     // connectivity issues with Google's API endpoints
@@ -63,14 +65,14 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleCompletions(await request.json(), apiKey)
+        return handleCompletions(await request.json(), apiKey, genAI)
           .catch(errHandler);
 
       case pathname.endsWith("/embeddings"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleEmbeddings(await request.json(), apiKey)
+        return handleEmbeddings(await request.json(), apiKey, genAI)
           .catch(errHandler);
 
       case pathname.endsWith("/models"):
