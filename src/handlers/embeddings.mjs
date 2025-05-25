@@ -16,11 +16,10 @@ import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/in
  * @param {string} req.model - Model name for embeddings
  * @param {string|Array<string>} req.input - Text input(s) to embed
  * @param {number} [req.dimensions] - Desired embedding dimensions
- * @param {string} apiKey - Google API key for Gemini access
  * @returns {Promise<Response>} HTTP response with embedding data
  * @throws {HttpError} When model is not specified or request validation fails
  */
-export async function handleEmbeddings(req, apiKey, genAI) {
+export async function handleEmbeddings(req, genAI) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
@@ -33,7 +32,12 @@ export async function handleEmbeddings(req, apiKey, genAI) {
   const geminiEmbeddingsModel = genAI.getGenerativeModel({ model: body.model });
 
   // Call Gemini embedContent API with the directly compatible body
-  const response = await geminiEmbeddingsModel.embedContent(body);
+  let response;
+  try {
+    response = await geminiEmbeddingsModel.embedContent(body);
+  } catch (error) {
+    throw new HttpError(`Gemini API error: ${error.message}`, 500);
+  }
 
   // The `response` object from the library is different from a standard `Response` object.
   // Process Gemini response to OpenAI format

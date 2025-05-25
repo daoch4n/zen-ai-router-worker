@@ -44,19 +44,32 @@ export const transformUsage = (data) => {
  */
 export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STANDARD) => {
   const message = { role: "assistant", content: [] };
+  const rawToolCalls = []; // To store raw function calls for streaming
 
   for (const part of cand.content?.parts ?? []) {
     if (part.functionCall) {
       const fc = part.functionCall;
-      message.tool_calls = message.tool_calls ?? [];
-      message.tool_calls.push({
-        id: fc.id ?? "call_" + generateId(),
-        type: "function",
-        function: {
-          name: fc.name,
-          arguments: JSON.stringify(fc.args),
-        }
-      });
+      if (key === "delta") {
+        // For streaming, store raw functionCall and let toOpenAiStream handle formatting
+        rawToolCalls.push({
+          id: fc.id ?? "call_" + generateId(),
+          function: {
+            name: fc.name,
+            arguments: JSON.stringify(fc.args),
+          },
+        });
+      } else {
+        // For non-streaming, directly add to tool_calls
+        message.tool_calls = message.tool_calls ?? [];
+        message.tool_calls.push({
+          id: fc.id ?? "call_" + generateId(),
+          type: "function",
+          function: {
+            name: fc.name,
+            arguments: JSON.stringify(fc.args),
+          },
+        });
+      }
     } else if (typeof part.text === 'string') {
       message.content.push(part.text);
     }
@@ -72,12 +85,24 @@ export const transformCandidates = (key, cand, thinkingMode = THINKING_MODES.STA
     message.content = content;
   }
 
-  return {
+  const result = {
     index: cand.index || 0,
     [key]: message,
     logprobs: null,
-    finish_reason: message.tool_calls ? "tool_calls" : REASONS_MAP[cand.finishReason] || cand.finishReason,
+    finish_reason: null, // Initialize finish_reason to null
   };
+
+  if (key === "delta") {
+    // For streaming, attach rawToolCalls at the top level of the choice object
+    // to be processed by toOpenAiStream
+    result.toolCalls = rawToolCalls;
+    result.finish_reason = rawToolCalls.length > 0 ? "tool_calls" : REASONS_MAP[cand.finishReason] || cand.finishReason;
+  } else {
+    // For non-streaming, use message.tool_calls
+    result.finish_reason = message.tool_calls ? "tool_calls" : REASONS_MAP[cand.finishReason] || cand.finishReason;
+  }
+
+  return result;
 };
 
 /**
@@ -144,43 +169,41 @@ export const checkPromptBlock = (choices, promptFeedback, key) => {
  * @param {string} [thinkingMode] - Thinking mode for content processing
  * @returns {string} JSON string of OpenAI-compatible completion response
  */
-export function processCompletionsResponse(sdkResponse, modelName) {
+export function processCompletionsResponse(sdkResponse, modelName, id, thinkingMode = THINKING_MODES.STANDARD) {
     // sdkResponse is already a GenerateContentResponse object
-    const choices = sdkResponse.candidates.map((candidate, index) => {
-        const message = {
-            role: "assistant",
-            content: candidate.content?.parts.map(part => part.text).join("") || "",
-            tool_calls: candidate.content?.parts.filter(part => part.functionCall).map(part => ({
-                id: `call_${Date.now()}_${index}`,
-                type: "function",
-                function: {
-                    name: part.functionCall.name,
-                    arguments: JSON.stringify(part.functionCall.args)
-                }
-            })) || []
-        };
+    const choices = sdkResponse.candidates.map(candidate =>
+      transformCandidatesMessage(candidate, thinkingMode)
+    );
 
-        return {
-            index: index,
-            message: message,
-            finish_reason: candidate.finishReason || "stop"
-        };
-    });
+    // Handle content filtering blocks
+    if (checkPromptBlock(choices, sdkResponse.promptFeedback, "message")) {
+        // If prompt was blocked, usage metadata is not available
+        return JSON.stringify({
+            id: id,
+            object: "chat.completion",
+            created: Math.floor(Date.now() / 1000),
+            model: modelName,
+            choices: choices,
+            usage: {
+                prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+                completion_tokens: 0,
+                total_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
+            }
+        });
+    }
 
-    const usage = {
-        prompt_tokens: sdkResponse.usageMetadata?.promptTokenCount || 0,
-        completion_tokens: sdkResponse.usageMetadata?.candidatesTokenCount || 0,
-        total_tokens: (sdkResponse.usageMetadata?.promptTokenCount || 0) + (sdkResponse.usageMetadata?.candidatesTokenCount || 0)
-    };
+    const usage = transformUsage(sdkResponse.usageMetadata);
 
-    return {
-        id: `chatcmpl-${Date.now()}`,
+    const response = {
+        id: id, // Use the passed id here
         object: "chat.completion",
         created: Math.floor(Date.now() / 1000),
         model: modelName,
         choices: choices,
         usage: usage
     };
+
+    return JSON.stringify(response);
 }
 
 /**
@@ -214,10 +237,10 @@ export const transformEmbedding = (embeddingData, index) => {
  */
 export function processEmbeddingsResponse(sdkResponse, modelName) {
     // sdkResponse is already an EmbedContentResponse object
-    const embeddings = sdkResponse.embeddings.map(embedding => ({
+    const embeddings = sdkResponse.embeddings.map((embedding, i) => ({
         object: "embedding",
         embedding: embedding.values,
-        index: 0
+        index: i
     }));
 
     const usage = {

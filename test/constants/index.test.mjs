@@ -5,7 +5,6 @@ import { describe, it, expect } from '@jest/globals';
 import {
   BASE_URL,
   API_VERSION,
-  API_CLIENT,
   DEFAULT_MODEL,
   DEFAULT_EMBEDDINGS_MODEL,
   HARM_CATEGORIES,
@@ -24,9 +23,6 @@ describe('constants', () => {
       expect(API_VERSION).toBe('v1beta');
     });
 
-    it('should have API client identifier', () => {
-      expect(API_CLIENT).toMatch(/^genai-js\/\d+\.\d+\.\d+$/);
-    });
   });
 
   describe('default models', () => {

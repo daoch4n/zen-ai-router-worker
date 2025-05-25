@@ -42,6 +42,12 @@ export const errorHandler = (err, fixCors) => {
     message = err.message;
     code = `http_error_${status}`;
     type = "api_error";
+  } else if (err.name === "APIError" && err.status) {
+    // Catch generic APIError with status (e.g. from Cloudflare Workers AI)
+    status = err.status;
+    message = err.message;
+    code = `api_error_${status}`;
+    type = "api_error";
   } else if (err.status) {
     // Handle errors from GoogleGenerativeAI client that have a status property
     status = err.status;
@@ -59,12 +65,6 @@ export const errorHandler = (err, fixCors) => {
     status = 500; // Default to 500 if no specific status is provided by the library
     message = `Gemini API error: ${err.message}`;
     code = "gemini_api_error";
-    type = "api_error";
-  } else if (err.name === "APIError" && err.status) {
-    // Catch generic APIError with status (e.g. from Cloudflare Workers AI)
-    status = err.status;
-    message = err.message;
-    code = `api_error_${status}`;
     type = "api_error";
   } else if (err.message.includes("content blocked")) {
     // Heuristic for content blocking errors not caught by specific error objects

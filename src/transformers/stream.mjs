@@ -26,6 +26,9 @@ export const sseline = (obj) => {
  * @this {Object} Transform stream context with id, model, thinkingMode, and other properties
  */
 export function toOpenAiStream(data, controller) {
+  // Initialize state for tool calls across chunks
+  this.toolCallAccumulatedArgs = this.toolCallAccumulatedArgs || new Map();
+  this.toolCallIndices = this.toolCallIndices || new Map();
   if (!data || (!data.candidates && !data.promptFeedback)) {
     console.error("Invalid or empty completion chunk object from Gemini:", data);
     controller.enqueue(sseline({
@@ -34,8 +37,8 @@ export function toOpenAiStream(data, controller) {
       model: this.model,
       choices: [{
         index: 0,
-        delta: { content: `Error: Invalid or empty completion chunk object from Gemini.` },
-        finish_reason: "error",
+        delta: { content: `An internal error occurred.` },
+        finish_reason: "stop",
       }],
     }));
     return;
@@ -61,6 +64,63 @@ export function toOpenAiStream(data, controller) {
   cand.index = cand.index || 0;
   const finish_reason = cand.finish_reason;
 
+  // Extract incoming content and tool_calls from the current delta
+  const incomingContent = cand.delta?.content;
+  const incomingToolCalls = cand.delta?.tool_calls || [];
+
+  // Clear the original tool_calls from delta, as we'll reconstruct them correctly
+  cand.delta.tool_calls = undefined; // This modifies the 'cand' object
+
+  const openAiToolCallDeltas = [];
+  incomingToolCalls.forEach((incomingToolCall) => {
+    const toolCallId = incomingToolCall.id;
+    const functionName = incomingToolCall.function.name;
+    const currentArgsChunk = incomingToolCall.function.arguments;
+
+    let toolCallIndex;
+    if (!this.toolCallIndices.has(toolCallId)) {
+      // This is a new tool call, assign a new index and include full metadata
+      // The index should be sequential based on the order of unique tool calls encountered
+      toolCallIndex = this.toolCallIndices.size;
+      this.toolCallIndices.set(toolCallId, toolCallIndex);
+
+      openAiToolCallDeltas.push({
+        index: toolCallIndex,
+        id: toolCallId,
+        type: "function",
+        function: {
+          name: functionName,
+          arguments: currentArgsChunk,
+        },
+      });
+    } else {
+      // This is a subsequent chunk for an existing tool call, only append arguments
+      toolCallIndex = this.toolCallIndices.get(toolCallId);
+      openAiToolCallDeltas.push({
+        index: toolCallIndex,
+        function: {
+          arguments: currentArgsChunk,
+        },
+      });
+    }
+
+    // Accumulate arguments (useful for state tracking/debugging, not directly for output delta)
+    let accumulatedArgs = this.toolCallAccumulatedArgs.get(toolCallId) || '';
+    accumulatedArgs += currentArgsChunk;
+    this.toolCallAccumulatedArgs.set(toolCallId, accumulatedArgs);
+  });
+
+  // Prepare the delta for the current chunk
+  // Note: 'role' is only added if it's the very first chunk in the 'if (!this.last[cand.index])' block
+  // and then deleted from currentDelta to prevent duplication.
+  const currentDelta = {};
+  if (incomingContent !== "" && incomingContent !== undefined) {
+    currentDelta.content = incomingContent;
+  }
+  if (openAiToolCallDeltas.length > 0) {
+    currentDelta.tool_calls = openAiToolCallDeltas;
+  }
+
   // Send initial chunk with role for new candidates if not already sent
   if (!this.last[cand.index]) {
     controller.enqueue(sseline({
@@ -69,26 +129,18 @@ export function toOpenAiStream(data, controller) {
         ...cand,
         delta: {
           role: "assistant",
-          ...(cand.delta.content !== "" && { content: cand.delta.content }),
-          ...(cand.toolCalls && { tool_calls: cand.toolCalls }),
+          ...currentDelta, // Include the content and tool_calls that are part of this very first delta
         },
-        tool_calls: undefined, // Clear tool_calls from top level of choice
+        tool_calls: undefined, // Clear tool_calls from top level of choice, as it's in delta
         finish_reason: null, // Clear finish_reason for initial chunk
       }],
     }));
+    // After sending the initial chunk, clear currentDelta to avoid sending content/tool_calls again
+    currentDelta.content = undefined;
+    currentDelta.tool_calls = undefined;
   }
 
-  // Prepare delta for subsequent chunks
-  const currentDelta = {};
-  if (cand.delta && cand.delta.content !== "") {
-    currentDelta.content = cand.delta.content;
-  }
-  if (cand.toolCalls) {
-    currentDelta.tool_calls = cand.toolCalls;
-  }
-  cand.toolCalls = undefined; // Ensure tool_calls are not duplicated in subsequent chunks
-
-  // Enqueue the current chunk if it contains new content or tool calls
+  // Enqueue the current chunk if it still contains new content or tool calls
   if (Object.keys(currentDelta).length > 0) {
     controller.enqueue(sseline({
       ...obj,
@@ -120,5 +172,30 @@ export function toOpenAiStream(data, controller) {
  */
 export function toOpenAiStreamFlush(controller) {
   // If there are any pending last chunks, ensure they are sent
+  // Iterate over all stored last chunks for each candidate
+  for (const lastObj of Object.values(this.last || {})) {
+    if (!lastObj || !lastObj.choices || lastObj.choices.length === 0) {
+      continue;
+    }
+
+    const choice = lastObj.choices[0]; // Assuming single choice per object in this.last
+
+    // If the last known state of a candidate did not have a finish_reason,
+    // it means the stream ended abruptly for this candidate.
+    // We need to send a final chunk for it.
+    if (!choice.finish_reason) {
+      const finalChunk = {
+        id: lastObj.id,
+        choices: [{
+          index: choice.index,
+          delta: {}, // Empty delta for the final chunk
+          finish_reason: "stop", // Default to "stop" reason
+        }],
+        model: lastObj.model,
+        object: "chat.completion.chunk",
+      };
+      controller.enqueue(sseline(finalChunk));
+    }
+  }
   controller.enqueue("data: [DONE]" + STREAM_DELIMITER);
 }

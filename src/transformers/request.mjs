@@ -22,13 +22,64 @@ import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } fro
  * @returns {Object} Gemini-compatible generation configuration
  * @throws {HttpError} When unsupported response format is specified
  */
-export function transformConfig(openAiConfig) {
+export function transformConfig(openAiConfig, thinkingConfig) {
     const generationConfig = {};
     if (openAiConfig.temperature !== undefined) generationConfig.temperature = openAiConfig.temperature;
     if (openAiConfig.top_p !== undefined) generationConfig.topP = openAiConfig.top_p;
     if (openAiConfig.top_k !== undefined) generationConfig.topK = openAiConfig.top_k;
     if (openAiConfig.max_tokens !== undefined) generationConfig.maxOutputTokens = openAiConfig.max_tokens;
+    if (openAiConfig.frequency_penalty !== undefined) generationConfig.frequencyPenalty = openAiConfig.frequency_penalty;
+    if (openAiConfig.presence_penalty !== undefined) generationConfig.presencePenalty = openAiConfig.presence_penalty;
     if (openAiConfig.stop_sequences !== undefined) generationConfig.stopSequences = openAiConfig.stop_sequences;
+
+    // Handle response_format
+    if (openAiConfig.response_format) {
+        const formatType = openAiConfig.response_format.type;
+        if (formatType === "json_object") {
+            generationConfig.responseMimeType = "application/json";
+            // For json_object, if a schema is provided, use it
+            if (openAiConfig.response_format.json_schema && openAiConfig.response_format.json_schema.schema) {
+                generationConfig.responseSchema = openAiConfig.response_format.json_schema.schema;
+            }
+        } else if (formatType === "json_schema") {
+            if (openAiConfig.response_format.json_schema && openAiConfig.response_format.json_schema.schema) {
+                generationConfig.responseSchema = openAiConfig.response_format.json_schema.schema;
+                // If the schema is an enum, set mime type to text/x.enum
+                if (generationConfig.responseSchema.enum && Array.isArray(generationConfig.responseSchema.enum)) {
+                    generationConfig.responseMimeType = "text/x.enum";
+                } else {
+                    generationConfig.responseMimeType = "application/json";
+                }
+            } else {
+                throw new HttpError("Invalid response_format: 'json_schema' requires a 'schema' object.", 400);
+            }
+        }
+         else if (formatType === "text") {
+            generationConfig.responseMimeType = "text/plain";
+        } else {
+            throw new HttpError(`Unsupported response_format type: ${formatType}`, 400);
+        }
+    }
+
+    // Handle thinkingConfig
+    // Handle thinkingConfig from explicit parameter
+    if (thinkingConfig) {
+        generationConfig.thinkingConfig = {
+            ...generationConfig.thinkingConfig, // Preserve existing if any
+            ...(thinkingConfig.thinkingBudget !== undefined && { thinkingBudget: thinkingConfig.thinkingBudget }),
+            ...(thinkingConfig.includeThoughts !== undefined && { includeThoughts: thinkingConfig.includeThoughts })
+        };
+    }
+
+    // Handle reasoning_effort from openAiConfig
+    if (openAiConfig.reasoning_effort && REASONING_EFFORT_MAP[openAiConfig.reasoning_effort]) {
+        // Ensure thinkingConfig object exists before setting its property
+        if (!generationConfig.thinkingConfig) {
+            generationConfig.thinkingConfig = {};
+        }
+        generationConfig.thinkingConfig.thinkingBudget = REASONING_EFFORT_MAP[openAiConfig.reasoning_effort];
+    }
+
     return generationConfig; // Matches GenerationConfig interface
 }
 
@@ -44,6 +95,9 @@ export function transformConfig(openAiConfig) {
 export const transformMsg = async ({ content }) => {
   const parts = [];
 
+  if (content === null || content === undefined) {
+    return []; // No content, so no parts from content
+  }
   if (!Array.isArray(content)) {
     // Simple text content for system, user, or assistant messages
     parts.push({ text: content });
@@ -79,85 +133,6 @@ export const transformMsg = async ({ content }) => {
   return parts;
 };
 
-/**
- * Transforms OpenAI function/tool response to Gemini function response format.
- * Validates the response content and maps it to the corresponding function call.
- *
- * @param {Object} item - OpenAI tool message object
- * @param {string} item.content - JSON string containing function response data
- * @param {string} item.tool_call_id - ID linking response to original function call
- * @param {Object} parts - Parts array being built, with calls metadata
- * @param {Object} parts.calls - Map of tool_call_id to call metadata
- * @throws {HttpError} When function call context is missing or response is invalid
- */
-export const transformFnResponse = ({ content, tool_call_id }, parts) => {
-  if (!parts.calls) {
-    throw new HttpError("No function calls found in the previous message", 400);
-  }
-
-  let response;
-  try {
-    response = JSON.parse(content);
-  } catch (err) {
-    console.error("Error parsing function response content:", err);
-    throw new HttpError("Invalid function response: " + content, 400);
-  }
-
-  if (typeof response !== "object" || response === null || Array.isArray(response)) {
-    response = { result: response };
-  } else if (Object.keys(response).length === 0) {
-    response = { result: null };
-  }
-
-  if (!tool_call_id) {
-    throw new HttpError("tool_call_id not specified", 400);
-  }
-
-  const { i, name } = parts.calls[tool_call_id] ?? {};
-  if (!name) {
-    throw new HttpError("Unknown tool_call_id: " + tool_call_id, 400);
-  }
-  if (parts[i]) {
-    throw new HttpError("Duplicated tool_call_id: " + tool_call_id, 400);
-  }
-
-  parts[i] = {
-    functionResponse: {
-      name,
-      response,
-    }
-  };
-};
-
-export const transformFnCalls = ({ tool_calls }) => {
-  const calls = {};
-  const parts = tool_calls.map(({ function: { arguments: argstr, name }, id, type }, i) => {
-    if (type !== "function") {
-      throw new HttpError(`Unsupported tool_call type: "${type}"`, 400);
-    }
-
-    let args = {};
-    if (argstr) {
-      try {
-        args = JSON.parse(argstr);
-      } catch (err) {
-        console.error("Error parsing function arguments:", err);
-        throw new HttpError("Invalid function arguments: " + argstr, 400);
-      }
-    }
-
-    calls[id] = { i, name };
-    return {
-      functionCall: {
-        name,
-        args,
-      }
-    };
-  });
-
-  parts.calls = calls;
-  return parts;
-};
 
 /**
  * Transforms OpenAI conversation messages to Gemini format.
@@ -167,19 +142,55 @@ export const transformFnCalls = ({ tool_calls }) => {
  * @returns {Promise<Object>} Object with system_instruction and contents for Gemini API
  * @throws {HttpError} When unknown message role is encountered
  */
-export function transformMessages(messages) {
+export async function transformMessages(messages) {
+    if (!messages) return undefined; // Handle null/undefined messages input
+
+    let systemInstruction = undefined;
     const contents = [];
-    for (const msg of messages) {
-        const parts = [];
-        if (msg.content) {
-            parts.push({ text: msg.content }); // Matches Part interface for text
+
+    const parseArguments = (argsString) => {
+        try {
+            return JSON.parse(argsString);
+        } catch (e) {
+            // If parsing fails, return the original string or handle as appropriate
+            console.warn("Failed to parse tool call arguments as JSON:", argsString, e);
+            return argsString;
         }
+    };
+
+    for (const msg of messages) {
+        if (msg.role === "system") {
+            if (typeof msg.content === 'string') {
+                systemInstruction = { parts: [{ text: msg.content }] };
+            } else if (Array.isArray(msg.content)) {
+                // Handle system messages with multipart content, join text parts
+                systemInstruction = {
+                    parts: [{
+                        text: msg.content
+                            .filter(part => part.type === "text")
+                            .map(part => part.text)
+                            .join("\n")
+                    }]
+                };
+            }
+            continue; // System messages are extracted and not part of contents
+        }
+
+        const parts = [];
+        // Use the async transformMsg to handle multi-part content (text, image, audio)
+        // Ensure that transformMsg is awaited
+        // Only call transformMsg for user and assistant roles, or if content is explicitly defined
+        if (msg.role !== "tool" && (msg.content || msg.tool_calls)) {
+            const transformedParts = await transformMsg(msg);
+            parts.push(...transformedParts);
+        }
+
         if (msg.tool_calls && msg.tool_calls.length > 0) {
             for (const toolCall of msg.tool_calls) {
                 parts.push({
                     functionCall: {
                         name: toolCall.function.name,
-                        args: toolCall.function.arguments // Ensure this is already parsed JSON
+                        args: parseArguments(toolCall.function.arguments)
                     }
                 });
             }
@@ -187,21 +198,37 @@ export function transformMessages(messages) {
         if (msg.role === "tool" && msg.tool_call_id && msg.content) {
             parts.push({
                 functionResponse: {
-                    name: msg.tool_call_id, // Assuming tool_call_id maps to function name for response
+                    name: msg.name, // The actual name of the function that was called
                     response: {
-                        result: msg.content // Or parse if content is JSON string
+                        result: parseArguments(msg.content) // Parse tool response content if it's JSON string
                     }
                 }
             });
         }
 
         if (msg.role === "user") {
+            const hasTextPart = parts.some(part => part.text !== undefined && part.text !== "");
+            const hasContentParts = parts.length > 0;
+            if (!hasTextPart && hasContentParts) {
+                parts.push({ text: "" });
+            }
             contents.push({ role: "user", parts: parts }); // Matches Content interface
         } else if (msg.role === "assistant") {
+            const hasTextPart = parts.some(part => part.text !== undefined && part.text !== "");
+            const hasContentParts = parts.length > 0;
+            if (!hasTextPart && hasContentParts) {
+                parts.push({ text: "" });
+            }
             contents.push({ role: "model", parts: parts }); // Matches Content interface
+        } else if (msg.role === "tool") { // Explicitly handle tool role
+            // Tool messages are already processed into parts (functionResponse)
+            contents.push({ role: "function", parts: parts });
+        }
+        else {
+            throw new HttpError(`Unknown message role: ${msg.role}`, 400);
         }
     }
-    return contents;
+    return { system_instruction: systemInstruction, contents };
 }
 
 /**
@@ -214,21 +241,55 @@ export function transformMessages(messages) {
  * @param {Object|string} [req.tool_choice] - Tool calling preference
  * @returns {Object} Object with tools and tool_config for Gemini API
  */
-export function transformTools(openAiTools) {
-    if (!openAiTools || openAiTools.length === 0) return undefined;
-    const tools = openAiTools.map(tool => {
-        if (tool.type === "function" && tool.function) {
-            return {
-                functionDeclarations: [{
+export function transformTools(openAiRequest) {
+    const geminiTools = {};
+    const openAiTools = openAiRequest.tools;
+
+    if (!Array.isArray(openAiTools) || openAiTools.length === 0) {
+        geminiTools.tools = undefined;
+    } else {
+        const functionDeclarations = openAiTools.map(tool => {
+            if (tool.type === "function" && tool.function) {
+                return {
                     name: tool.function.name,
                     description: tool.function.description,
-                    parameters: tool.function.parameters // Ensure this matches Schema type
-                }]
+                    parameters: tool.function.parameters
+                };
+            }
+            return null;
+        }).filter(Boolean);
+
+        if (functionDeclarations.length > 0) {
+            geminiTools.tools = [{ functionDeclarations }];
+        } else {
+            geminiTools.tools = undefined;
+        }
+    }
+
+    // Handle tool_choice
+    // Only set tool_config if tool_choice is explicitly supported.
+    // Otherwise, geminiTools.tool_config remains undefined,
+    // allowing Gemini API to apply its default behavior (AUTO).
+    if (typeof openAiRequest.tool_choice === "string") {
+        if (openAiRequest.tool_choice === "none") {
+            geminiTools.tool_config = { functionCallingConfig: { mode: "NONE" } };
+        } else if (openAiRequest.tool_choice === "auto") {
+            geminiTools.tool_config = { functionCallingConfig: { mode: "AUTO" } };
+        }
+        // For any other string value, geminiTools.tool_config remains undefined.
+    } else if (typeof openAiRequest.tool_choice === "object" && openAiRequest.tool_choice !== null) {
+        if (openAiRequest.tool_choice.type === "function" && openAiRequest.tool_choice.function && openAiRequest.tool_choice.function.name) {
+            geminiTools.tool_config = {
+                functionCallingConfig: {
+                    mode: "ANY",
+                    allowedFunctionNames: [openAiRequest.tool_choice.function.name]
+                }
             };
         }
-        return null;
-    }).filter(Boolean);
-    return tools.length > 0 ? tools : undefined; // Matches Tool interface
+        // For any other object structure, geminiTools.tool_config remains undefined.
+    }
+    // For undefined or null tool_choice, geminiTools.tool_config remains undefined.
+    return geminiTools;
 }
 
 /**
@@ -255,6 +316,7 @@ export const transformEmbedRequest = (req) => {
       parts: content,
     },
     model: req.model, // Ensure model is passed for embedding requests
+    outputDimensionality: req.dimensions, // Pass output dimensionality if provided
   };
 };
 
@@ -267,12 +329,23 @@ export const transformEmbedRequest = (req) => {
  * @param {Object} [thinkingConfig] - Optional thinking configuration from model parsing
  * @returns {Promise<Object>} Complete Gemini API request object
  */
-export async function transformRequest(openAiRequest) {
+export async function transformRequest(openAiRequest, thinkingConfig) {
     if (openAiRequest.messages) {
         const requestBody = {};
-        requestBody.contents = transformMessages(openAiRequest.messages);
-        requestBody.generationConfig = transformConfig(openAiRequest);
-        requestBody.tools = transformTools(openAiRequest.tools);
+        const { system_instruction, contents } = await transformMessages(openAiRequest.messages);
+        if (system_instruction) {
+            requestBody.system_instruction = system_instruction; // Use the structured system_instruction
+        }
+        requestBody.contents = contents;
+        requestBody.safetySettings = SAFETY_SETTINGS; // Add safety settings
+        requestBody.generationConfig = transformConfig(openAiRequest, thinkingConfig);
+        const { tools, tool_config } = transformTools(openAiRequest); // Destructure tools and tool_config
+        if (tools) {
+            requestBody.tools = tools;
+        }
+        if (tool_config) {
+            requestBody.tool_config = tool_config;
+        }
         return requestBody; // This will be GenerateContentRequest
     } else if (openAiRequest.input) {
         return transformEmbedRequest(openAiRequest); // This will be EmbedContentRequest

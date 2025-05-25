@@ -3,11 +3,11 @@
  * Transforms OpenAI requests to Gemini API format and processes responses.
  */
 import { fixCors } from '../utils/cors.mjs';
+import { handleError } from '../utils/error.mjs';
 import { generateId, parseModelName, getBudgetFromLevel, adjustSchema } from '../utils/helpers.mjs';
-import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
 import { toOpenAiStream, toOpenAiStreamFlush } from '../transformers/stream.mjs';
-import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES, FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP } from '../constants/index.mjs';
+import { BASE_URL, API_VERSION, DEFAULT_MODEL, FIELDS_MAP, SAFETY_SETTINGS } from '../constants/index.mjs';
 
 /**
  * Processes chat completion requests by transforming OpenAI format to Gemini API,
@@ -18,11 +18,10 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES, FIELDS_MAP, SAFET
  * @param {string} [req.model] - Model name, may include thinking mode suffixes
  * @param {boolean} [req.stream] - Whether to stream the response
  * @param {Object} [req.stream_options] - Streaming configuration options
- * @param {string} apiKey - Google API key for Gemini access
  * @returns {Promise<Response>} HTTP response with completion data or stream
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleCompletions(req, apiKey, genAI) {
+export async function handleCompletions(req, genAI) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -101,12 +100,17 @@ export async function handleCompletions(req, apiKey, genAI) {
   const geminiModel = genAI.getGenerativeModel({ model });
 
   let response;
-  if (req.stream) {
-    // Use streamGenerateContent for streaming requests
-    response = await geminiModel.generateContentStream(body);
-  } else {
-    // Use generateContent for non-streaming requests
-    response = await geminiModel.generateContent(body);
+  try {
+    if (req.stream) {
+      // Use streamGenerateContent for streaming requests
+      response = await geminiModel.generateContentStream(body);
+    } else {
+      // Use generateContent for non-streaming requests
+      response = await geminiModel.generateContent(body);
+    }
+  } catch (error) {
+    console.error("Error calling Gemini API:", error);
+    return handleError(error);
   }
 
   // The `response` object from the library is different from a standard `Response` object.
@@ -151,7 +155,7 @@ export async function handleCompletions(req, apiKey, genAI) {
       throw new Error("Invalid completion object");
     }
     responseBody = processCompletionsResponse(responseBody, model, id, mode);
-    return new Response(JSON.stringify(responseBody), {
+    return new Response(responseBody, {
       headers: fixCors(new Headers({ 'Content-Type': 'application/json' }))
     });
   }

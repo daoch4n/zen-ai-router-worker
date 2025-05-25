@@ -3,7 +3,6 @@
  * Manages Google API authentication and worker access control.
  */
 import { HttpError } from './error.mjs';
-import { API_CLIENT } from '../constants/index.mjs';
 
 
 /**

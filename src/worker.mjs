@@ -22,6 +22,10 @@ import {
 
 import { handleOPTIONS } from './utils/cors.mjs';
 
+// Initialize the GoogleGenerativeAI client once per worker instance.
+// This instance will be reused across all incoming requests to improve efficiency.
+let genAI;
+
 /**
  * Main Cloudflare Worker handler that processes incoming HTTP requests
  * and routes them to appropriate handlers based on the endpoint path.
@@ -44,7 +48,10 @@ async function fetch(request, env) {
 
   try {
     const apiKey = getRandomApiKey(request, env);
-    const genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
+    // Initialize genAI only once per worker instance
+    if (!genAI) {
+      genAI = new GoogleGenerativeAI(env.GOOGLE_API_KEY);
+    }
 
     // Block requests from specific Cloudflare data centers that may have
     // connectivity issues with Google's API endpoints
@@ -65,14 +72,14 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleCompletions(await request.json(), apiKey, genAI)
+        return handleCompletions(await request.json(), genAI)
           .catch(errHandler);
 
       case pathname.endsWith("/embeddings"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleEmbeddings(await request.json(), apiKey, genAI)
+        return handleEmbeddings(await request.json(), genAI)
           .catch(errHandler);
 
       case pathname.endsWith("/models"):
