@@ -152,17 +152,6 @@ jobs:
           CONFIG_CONTENT+="new_classes = [\"RouterCounter\"]\n"
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
 
-      - name: Verify Orchestrator Source Files
-        run: |
-          echo "--- Checking orchestrator directory structure ---"
-          ls -Rla orchestrator
-          echo "--- Content of orchestrator/wrangler.toml (generated) ---"
-          cat orchestrator/wrangler.toml || echo "orchestrator/wrangler.toml not found!"
-          echo "--- Content of orchestrator/src/index.mjs ---"
-          cat orchestrator/src/index.mjs || echo "orchestrator/src/index.mjs not found!"
-          echo "--- Content of orchestrator/src/routerCounter.mjs ---"
-          cat orchestrator/src/routerCounter.mjs || echo "orchestrator/src/routerCounter.mjs not found!"
-          echo "--- End of file verification ---"
       - name: Deploy Orchestrator Worker
         uses: cloudflare/wrangler-action@v3
         with:
