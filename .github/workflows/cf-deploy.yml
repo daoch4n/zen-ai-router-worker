@@ -93,18 +93,21 @@ jobs:
             START_INDEX=$((i * KEYS_PER_WORKER))
             END_INDEX=$((START_INDEX + KEYS_PER_WORKER - 1))
             
-            # Prepare and mask PASS secret once (it's the same for all workers in this step)
-            ESCAPED_PASS=$(printf "%q" "${PASS}") # PASS is from the step's env
-            echo "::add-mask::${ESCAPED_PASS}"
+          ESCAPED_PASS=$(printf "%q" "${PASS}")
+          echo "::add-mask::${ESCAPED_PASS}"
 
-            # Initialize WORKER_VARS for this worker, starting with PASS
+          for i in $(seq 0 $((NUM_WORKERS - 1))); do
+            WORKER_NAME="zen-ai-router-worker-${i}"
+            START_INDEX=$((i * KEYS_PER_WORKER))
+            END_INDEX=$((START_INDEX + KEYS_PER_WORKER - 1))
+            
             WORKER_VARS="--var PASS:${ESCAPED_PASS}"
 
             # Calculate the actual end index for the current worker
             CURRENT_WORKER_END_INDEX=$((END_INDEX < TOTAL_KEYS ? END_INDEX : TOTAL_KEYS - 1))
 
             for ((j=START_INDEX; j<=CURRENT_WORKER_END_INDEX; j++)); do
-              if [ -n "${API_KEYS_ARRAY[j]}" ]; then
+              if [ "${j}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[j]}" ]; then # Ensure index is within bounds
                 KEY_INDEX=$((j - START_INDEX + 1))
                 ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
                 echo "::add-mask::${ESCAPED_API_KEY}"
