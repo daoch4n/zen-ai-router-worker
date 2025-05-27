@@ -59,16 +59,22 @@ jobs:
       - name: Deploy Dynamic src Workers (Production)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
-          # ALL_API_KEYS_JSON is no longer directly needed here
+          # Pass the output from the previous step as an environment variable
+          API_KEYS_JSON_FROM_OUTPUT: ${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}
         run: |
           TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
-          # Retrieve the JSON array string of API keys from the previous step's output
-          API_KEYS_JSON_STRING='${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}'
+          # Use the environment variable directly. Shell quoting is simpler here.
+          API_KEYS_JSON_STRING="$API_KEYS_JSON_FROM_OUTPUT"
 
           echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
-          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+          # It's good practice to check if API_KEYS_JSON_STRING is empty, though with TOTAL_KEYS > 0 it shouldn't be.
+          if [ -z "$API_KEYS_JSON_STRING" ]; then
+            echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
+            exit 1
+          fi
+          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
@@ -199,16 +205,22 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
-          # ALL_API_KEYS_JSON is no longer directly needed here
+          # Pass the output from the previous step as an environment variable
+          API_KEYS_JSON_FROM_OUTPUT: ${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}
         run: |
           TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
-          # Retrieve the JSON array string of API keys from the previous step's output
-          API_KEYS_JSON_STRING='${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}'
+          # Use the environment variable directly. Shell quoting is simpler here.
+          API_KEYS_JSON_STRING="$API_KEYS_JSON_FROM_OUTPUT"
 
           echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
-          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+          # It's good practice to check if API_KEYS_JSON_STRING is empty, though with TOTAL_KEYS > 0 it shouldn't be.
+          if [ -z "$API_KEYS_JSON_STRING" ]; then
+            echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
+            exit 1
+          fi
+          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
@@ -323,19 +335,25 @@ jobs:
       - name: Delete Preview src Workers
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          # ALL_API_KEYS_JSON is no longer directly needed here
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # Pass the output from the previous step as an environment variable
+          API_KEYS_JSON_FROM_OUTPUT: ${{ steps.prep_api_data_cleanup.outputs.api_keys_as_json_array_string }}
         run: |
           # Always attempt to delete the single worker deployed by the current deploy_preview job
           SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
            wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
  
           TOTAL_KEYS=${{ steps.prep_api_data_cleanup.outputs.all_api_keys_count }}
-          # Retrieve the JSON array string of API keys from the previous step's output
-          API_KEYS_JSON_STRING='${{ steps.prep_api_data_cleanup.outputs.api_keys_as_json_array_string }}'
+          # Use the environment variable directly. Shell quoting is simpler here.
+          API_KEYS_JSON_STRING="$API_KEYS_JSON_FROM_OUTPUT"
 
           echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
-          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+          # It's good practice to check if API_KEYS_JSON_STRING is empty, though with TOTAL_KEYS > 0 it shouldn't be.
+          if [ -z "$API_KEYS_JSON_STRING" ]; then
+            echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
+            exit 1
+          fi
+          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
@@ -376,7 +394,7 @@ jobs:
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           wranglerConfigFile: 'orchestrator/wrangler.toml'
           # Add the 'vars' input to pass the PASS secret to the orchestrator
           vars: |
