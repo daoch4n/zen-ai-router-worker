@@ -44,6 +44,7 @@ async function fetch(request, env) {
 
   try {
     const apiKey = getRandomApiKey(request, env);
+    console.log(`Worker: Using API key: ${apiKey ? '********' + apiKey.substring(apiKey.length - 4) : 'N/A'}`);
 
     // Block requests from specific Cloudflare data centers that may have
     // connectivity issues with Google's API endpoints
@@ -91,6 +92,7 @@ async function fetch(request, env) {
         throw new HttpError("404 Not Found", 404);
     }
   } catch (err) {
+    console.error("Worker: Error during request processing:", err);
     return errHandler(err);
   }
 }

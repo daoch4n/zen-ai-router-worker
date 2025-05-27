@@ -77,6 +77,12 @@ jobs:
             CONFIG_CONTENT+="service = \"zen-ai-router-worker-${i}\"\n\n"
           done
 
+          CONFIG_CONTENT+="[[durable_objects.bindings]]\n"
+          CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
+          CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
+          CONFIG_CONTENT+="[[migrations]]\n"
+          CONFIG_CONTENT+="tag = \"v1\"\n"
+          CONFIG_CONTENT+="new_classes = [\"RouterCounter\"]\n"
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
       - name: Copy wrangler.toml.example
         run: cp wrangler.toml.example wrangler.toml
@@ -155,15 +161,49 @@ jobs:
     name: Cleanup Preview Environment
     if: github.event.action == 'closed' # Run only when PR is closed
     steps:
+      - uses: actions/checkout@v4 # Add checkout for access to files
       - name: Generate PR Environment Name
         id: vars
         run: echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
 
-      - name: Delete Preview src Worker
+      - name: Prepare Worker Environment Variables for Cleanup
+        id: api_keys_collection_cleanup
         run: |
-          WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
-          echo "Deleting preview worker ${WORKER_NAME}"
-          flatpak-spawn --host wrangler delete --name "${WORKER_NAME}" --force
+          ALL_KEYS=""
+          API_KEYS_ARRAY=()
+          for i in $(seq 1 100); do
+            KEY_NAME="KEY${i}"
+            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
+            if [ -n "$KEY_VALUE" ]; then
+              ALL_KEYS="${ALL_KEYS}${KEY_VALUE},"
+              API_KEYS_ARRAY+=("$KEY_VALUE")
+            fi
+          done
+          echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
+          echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
+
+      - name: Delete Preview src Workers
+        run: |
+          # Always attempt to delete the single worker deployed by the current deploy_preview job
+          SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
+          echo "Attempting to delete single preview worker ${SINGLE_WORKER_NAME}"
+          flatpak-spawn --host wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
+
+          TOTAL_KEYS=${{ steps.api_keys_collection_cleanup.outputs.all_api_keys_count }}
+          KEYS_PER_WORKER=8
+          NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
+
+          # If no keys are found, and we already attempted to delete the single worker,
+          # then there are no indexed workers to delete.
+          if [ "$NUM_WORKERS" -eq 0 ]; then
+            echo "No indexed workers to delete based on API keys count."
+          else
+            for i in $(seq 0 $((NUM_WORKERS - 1))); do
+              WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}-${i}"
+              echo "Attempting to delete indexed preview worker ${WORKER_NAME}"
+              flatpak-spawn --host wrangler delete --name "${WORKER_NAME}" --force || true
+            done
+          fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
@@ -179,5 +219,3 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           wranglerConfigFile: 'orchestrator/wrangler.toml'
-          env: |
-            BACKEND_SERVICE: zen-ai-router-worker # Explicitly bind to the main worker

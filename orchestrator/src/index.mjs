@@ -1,4 +1,7 @@
+import { RouterCounter } from './routerCounter.mjs';
 export default {
+
+  RouterCounter: RouterCounter,
 
   async fetch(
     request,
@@ -22,9 +25,16 @@ export default {
       return new Response("No backend workers configured.", { status: 500 });
     }
 
-    const targetWorkerIndex = Math.floor(Math.random() * numSrcWorkers);
+    const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
+    const stub = env.ROUTER_COUNTER.get(id);
+    const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
+    const currentCounter = parseInt(await currentCounterResponse.text());
+    console.log(`Orchestrator: Current counter value: ${currentCounter}`);
+
+    const targetWorkerIndex = currentCounter % numSrcWorkers;
     const targetService = backendServices[targetWorkerIndex];
-    console.log(`Orchestrator: Routing to worker index: ${targetWorkerIndex}`);
+    console.log(`Orchestrator: Selected targetWorkerIndex: ${targetWorkerIndex}, targetService: ${targetService}`);
+    console.log(`Orchestrator: Routing to worker index: ${targetWorkerIndex} (counter: ${currentCounter})`);
 
     if (!targetService) {
       console.log("Orchestrator: Failed to select target worker for routing.");
@@ -36,7 +46,7 @@ export default {
       console.log(`Orchestrator: Response status from target worker: ${response.status}`);
       return response;
     } catch (error) {
-      console.error("Orchestrator: Failed to fetch from target service:", error);
+      console.error(`Orchestrator: Error during fetch to target service ${targetService}:`, error);
       return new Response("Service Unavailable: Target worker failed or is unreachable.", { status: 503 });
     }
   }
