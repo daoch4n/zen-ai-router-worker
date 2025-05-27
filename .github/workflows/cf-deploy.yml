@@ -261,7 +261,7 @@ jobs:
             ${WORKER_VARS}
 
       - name: Comment PR with Preview URL
-        if: success() # Only run if deployment was successful
+        if: success() && github.event_name == 'pull_request' # Ensures it only runs on PR events
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
