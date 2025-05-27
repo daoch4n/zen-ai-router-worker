@@ -1,8 +1,7 @@
 import { RouterCounter } from './routerCounter.mjs';
+export { RouterCounter };
+
 export default {
-
-  RouterCounter: RouterCounter,
-
   async fetch(
     request,
     env,
