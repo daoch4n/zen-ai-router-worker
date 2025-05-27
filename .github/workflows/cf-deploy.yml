@@ -94,39 +94,39 @@ jobs:
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
 
-          for i in $(seq 0 $((NUM_WORKERS - 1))); do
-            WORKER_NAME="zen-ai-router-worker-${i}"
-            START_INDEX=$((i * KEYS_PER_WORKER))
-            END_INDEX=$((START_INDEX + KEYS_PER_WORKER - 1))
-            
+          # Prepare and mask PASS secret ONCE before the loop
           ESCAPED_PASS=$(printf "%q" "${PASS}")
           echo "::add-mask::${ESCAPED_PASS}"
 
+          # SINGLE main loop for deploying workers
           for i in $(seq 0 $((NUM_WORKERS - 1))); do
             WORKER_NAME="zen-ai-router-worker-${i}"
             START_INDEX=$((i * KEYS_PER_WORKER))
             END_INDEX=$((START_INDEX + KEYS_PER_WORKER - 1))
             
+            # Initialize WORKER_VARS for this worker, starting with the prepared PASS
             WORKER_VARS="--var PASS:${ESCAPED_PASS}"
 
             # Calculate the actual end index for the current worker
             CURRENT_WORKER_END_INDEX=$((END_INDEX < TOTAL_KEYS ? END_INDEX : TOTAL_KEYS - 1))
 
+            # Inner loop for assigning API keys to this worker
             for ((j=START_INDEX; j<=CURRENT_WORKER_END_INDEX; j++)); do
-              if [ "${j}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[j]}" ]; then # Ensure index is within bounds
+              # Ensure index 'j' is within the bounds of the API_KEYS_ARRAY
+              if [ "${j}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[j]}" ]; then
                 KEY_INDEX=$((j - START_INDEX + 1))
                 ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
                 echo "::add-mask::${ESCAPED_API_KEY}"
                 WORKER_VARS="${WORKER_VARS} --var KEY${KEY_INDEX}:${ESCAPED_API_KEY}"
               fi
-            done
+            done # End of inner 'for j' loop (API keys for current worker)
 
              wrangler deploy "src/worker.mjs" \
               --name "${WORKER_NAME}" \
               --compatibility-date "2024-05-01" \
               --compatibility-flags nodejs_compat \
               ${WORKER_VARS}
-          done
+          done # This 'done' correctly closes the single main 'for i' loop (workers)
       - name: Generate Orchestrator Wrangler Config (Production)
         run: |
           # This step only needs the count, which is reliably sourced from the prep_api_data step
