@@ -368,5 +368,140 @@ describe('Completions Handler', () => {
       expect(response).toBeInstanceOf(Response);
       expect(response.body).toBeInstanceOf(ReadableStream);
     });
+
+    it('should properly convert JSON schema requests to Gemini format', async () => {
+      // Mock response that matches the expected JSON schema structure
+      const mockResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [{
+                text: JSON.stringify([
+                  {
+                    "recipeName": "Chocolate Chip Cookies",
+                    "ingredients": [
+                      "1 cup (2 sticks) unsalted butter, softened",
+                      "3/4 cup granulated sugar",
+                      "3/4 cup packed brown sugar",
+                      "1 teaspoon vanilla extract",
+                      "2 large eggs",
+                      "2 1/4 cups all-purpose flour",
+                      "1 teaspoon baking soda",
+                      "1 teaspoon salt",
+                      "2 cups chocolate chips"
+                    ]
+                  },
+                  {
+                    "recipeName": "Sugar Cookies",
+                    "ingredients": [
+                      "2 3/4 cups all-purpose flour",
+                      "1 teaspoon baking soda",
+                      "1/2 teaspoon salt",
+                      "1 cup butter, softened",
+                      "1 1/2 cups white sugar",
+                      "1 egg",
+                      "1 teaspoon vanilla extract"
+                    ]
+                  }
+                ])
+              }]
+            },
+            finishReason: "STOP"
+          }
+        ],
+        usageMetadata: {
+          promptTokenCount: 15,
+          candidatesTokenCount: 120,
+          totalTokenCount: 135
+        }
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        text: () => Promise.resolve(JSON.stringify(mockResponse))
+      });
+
+      // OpenAI-style request with JSON schema (similar to the curl example)
+      const req = {
+        model: "gemini-2.0-flash",
+        messages: [
+          {
+            role: "user",
+            content: "List a few popular cookie recipes, and include the amounts of ingredients."
+          }
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            schema: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  recipeName: { type: "string" },
+                  ingredients: {
+                    type: "array",
+                    items: { type: "string" }
+                  }
+                },
+                propertyOrdering: ["recipeName", "ingredients"]
+              }
+            }
+          }
+        },
+        stream: false
+      };
+
+      const response = await handleCompletions(req, "test-api-key");
+
+      // Verify the request was transformed correctly for Gemini API
+      const callArgs = fetch.mock.calls[0];
+      const requestBody = JSON.parse(callArgs[1].body);
+
+      // Check that responseSchema is properly set (Gemini format)
+      expect(requestBody.generationConfig.responseJsonSchema).toEqual({
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            recipeName: { type: "string" },
+            ingredients: {
+              type: "array",
+              items: { type: "string" }
+            }
+          },
+          propertyOrdering: ["recipeName", "ingredients"]
+        }
+      });
+
+      // Check that responseMimeType is set to application/json
+      expect(requestBody.generationConfig.responseMimeType).toBe("application/json");
+
+      // Verify the URL is correct for Gemini API
+      expect(callArgs[0]).toContain("generateContent");
+      expect(callArgs[0]).toContain("gemini-2.0-flash");
+
+      // Verify headers include API key and content type
+      expect(callArgs[1].headers).toEqual(expect.objectContaining({
+        "x-goog-api-key": "test-api-key",
+        "Content-Type": "application/json"
+      }));
+
+      // Verify the response is properly formatted
+      expect(response).toBeInstanceOf(Response);
+      const responseText = await response.text();
+      const responseData = JSON.parse(responseText);
+
+      expect(responseData.object).toBe("chat.completion");
+      expect(responseData.choices).toHaveLength(1);
+
+      // Parse the JSON content to verify it matches the schema
+      const content = JSON.parse(responseData.choices[0].message.content);
+      expect(Array.isArray(content)).toBe(true);
+      expect(content).toHaveLength(2);
+      expect(content[0]).toHaveProperty('recipeName');
+      expect(content[0]).toHaveProperty('ingredients');
+      expect(Array.isArray(content[0].ingredients)).toBe(true);
+    });
   });
 });
