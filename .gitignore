@@ -33,4 +33,8 @@ dev-debug.log
 .DS_Store
 # Task files
 tasks.json
-tasks/ 
+tasks/
+
+# Added by Claude Task Master
+logs
+node_modules/
