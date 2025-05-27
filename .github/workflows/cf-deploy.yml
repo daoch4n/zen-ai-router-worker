@@ -17,16 +17,9 @@ jobs:
       - name: Prepare Worker Environment Variables
         id: api_keys_collection
         run: |
-          ALL_KEYS=""
-          API_KEYS_ARRAY=()
-          for i in $(seq 1 100); do
-            KEY_NAME="KEY${i}"
-            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
-            if [ -n "$KEY_VALUE" ]; then
-              ALL_KEYS="${ALL_KEYS}${KEY_VALUE},"
-              API_KEYS_ARRAY+=("$KEY_VALUE")
-            fi
-          done
+          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
+          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
+          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
           echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
       - name: Deploy Dynamic src Workers (Production)
@@ -48,7 +41,8 @@ jobs:
             for ((j=START_INDEX; j<=CURRENT_WORKER_END_INDEX; j++)); do
               if [ -n "${API_KEYS[j]}" ]; then
                 KEY_INDEX=$((j - START_INDEX + 1))
-                WORKER_VARS="${WORKER_VARS} --var KEY${KEY_INDEX}:${API_KEYS[j]}"
+                ESCAPED_API_KEY=$(printf "%q" "${API_KEYS[j]}")
+                WORKER_VARS="${WORKER_VARS} --var KEY${KEY_INDEX}:${ESCAPED_API_KEY}"
               fi
             done
 
@@ -59,7 +53,7 @@ jobs:
               ${WORKER_VARS}
           done
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
       - name: Generate Orchestrator Wrangler Config (Production)
         run: |
@@ -89,7 +83,7 @@ jobs:
       - name: Build & Deploy Worker
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CF_API_TOKEN }}
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
 
   deploy_preview:
@@ -102,16 +96,9 @@ jobs:
       - name: Prepare Worker Environment Variables
         id: api_keys_collection
         run: |
-          ALL_KEYS=""
-          API_KEYS_ARRAY=()
-          for i in $(seq 1 100); do
-            KEY_NAME="KEY${i}"
-            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
-            if [ -n "$KEY_VALUE" ]; then
-              ALL_KEYS="${ALL_KEYS}${KEY_VALUE},"
-              API_KEYS_ARRAY+=("$KEY_VALUE")
-            fi
-          done
+          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
+          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
+          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
           echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
 
@@ -126,7 +113,8 @@ jobs:
           CURRENT_KEY_INDEX=1
           for j in "${!API_KEYS[@]}"; do
             if [ -n "${API_KEYS[j]}" ]; then
-              WORKER_VARS="${WORKER_VARS} --var KEY${CURRENT_KEY_INDEX}:${API_KEYS[j]}"
+              ESCAPED_API_KEY=$(printf "%q" "${API_KEYS[j]}")
+              WORKER_VARS="${WORKER_VARS} --var KEY${CURRENT_KEY_INDEX}:${ESCAPED_API_KEY}"
               CURRENT_KEY_INDEX=$((CURRENT_KEY_INDEX + 1))
             fi
           done
@@ -137,7 +125,7 @@ jobs:
             --main "src/worker.mjs" \
             ${WORKER_VARS}
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
       - name: Comment PR with Preview URL
@@ -169,16 +157,9 @@ jobs:
       - name: Prepare Worker Environment Variables for Cleanup
         id: api_keys_collection_cleanup
         run: |
-          ALL_KEYS=""
-          API_KEYS_ARRAY=()
-          for i in $(seq 1 100); do
-            KEY_NAME="KEY${i}"
-            KEY_VALUE=$(eval echo "\${{ secrets.${KEY_NAME} }}")
-            if [ -n "$KEY_VALUE" ]; then
-              ALL_KEYS="${ALL_KEYS}${KEY_VALUE},"
-              API_KEYS_ARRAY+=("$KEY_VALUE")
-            fi
-          done
+          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
+          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
+          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
           echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
 
@@ -205,7 +186,7 @@ jobs:
             done
           fi
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
 
   deploy-orchestrator:
