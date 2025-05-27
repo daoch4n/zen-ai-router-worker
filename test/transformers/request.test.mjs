@@ -695,6 +695,95 @@ describe('Request Transformers', () => {
 
       expect(() => transformConfig(req)).toThrow("Unsupported response_format.type");
     });
+
+    it('should transform cookie recipes JSON schema to Gemini format', () => {
+      // Test case based on the curl example for cookie recipes
+      const req = {
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            schema: {
+              type: "ARRAY",
+              items: {
+                type: "OBJECT",
+                properties: {
+                  recipeName: { type: "STRING" },
+                  ingredients: {
+                    type: "ARRAY",
+                    items: { type: "STRING" }
+                  }
+                },
+                propertyOrdering: ["recipeName", "ingredients"]
+              }
+            }
+          }
+        }
+      };
+
+      const result = transformConfig(req);
+
+      // Verify the schema is passed through exactly as provided for Gemini API
+      expect(result.responseJsonSchema).toEqual({
+        type: "ARRAY",
+        items: {
+          type: "OBJECT",
+          properties: {
+            recipeName: { type: "STRING" },
+            ingredients: {
+              type: "ARRAY",
+              items: { type: "STRING" }
+            }
+          },
+          propertyOrdering: ["recipeName", "ingredients"]
+        }
+      });
+
+      // Verify responseMimeType is set correctly
+      expect(result.responseMimeType).toBe("application/json");
+    });
+
+    it('should handle Gemini-style type enums (uppercase) in JSON schema', () => {
+      // Test with Gemini API's uppercase type enums
+      const req = {
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            schema: {
+              type: "OBJECT",
+              properties: {
+                status: { type: "STRING" },
+                count: { type: "NUMBER" },
+                active: { type: "BOOLEAN" },
+                tags: {
+                  type: "ARRAY",
+                  items: { type: "STRING" }
+                }
+              },
+              propertyOrdering: ["status", "count", "active", "tags"]
+            }
+          }
+        }
+      };
+
+      const result = transformConfig(req);
+
+      // Verify uppercase types are preserved (Gemini API format)
+      expect(result.responseJsonSchema).toEqual({
+        type: "OBJECT",
+        properties: {
+          status: { type: "STRING" },
+          count: { type: "NUMBER" },
+          active: { type: "BOOLEAN" },
+          tags: {
+            type: "ARRAY",
+            items: { type: "STRING" }
+          }
+        },
+        propertyOrdering: ["status", "count", "active", "tags"]
+      });
+
+      expect(result.responseMimeType).toBe("application/json");
+    });
   });
 
   describe('transformFnCalls', () => {
