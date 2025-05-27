@@ -63,7 +63,7 @@ This project is designed to be deployed to Cloudflare Workers using GitHub Actio
 2.  **`CLOUDFLARE_ACCOUNT_ID`**: Your Cloudflare Account ID.
 3.  **`ALL_API_KEYS_JSON`**: A JSON array string containing all your individual API keys. These keys are dynamically assigned to `KEY1`, `KEY2`, etc., environment variables within the deployed workers.
     Example: `["key_value_1", "key_value_2", "key_value_3"]`
-4.  **`PASS`**: A secret string used as an environment variable named `PASS` for both the individual source workers and the orchestrator worker.
+4.  **`PASS`**: A secret string used as an environment variable named `PASS` for both the individual source workers and the orchestrator worker. This will act as API key for the router.
 
 ### Deployment Steps
 
