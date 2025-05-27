@@ -149,7 +149,7 @@ jobs:
           CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
           CONFIG_CONTENT+="[[migrations]]\n"
           CONFIG_CONTENT+="tag = \"v1\"\n"
-          CONFIG_CONTENT+="new_classes = [\"RouterCounter\"]\n"
+          CONFIG_CONTENT+="new_sqlite_classes = [\"RouterCounter\"]\n"
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
 
       - name: Deploy Orchestrator Worker
