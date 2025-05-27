@@ -67,11 +67,9 @@ This project is designed to be deployed to Cloudflare Workers using GitHub Actio
 
 ### Deployment Steps
 
-1.  Clone this repository.
-2.  Install dependencies: `npm install`
-3.  (Optional) Copy `wrangler.toml.example` to `wrangler.toml` for local development.
-4.  Configure the required GitHub Secrets in your repository settings.
-5.  Push to the `main` branch or open a Pull Request to trigger the deployment workflow.
+1.  Fork this repository.
+2.  Configure the required GitHub Secrets in your repository settings.
+3.  Push to the `main` branch or open a Pull Request to trigger the deployment workflow.
 
 ## Best Practices
 
