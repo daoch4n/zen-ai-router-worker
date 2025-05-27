@@ -15,17 +15,76 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Wrangler
         run: npm install -g wrangler
-      - name: Prepare Worker Environment Variables
-        id: api_keys_collection
+      - name: Prepare API Key Data # Renamed and enhanced step
+        id: prep_api_data
         env:
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
+          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
-          echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
+          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
+          
+          # Validate and parse JSON. jq -e exits with error if parsing fails or result is empty/false.
+          # jq -r '.[]' outputs each element of the JSON array on a new line.
+          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
+          JQ_EXIT_CODE=$?
+
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
+            # Attempt to print a more detailed jq validation error
+            echo "Running 'jq .' on the secret to show validation errors (if any):"
+            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            exit 1
+          fi
+          
+          # Populate a bash array from the newline-separated string
+          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
+          
+          local_api_keys_count=${#API_KEYS_ARRAY[@]}
+          echo "Successfully parsed ${local_api_keys_count} keys."
+          echo "all_api_keys_count=${local_api_keys_count}" >> $GITHUB_OUTPUT
+          
+          # Output the keys as a well-formed JSON array string for robust consumption by later steps
+          # This handles keys with spaces or special characters correctly.
+          if [ "${local_api_keys_count}" -gt 0 ]; then
+            # Convert bash array elements to individual JSON strings, then collect into a JSON array
+            API_KEYS_AS_JSON_ARRAY_STRING=$(printf "%s\n" "${API_KEYS_ARRAY[@]}" | jq -R . | jq -s .)
+          else
+            API_KEYS_AS_JSON_ARRAY_STRING="[]" # Handle empty array case
+          fi
+          
+          # Using a delimiter for multi-line output
+          echo "api_keys_as_json_array_string<<EOF_KEYS_JSON" >> $GITHUB_OUTPUT
+          echo "${API_KEYS_AS_JSON_ARRAY_STRING}" >> $GITHUB_OUTPUT
+          echo "EOF_KEYS_JSON" >> $GITHUB_OUTPUT
+
       - name: Deploy Dynamic src Workers (Production)
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          PASS: ${{ secrets.PASS }}
+          # ALL_API_KEYS_JSON is no longer directly needed here
         run: |
-          TOTAL_KEYS=${{ steps.api_keys_collection.outputs.all_api_keys_count }}
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
+          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
+          # Retrieve the JSON array string of API keys from the previous step's output
+          API_KEYS_JSON_STRING='${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}'
+
+          echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
+          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+
+          # Read the JSON array string output back into a bash array using jq
+          # This ensures keys with spaces or special characters are handled correctly.
+          if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
+            echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
+            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            exit 1
+          fi
+          
+          # Verify count after re-parsing (optional debug)
+          if [ "${#API_KEYS_ARRAY[@]}" -ne "${TOTAL_KEYS}" ]; then
+            echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
+            # Depending on strictness, you might choose to exit here or proceed.
+          fi
+          echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
+
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
 
@@ -59,14 +118,10 @@ jobs:
               --compatibility-flags nodejs_compat \
               ${WORKER_VARS}
           done
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          PASS: ${{ secrets.PASS }}
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
       - name: Generate Orchestrator Wrangler Config (Production)
         run: |
-          TOTAL_KEYS=${{ steps.api_keys_collection.outputs.all_api_keys_count }}
+          # This step only needs the count, which is reliably sourced from the prep_api_data step
+          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
 
@@ -96,34 +151,89 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install Wrangler
         run: npm install -g wrangler
-      - name: Prepare Worker Environment Variables
-        id: api_keys_collection
+      - name: Prepare API Key Data # Renamed and enhanced step
+        id: prep_api_data
         env:
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
+          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
-          echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
+          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
+          
+          # Validate and parse JSON. jq -e exits with error if parsing fails or result is empty/false.
+          # jq -r '.[]' outputs each element of the JSON array on a new line.
+          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
+          JQ_EXIT_CODE=$?
+
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
+            # Attempt to print a more detailed jq validation error
+            echo "Running 'jq .' on the secret to show validation errors (if any):"
+            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            exit 1
+          fi
+          
+          # Populate a bash array from the newline-separated string
+          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
+          
+          local_api_keys_count=${#API_KEYS_ARRAY[@]}
+          echo "Successfully parsed ${local_api_keys_count} keys."
+          echo "all_api_keys_count=${local_api_keys_count}" >> $GITHUB_OUTPUT
+          
+          # Output the keys as a well-formed JSON array string for robust consumption by later steps
+          # This handles keys with spaces or special characters correctly.
+          if [ "${local_api_keys_count}" -gt 0 ]; then
+            # Convert bash array elements to individual JSON strings, then collect into a JSON array
+            API_KEYS_AS_JSON_ARRAY_STRING=$(printf "%s\n" "${API_KEYS_ARRAY[@]}" | jq -R . | jq -s .)
+          else
+            API_KEYS_AS_JSON_ARRAY_STRING="[]" # Handle empty array case
+          fi
+          
+          # Using a delimiter for multi-line output
+          echo "api_keys_as_json_array_string<<EOF_KEYS_JSON" >> $GITHUB_OUTPUT
+          echo "${API_KEYS_AS_JSON_ARRAY_STRING}" >> $GITHUB_OUTPUT
+          echo "EOF_KEYS_JSON" >> $GITHUB_OUTPUT
 
       - name: Deploy Single src Worker for PR Preview
         if: github.event_name == 'pull_request'
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          PASS: ${{ secrets.PASS }}
+          # ALL_API_KEYS_JSON is no longer directly needed here
         run: |
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
+          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
+          # Retrieve the JSON array string of API keys from the previous step's output
+          API_KEYS_JSON_STRING='${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}'
+
+          echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
+          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+
+          # Read the JSON array string output back into a bash array using jq
+          # This ensures keys with spaces or special characters are handled correctly.
+          if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
+            echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
+            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            exit 1
+          fi
           
+          # Verify count after re-parsing (optional debug)
+          if [ "${#API_KEYS_ARRAY[@]}" -ne "${TOTAL_KEYS}" ]; then
+            echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
+            # Depending on strictness, you might choose to exit here or proceed.
+          fi
+          echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
+
           WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
           
-          # Prepare and mask PASS secret
-          ESCAPED_PASS=$(printf "%q" "${PASS}") # PASS is from the step's env
+          ESCAPED_PASS=$(printf "%q" "${PASS}")
           echo "::add-mask::${ESCAPED_PASS}"
           
-          # Initialize WORKER_VARS, starting with PASS
           WORKER_VARS="--var PASS:${ESCAPED_PASS}"
 
           CURRENT_KEY_INDEX=1
-          for j in "${!API_KEYS_ARRAY[@]}"; do
-            if [ -n "${API_KEYS_ARRAY[j]}" ]; then
+          for ((j=0; j<TOTAL_KEYS; j++)); do
+            if [ "${j}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[j]}" ]; then # Ensure index is within bounds
               ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
               echo "::add-mask::${ESCAPED_API_KEY}"
-              # Append API key vars
               WORKER_VARS="${WORKER_VARS} --var KEY${CURRENT_KEY_INDEX}:${ESCAPED_API_KEY}"
               CURRENT_KEY_INDEX=$((CURRENT_KEY_INDEX + 1))
             fi
@@ -134,11 +244,6 @@ jobs:
             --compatibility-date "2024-05-01" \
             --compatibility-flags nodejs_compat \
             ${WORKER_VARS}
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          PASS: ${{ secrets.PASS }}
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
 
       - name: Comment PR with Preview URL
         if: success() # Only run if deployment was successful
@@ -153,7 +258,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🚀 Worker preview for PR #${context.issue.number} deployed!\n\nPreview URL: ${previewUrl}\n\nCollected API Keys Count: ${{ steps.api_keys_collection.outputs.all_api_keys_count }}`
+              body: `🚀 Worker preview for PR #${context.issue.number} deployed!\n\nPreview URL: ${previewUrl}\n\nCollected API Keys Count: ${{ steps.prep_api_data.outputs.all_api_keys_count }}`
             });
 
   cleanup_preview:
@@ -171,24 +276,81 @@ jobs:
           # The variable is still set for subsequent steps.
           echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
 
-      - name: Prepare Worker Environment Variables for Cleanup
-        id: api_keys_collection_cleanup
+      - name: Prepare API Key Data for Cleanup # Renamed and enhanced step
+        id: prep_api_data_cleanup
         env:
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
+          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
-          echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
+          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
+          
+          # Validate and parse JSON. jq -e exits with error if parsing fails or result is empty/false.
+          # jq -r '.[]' outputs each element of the JSON array on a new line.
+          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
+          JQ_EXIT_CODE=$?
+
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
+            # Attempt to print a more detailed jq validation error
+            echo "Running 'jq .' on the secret to show validation errors (if any):"
+            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            exit 1
+          fi
+          
+          # Populate a bash array from the newline-separated string
+          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
+          
+          local_api_keys_count=${#API_KEYS_ARRAY[@]}
+          echo "Successfully parsed ${local_api_keys_count} keys."
+          echo "all_api_keys_count=${local_api_keys_count}" >> $GITHUB_OUTPUT
+          
+          # Output the keys as a well-formed JSON array string for robust consumption by later steps
+          # This handles keys with spaces or special characters correctly.
+          if [ "${local_api_keys_count}" -gt 0 ]; then
+            # Convert bash array elements to individual JSON strings, then collect into a JSON array
+            API_KEYS_AS_JSON_ARRAY_STRING=$(printf "%s\n" "${API_KEYS_ARRAY[@]}" | jq -R . | jq -s .)
+          else
+            API_KEYS_AS_JSON_ARRAY_STRING="[]" # Handle empty array case
+          fi
+          
+          # Using a delimiter for multi-line output
+          echo "api_keys_as_json_array_string<<EOF_KEYS_JSON" >> $GITHUB_OUTPUT
+          echo "${API_KEYS_AS_JSON_ARRAY_STRING}" >> $GITHUB_OUTPUT
+          echo "EOF_KEYS_JSON" >> $GITHUB_OUTPUT
 
       - name: Delete Preview src Workers
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          # ALL_API_KEYS_JSON is no longer directly needed here
         run: |
           # Always attempt to delete the single worker deployed by the current deploy_preview job
           SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
            wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
+ 
+          TOTAL_KEYS=${{ steps.prep_api_data_cleanup.outputs.all_api_keys_count }}
+          # Retrieve the JSON array string of API keys from the previous step's output
+          API_KEYS_JSON_STRING='${{ steps.prep_api_data_cleanup.outputs.api_keys_as_json_array_string }}'
 
-          TOTAL_KEYS=${{ steps.api_keys_collection_cleanup.outputs.all_api_keys_count }}
+          echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
+          echo "Retrieved API_KEYS_JSON_STRING for parsing."
+
+          # Read the JSON array string output back into a bash array using jq
+          # This ensures keys with spaces or special characters are handled correctly.
+          if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
+            echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
+            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            exit 1
+          fi
+          
+          # Verify count after re-parsing (optional debug)
+          if [ "${#API_KEYS_ARRAY[@]}" -ne "${TOTAL_KEYS}" ]; then
+            echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
+            # Depending on strictness, you might choose to exit here or proceed.
+          fi
+          echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
+
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
-          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
 
           # If no keys are found, and we already attempted to delete the single worker,
           # then there are no indexed workers to delete.
@@ -200,10 +362,6 @@ jobs:
                wrangler delete --name "${WORKER_NAME}" --force || true
             done
           fi
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
 
   deploy-orchestrator:
     runs-on: ubuntu-latest
