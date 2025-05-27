@@ -157,7 +157,7 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerConfigFile: 'orchestrator/wrangler.toml' # File is available from the previous step
+          command: "deploy --config orchestrator/wrangler.toml"
           vars: |
             PASS
         env:
