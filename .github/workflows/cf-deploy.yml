@@ -153,7 +153,7 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `🚀 Worker preview for PR #${context.issue.number} deployed!\n\nPreview URL: ${previewUrl}\n\nCollected API Keys Count: ${{ steps.api_keys_collection.outputs.all_api_keys_count }}\nCollected API Keys: ${{ steps.api_keys_collection.outputs.all_api_keys }}`
+              body: `🚀 Worker preview for PR #${context.issue.number} deployed!\n\nPreview URL: ${previewUrl}\n\nCollected API Keys Count: ${{ steps.api_keys_collection.outputs.all_api_keys_count }}`
             });
 
   cleanup_preview:
