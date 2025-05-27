@@ -152,7 +152,7 @@ jobs:
           CONFIG_CONTENT+="new_classes = [\"RouterCounter\"]\n"
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
 
-- name: Verify Orchestrator Source Files
+      - name: Verify Orchestrator Source Files
         run: |
           echo "--- Checking orchestrator directory structure ---"
           ls -Rla orchestrator
