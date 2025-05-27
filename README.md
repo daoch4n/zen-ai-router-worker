@@ -55,11 +55,23 @@ Model names with `-refined-{budget}` suffix use thinking internally but hide the
 
 ## Deployment
 
-1. Clone this repository
-2. Install dependencies: `npm install`
-3. Copy wrangler.toml.example to wrangler.toml
-4. Configure your Gemini API keys in `wrangler.toml`
-5. Deploy to Cloudflare Workers: `npm run deploy`
+This project is designed to be deployed to Cloudflare Workers using GitHub Actions. The deployment workflow (`.github/workflows/cf-deploy.yml`) requires several GitHub Secrets to be configured in your repository.
+
+### Required GitHub Secrets
+
+1.  **`CLOUDFLARE_API_TOKEN`**: Your Cloudflare API Token with permissions to deploy Workers.
+2.  **`CLOUDFLARE_ACCOUNT_ID`**: Your Cloudflare Account ID.
+3.  **`ALL_API_KEYS_JSON`**: A JSON array string containing all your individual API keys. These keys are dynamically assigned to `KEY1`, `KEY2`, etc., environment variables within the deployed workers.
+    Example: `["key_value_1", "key_value_2", "key_value_3"]`
+4.  **`PASS`**: A secret string used as an environment variable named `PASS` for both the individual source workers and the orchestrator worker. This will act as API key for the router.
+
+### Deployment Steps
+
+1.  Clone this repository.
+2.  Install dependencies: `npm install`
+3.  (Optional) Copy `wrangler.toml.example` to `wrangler.toml` for local development.
+4.  Configure the required GitHub Secrets in your repository settings.
+5.  Push to the `main` branch or open a Pull Request to trigger the deployment workflow.
 
 ## Best Practices
 

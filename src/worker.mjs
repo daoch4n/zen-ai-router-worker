@@ -35,6 +35,7 @@ import { handleOPTIONS } from './utils/cors.mjs';
  * @returns {Promise<Response>} HTTP response with CORS headers applied
  */
 async function fetch(request, env) {
+  console.log(`Incoming request: ${request.method} ${request.url}`);
   if (request.method === "OPTIONS") {
     return handleOPTIONS();
   }
@@ -43,6 +44,7 @@ async function fetch(request, env) {
 
   try {
     const apiKey = getRandomApiKey(request, env);
+    console.log(`Worker: Using API key: ${apiKey ? '********' + apiKey.substring(apiKey.length - 4) : 'N/A'}`);
 
     // Block requests from specific Cloudflare data centers that may have
     // connectivity issues with Google's API endpoints
@@ -63,27 +65,34 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleCompletions(await request.json(), apiKey)
+        const completionsResponse = await handleCompletions(await request.json(), apiKey)
           .catch(errHandler);
+        console.log(`Completions response status: ${completionsResponse.status}`);
+        return completionsResponse;
 
       case pathname.endsWith("/embeddings"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleEmbeddings(await request.json(), apiKey)
+        const embeddingsResponse = await handleEmbeddings(await request.json(), apiKey)
           .catch(errHandler);
+        console.log(`Embeddings response status: ${embeddingsResponse.status}`);
+        return embeddingsResponse;
 
       case pathname.endsWith("/models"):
         if (!(request.method === "GET")) {
           throw new Error("Assertion failed: expected GET request");
         }
-        return handleModels(apiKey)
+        const modelsResponse = await handleModels(apiKey)
           .catch(errHandler);
+        console.log(`Models response status: ${modelsResponse.status}`);
+        return modelsResponse;
 
       default:
         throw new HttpError("404 Not Found", 404);
     }
   } catch (err) {
+    console.error("Worker: Error during request processing:", err);
     return errHandler(err);
   }
 }

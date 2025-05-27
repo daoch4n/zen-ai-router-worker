@@ -1,0 +1,11 @@
+# orchestrator-worker/wrangler.toml
+name = "router-orchestrator"
+main = "src/index.mjs"
+compatibility_date = "2024-05-01"
+
+[[services]]
+binding = "BACKEND_SERVICE"
+service = "zen-ai-router-worker" # This should match the name of the worker defined in the root wrangler.toml
+
+[observability.logs]
+enabled = true
