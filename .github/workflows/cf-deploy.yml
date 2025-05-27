@@ -152,6 +152,17 @@ jobs:
           CONFIG_CONTENT+="new_classes = [\"RouterCounter\"]\n"
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
 
+      - name: Deploy Orchestrator Worker
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          wranglerConfigFile: 'orchestrator/wrangler.toml' # File is available from the previous step
+          vars: |
+            PASS
+        env:
+          PASS: ${{ secrets.PASS }} # Make PASS available to the action
+
   deploy_preview:
     runs-on: ubuntu-latest
     name: Deploy Preview
@@ -384,23 +395,3 @@ jobs:
             done
           fi
 
-  deploy-orchestrator:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Deploy Orchestrator Worker
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          wranglerConfigFile: 'orchestrator/wrangler.toml'
-          # Add the 'vars' input to pass the PASS secret to the orchestrator
-          vars: |
-            PASS
-        env:
-          # This makes secrets.PASS available as env.PASS for the wrangler-action
-          # The `vars: | PASS` input will then instruct wrangler to set a
-          # worker variable named PASS with the value of this environment variable.
-          PASS: ${{ secrets.PASS }}
