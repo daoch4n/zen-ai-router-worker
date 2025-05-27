@@ -13,18 +13,19 @@ jobs:
     name: Deploy
     steps:
       - uses: actions/checkout@v4
+      - name: Install Wrangler
+        run: npm install -g wrangler
       - name: Prepare Worker Environment Variables
         id: api_keys_collection
+        env:
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
-          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
-          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
-          echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
       - name: Deploy Dynamic src Workers (Production)
         run: |
-          IFS=',' read -r -a API_KEYS <<< "${{ steps.api_keys_collection.outputs.all_api_keys }}"
           TOTAL_KEYS=${{ steps.api_keys_collection.outputs.all_api_keys_count }}
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
 
@@ -38,23 +39,25 @@ jobs:
             CURRENT_WORKER_END_INDEX=$((END_INDEX < TOTAL_KEYS ? END_INDEX : TOTAL_KEYS - 1))
 
             for ((j=START_INDEX; j<=CURRENT_WORKER_END_INDEX; j++)); do
-              if [ -n "${API_KEYS[j]}" ]; then
+              if [ -n "${API_KEYS_ARRAY[j]}" ]; then
                 KEY_INDEX=$((j - START_INDEX + 1))
-                ESCAPED_API_KEY=$(printf "%q" "${API_KEYS[j]}")
+                ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
+                echo "::add-mask::${ESCAPED_API_KEY}"
                 WORKER_VARS="${WORKER_VARS} --var KEY${KEY_INDEX}:${ESCAPED_API_KEY}"
               fi
             done
 
-            echo "Deploying ${WORKER_NAME} with keys from index ${START_INDEX} to ${END_INDEX}"
-            flatpak-spawn --host wrangler deploy --name "${WORKER_NAME}" \
+             wrangler deploy "src/worker.mjs" \
+              --name "${WORKER_NAME}" \
               --compatibility-date "2024-05-01" \
-              --main "src/worker.mjs" \
+              --compatibility-flags nodejs_compat \
               ${WORKER_VARS}
           done
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
       - name: Generate Orchestrator Wrangler Config (Production)
         run: |
           TOTAL_KEYS=${{ steps.api_keys_collection.outputs.all_api_keys_count }}
@@ -92,42 +95,44 @@ jobs:
     if: github.event.action != 'closed' # Don't deploy if the PR is closed
     steps:
       - uses: actions/checkout@v4
-
+      - name: Install Wrangler
+        run: npm install -g wrangler
       - name: Prepare Worker Environment Variables
         id: api_keys_collection
+        env:
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
-          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
-          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
-          echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
 
       - name: Deploy Single src Worker for PR Preview
         if: github.event_name == 'pull_request'
         run: |
-          IFS=',' read -r -a API_KEYS <<< "${{ steps.api_keys_collection.outputs.all_api_keys }}"
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
           
           WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
           
           WORKER_VARS=""
           CURRENT_KEY_INDEX=1
-          for j in "${!API_KEYS[@]}"; do
-            if [ -n "${API_KEYS[j]}" ]; then
-              ESCAPED_API_KEY=$(printf "%q" "${API_KEYS[j]}")
+          for j in "${!API_KEYS_ARRAY[@]}"; do
+            if [ -n "${API_KEYS_ARRAY[j]}" ]; then
+              ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
+              echo "::add-mask::${ESCAPED_API_KEY}"
               WORKER_VARS="${WORKER_VARS} --var KEY${CURRENT_KEY_INDEX}:${ESCAPED_API_KEY}"
               CURRENT_KEY_INDEX=$((CURRENT_KEY_INDEX + 1))
             fi
           done
 
-          echo "Deploying preview worker ${WORKER_NAME} with all collected keys"
-          flatpak-spawn --host wrangler deploy --name "${WORKER_NAME}" \
+           wrangler deploy "src/worker.mjs" \
+            --name "${WORKER_NAME}" \
             --compatibility-date "2024-05-01" \
-            --main "src/worker.mjs" \
+            --compatibility-flags nodejs_compat \
             ${WORKER_VARS}
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
 
       - name: Comment PR with Preview URL
         if: success() # Only run if deployment was successful
@@ -151,29 +156,33 @@ jobs:
     if: github.event.action == 'closed' # Run only when PR is closed
     steps:
       - uses: actions/checkout@v4 # Add checkout for access to files
+      - name: Install Wrangler
+        run: npm install -g wrangler
       - name: Generate PR Environment Name
         id: vars
-        run: echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
+        run: |
+          # This output is used later in the workflow, but the echo itself is not needed in the logs.
+          # The variable is still set for subsequent steps.
+          echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
 
       - name: Prepare Worker Environment Variables for Cleanup
         id: api_keys_collection_cleanup
+        env:
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
         run: |
-          ALL_API_KEYS_JSON='${{ secrets.ALL_API_KEYS_JSON }}'
-          API_KEYS_ARRAY=($(echo "$ALL_API_KEYS_JSON" | flatpak-spawn --host jq -r '.[]'))
-          ALL_KEYS=$(printf "%s," "${API_KEYS_ARRAY[@]}")
-          echo "all_api_keys=${ALL_KEYS%,}" >> $GITHUB_OUTPUT
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "$ALL_API_KEYS_JSON"))
           echo "all_api_keys_count=${#API_KEYS_ARRAY[@]}" >> $GITHUB_OUTPUT
 
       - name: Delete Preview src Workers
         run: |
           # Always attempt to delete the single worker deployed by the current deploy_preview job
           SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
-          echo "Attempting to delete single preview worker ${SINGLE_WORKER_NAME}"
-          flatpak-spawn --host wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
+           wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
 
           TOTAL_KEYS=${{ steps.api_keys_collection_cleanup.outputs.all_api_keys_count }}
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
+          API_KEYS_ARRAY=($(jq -r '.[]' <<< "${{ secrets.ALL_API_KEYS_JSON }}"))
 
           # If no keys are found, and we already attempted to delete the single worker,
           # then there are no indexed workers to delete.
@@ -182,13 +191,13 @@ jobs:
           else
             for i in $(seq 0 $((NUM_WORKERS - 1))); do
               WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}-${i}"
-              echo "Attempting to delete indexed preview worker ${WORKER_NAME}"
-              flatpak-spawn --host wrangler delete --name "${WORKER_NAME}" --force || true
+               wrangler delete --name "${WORKER_NAME}" --force || true
             done
           fi
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          ALL_API_KEYS_JSON: ${{ secrets.ALL_API_KEYS_JSON }}
 
   deploy-orchestrator:
     runs-on: ubuntu-latest
