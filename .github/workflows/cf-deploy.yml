@@ -301,8 +301,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          # Pass the output from the previous step as an environment variable
-          API_KEYS_JSON_FROM_OUTPUT: ${{ steps.prep_api_data_cleanup.outputs.api_keys_as_json_array_string }}
         run: |
           # Always attempt to delete the single worker deployed by the current deploy_preview job
           SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
