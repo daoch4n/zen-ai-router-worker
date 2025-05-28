@@ -223,61 +223,6 @@
 
     /* Darker text for yellow */
     /* --- END MODIFICATION: Toast Notification Styles --- */
-
-    .sentence-container {
-      margin-top: 15px;
-      padding: 10px;
-      border: 1px solid #eee;
-      border-radius: 4px;
-      text-align: left;
-      line-height: 1.8;
-      max-height: 150px; /* Consider making this more flexible or larger if needed */
-      overflow-y: auto;
-      width: 100%; /* Ensure it takes full width of its parent (.container) */
-      box-sizing: border-box; /* Include padding and border in the element's total width and height */
-    }
-
-    .sentence-container span.sentence-segment {
-      transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
-      padding: 2px 4px;
-      margin-right: 4px;
-      border-radius: 3px;
-      display: inline;
-      /* Changed from inline-block to inline for better flow with text justification */
-      opacity: 0;
-      border-right: 2px solid transparent;
-    }
-
-    .sentence-segment.initial-split-visual {
-      border-right-color: #007bff;
-      margin-right: 6px;
-      padding-right: 6px;
-    }
-
-    .sentence-container span.sentence-segment.playing {
-      background-color: #007bff;
-      color: white;
-      transform: scale(1.03);
-      box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
-    }
-
-    /* MODIFICATION: CSS for redacted effect on sentences being fetched */
-    .sentence-segment.fetching-redacted {
-      color: transparent !important;
-      /* Hide the actual text */
-      background-color: #444 !important;
-      /* Dark grey block for redaction */
-      /* Opacity will still be controlled by fadeIn animation if not yet fully visible */
-      /* transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out; */
-      /* The main transition on .sentence-segment already covers this */
-    }
-
-
-    @keyframes fadeIn {
-      to {
-        opacity: 1;
-      }
-    }
   </style>
 </head>
 
@@ -323,7 +268,6 @@
 
   <div class="container">
     <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
-    <div id="sentenceDisplayContainer" class="sentence-container"></div>
     <a id="downloadButton" download="audio.wav" style="display: none; margin-top: 15px;">
       <button>Download WAV</button>
     </a>
@@ -338,15 +282,6 @@
     window.ORCHESTRATOR_WORKER_URL = ''; // Ensure this is configured
     const SENTENCE_FETCH_TIMEOUT_MS = 15000;
     const FIRST_SENTENCE_TIMEOUT_MS = 20000;
-    // MODIFICATION: Control concurrent fetches. Set to 1 for strictly sequential.
-    let currentMaxConcurrentFetches = 2; // Start with a reasonable default
-    const MAX_ALLOWED_CONCURRENCY = 5;
-    const MIN_ALLOWED_CONCURRENCY = 1;
-    let consecutiveSuccessfulFetches = 0;
-    let failureCount = 0;
-    const CONSECUTIVE_SUCCESS_TO_INCREASE = 3; // Number of consecutive successes to increase concurrency
-    const FAILURE_TO_DECREASE = 1; // Number of failures to decrease concurrency
-
 
     document.addEventListener('DOMContentLoaded', () => {
       const apiKeyInput = document.getElementById('apiKeyInput');
@@ -423,21 +358,6 @@
       }, duration);
     }
 
-    function applyRedactedStyle(spanElement) {
-      if (!spanElement.hasAttribute('data-original-text')) {
-        spanElement.setAttribute('data-original-text', spanElement.textContent);
-      }
-      spanElement.classList.add('fetching-redacted');
-    }
-
-    function removeRedactedStyle(spanElement) {
-      spanElement.classList.remove('fetching-redacted');
-      // const originalText = spanElement.getAttribute('data-original-text');
-      // if (originalText && spanElement.textContent !== originalText) {
-        // CSS handles text visibility, no need to restore textContent manually here
-      // }
-    }
-
     document.getElementById('speakButton').addEventListener('click', async () => {
       const text = document.getElementById('textInput').value;
       const voiceId = document.getElementById('voiceIdInput').value;
@@ -446,9 +366,7 @@
       const downloadButtonLink = document.getElementById('downloadButton');
       const speakButton = document.getElementById('speakButton');
       const loadingIndicator = document.getElementById('loadingIndicator');
-      const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
 
-      sentenceDisplayContainer.innerHTML = ''; // Clear previous sentences
       messageDiv.textContent = '';
       downloadButtonLink.style.display = 'none';
       downloadButtonLink.href = '';
