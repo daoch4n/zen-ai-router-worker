@@ -159,7 +159,7 @@ jobs:
           PASS: ${{ secrets.PASS }}
         run: |
           echo "Attempting to deploy orchestrator worker with DO migration..."
-          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1 || true)
+          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1)
           echo "$DEPLOY_OUTPUT"
           # Extract the URL from the output
           WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://\S+\.workers\.dev' | head -n 1)
@@ -205,7 +205,7 @@ jobs:
           PASS: ${{ secrets.PASS }}
         run: |
           echo "Attempting to deploy orchestrator worker without DO migration..."
-          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1 || true)
+          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1)
           echo "$DEPLOY_OUTPUT"
           # Extract the URL from the output
           WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://\S+\.workers\.dev' | head -n 1)
@@ -215,11 +215,6 @@ jobs:
           else
             echo "Warning: Could not extract worker URL from deployment output (Attempt 2)." >&2
           fi
-
-      - name: Debug Orchestrator URL Outputs
-        run: |
-          echo "Attempt 1 URL: ${{ steps.deploy_orchestrator_attempt_1.outputs.ORCHESTRATOR_WORKER_URL }}"
-          echo "Attempt 2 URL: ${{ steps.deploy_orchestrator_attempt_2.outputs.ORCHESTRATOR_WORKER_URL }}"
 
       - name: Inject Orchestrator URL into Frontend
         run: |
