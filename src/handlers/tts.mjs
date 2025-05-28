@@ -1,13 +1,14 @@
 export async function optimizeTextForJson(text) {
   let optimizedText = text;
 
-  // Replace specific Unicode characters with ASCII equivalents
-  optimizedText = optimizedText.replace(/\u2013/g, '-'); // en dash
-  optimizedText = optimizedText.replace(/\u2014/g, '--'); // em dash
-  optimizedText = optimizedText.replace(/\u2018/g, "'"); // left single quote
-  optimizedText = optimizedText.replace(/\u2019/g, "'"); // right single quote
-  optimizedText = optimizedText.replace(/\u201C/g, '"'); // left double quote
-  optimizedText = optimizedText.replace(/\u201D/g, '"'); // right double quote
+  // MODIFICATION: Preserve Unicode dashes and quotes by commenting out replacements.
+  // These characters are valid in JSON strings and we want to see if Google TTS handles them better.
+  // optimizedText = optimizedText.replace(/\u2013/g, '-'); // en dash
+  // optimizedText = optimizedText.replace(/\u2014/g, '--'); // em dash
+  // optimizedText = optimizedText.replace(/\u2018/g, "'"); // left single quote
+  // optimizedText = optimizedText.replace(/\u2019/g, "'"); // right single quote
+  // optimizedText = optimizedText.replace(/\u201C/g, '"'); // left double quote
+  // optimizedText = optimizedText.replace(/\u201D/g, '"'); // right double quote
 
   // Remove invisible control characters, excluding newlines, carriage returns, and tabs.
   // The regex [^\P{C}\n\r\t] from PowerShell needs to be adapted for JavaScript.
@@ -16,7 +17,11 @@ export async function optimizeTextForJson(text) {
   // This simplifies to "any control character that is NOT newline, carriage return, or tab".
   optimizedText = optimizedText.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
 
+  // Replace (e.g., with (e.g. to avoid pronunciation issues with TTS
+  optimizedText = optimizedText.replace(/\(e\.g\.,/g, '(e.g.');
+
   // Normalize line endings from \r\n to \n
+  // JSON.stringify will handle escaping \n to \\n, so this is fine.
   optimizedText = optimizedText.replace(/\r\n/g, '\n');
 
   // Trim leading and trailing whitespace

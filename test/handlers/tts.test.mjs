@@ -8,37 +8,37 @@ describe('TTS Utilities', () => {
   describe('optimizeTextForJson', () => {
     it('should replace en dash with hyphen', async () => {
       const text = 'This is an en–dash.';
-      const expected = 'This is an en-dash.'; // Corrected expectation
+      const expected = 'This is an en–dash.'; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
     it('should replace em dash with double hyphen', async () => {
       const text = 'This is an em—dash.';
-      const expected = 'This is an em--dash.'; // Corrected expectation
+      const expected = 'This is an em—dash.'; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
     it('should replace left single quote with apostrophe', async () => {
       const text = '‘Hello’ world.';
-      const expected = "'Hello' world.";
+      const expected = "‘Hello’ world."; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
     it('should replace right single quote with apostrophe', async () => {
       const text = "It’s a beautiful day.";
-      const expected = "It's a beautiful day.";
+      const expected = "It’s a beautiful day."; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
     it('should replace left double quote with standard double quote', async () => {
       const text = '“Greetings,” she said.';
-      const expected = '"Greetings," she said.';
+      const expected = '“Greetings,” she said.'; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
     it('should replace right double quote with standard double quote', async () => {
       const text = 'He replied, “Indeed.”';
-      const expected = 'He replied, "Indeed."';
+      const expected = 'He replied, “Indeed.”'; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
@@ -60,6 +60,12 @@ describe('TTS Utilities', () => {
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
+    it('should replace (e.g., with (e.g. to avoid pronunciation issues', async () => {
+      const text = 'This is an example (e.g., a test case).';
+      const expected = 'This is an example (e.g. a test case).';
+      expect(await optimizeTextForJson(text)).toBe(expected);
+    });
+
     it('should trim leading and trailing whitespace', async () => {
       const text = '  Spaced out text.  ';
       const expected = 'Spaced out text.';
@@ -68,7 +74,7 @@ describe('TTS Utilities', () => {
 
     it('should handle a combination of replacements and removals', async () => {
       const text = '  \u201CHello\u201D – world\u2019s best\r\n\u0000text with \u001Ftabs\t.  ';
-      const expected = '"Hello" - world\'s best\ntext with tabs\t.';
+      const expected = '“Hello” – world’s best\ntext with tabs\t.'; // Preserve original Unicode
       expect(await optimizeTextForJson(text)).toBe(expected);
     });
 
