@@ -126,7 +126,7 @@ jobs:
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
-          CONFIG_CONTENT+="main = \"orchestrator/src/index.mjs\"\n" # Corrected path for orchestrator main
+          CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
           CONFIG_CONTENT+="compatibility_date = \"2024-05-01\"\n\n"
           CONFIG_CONTENT+="[placement]\nmode = \"smart\"\n\n" # Add smart placement for orchestrator
           CONFIG_CONTENT+="[[durable_objects.bindings]]\n"
