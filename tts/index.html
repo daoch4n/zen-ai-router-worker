@@ -1,764 +1,837 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TTS Frontend</title>
-    <style>
-        /* MODIFICATION: Global reset and body styling for fixed header */
-        body {
-            font-family: Arial, sans-serif;
-            /* display: flex; /* Removed for normal flow with fixed header */
-            /* justify-content: center; */
-            /* align-items: center; */
-            /* min-height: 100vh; */
-            background-color: #f4f4f4;
-            margin: 0;
-            padding-top: 230px; /* MODIFICATION: Add padding to body to offset fixed input bar height */
-                                /* This will be dynamically updated by JavaScript */
-        }
-        /* MODIFICATION: Style for the fixed input bar */
-        .top-input-bar {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            background-color: #ffffff;
-            padding: 15px 20px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-            z-index: 1000;
-            box-sizing: border-box;
-        }
-        .top-input-bar .input-group { /* MODIFICATION: For better layout within the bar */
-            margin: 0 auto;   /* Center the group */
-            text-align: center;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS Frontend</title>
+  <style>
+    /* MODIFICATION: Global reset and body styling for fixed header */
+    body {
+      font-family: Arial, sans-serif;
+      /* display: flex; /* Removed for normal flow with fixed header */
+      /* justify-content: center; */
+      /* align-items: center; */
+      /* min-height: 100vh; */
+      background-color: #f4f4f4;
+      margin: 0;
+      padding-top: 230px;
+      /* MODIFICATION: Add padding to body to offset fixed input bar height */
+      /* This will be dynamically updated by JavaScript */
+    }
 
-        .container {
-            /* MODIFICATION: Container is no longer the main centering/positioning element for inputs */
-            /* position: relative; /* Kept for cog icon positioning */
-            display: flex;
-            background-color: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-            width: 90%;
-            text-align: center;
-            margin: 20px auto; /* Centering the content box below the input bar */
-            position: relative; /* For cog positioning inside this specific box if preferred */
-        }
-        /* MODIFICATION: Relative positioning for cog icon placement */
-        /* Let's position cog relative to the main container, below the input bar */
-        #settingsCog {
-            position: fixed; /* Change to fixed positioning relative to viewport */
-            top: 15px;
-            right: 15px;
-            cursor: pointer;
-            font-size: 20px; /* Adjust size as needed */
-            color: #555;
-            display: none; /* Hidden by default, shown by JS if API key is set */
-        }
-        #settingsCog:hover {
-            color: #007bff;
-        }
-        h1 {
-            color: #333;
-        }
-        textarea {
-            width: calc(100% - 20px);
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid #ddd;
-            box-sizing: border-box; /* Ensure padding and border are inside width/height */
-            border-radius: 4px;
-            resize: vertical;
-            min-height: 100px;
-        }
-        input[type="text"], select {
-            width: calc(100% - 20px);
-            padding: 10px;
-            margin-bottom: 10px;
-            border: 1px solid #ddd;
-            box-sizing: border-box;
-            border-radius: 4px;
-        }
-        button {
-            background-color: #007bff;
-            color: white;
-            padding: 10px 15px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            font-size: 16px;
-            margin-top: 10px;
-        }
-        button:hover {
-            background-color: #0056b3;
-        }
-        .message {
-            margin-top: 10px;
-            color: red; /* Default to red, can be changed by JS */
-            font-weight: bold;
-        }
+    /* MODIFICATION: Style for the fixed input bar */
+    .top-input-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background-color: #ffffff;
+      padding: 15px 20px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      box-sizing: border-box;
+    }
 
-        .spinner {
-            border: 4px solid rgba(0, 0, 0, 0.1);
-            border-left-color: #007bff;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-            display: inline-block;
-            vertical-align: middle;
-            /* MODIFICATION: Spinner will be the only content in loadingIndicator, so no margin needed here */
-        }
+    .top-input-bar .input-group {
+      /* MODIFICATION: For better layout within the bar */
+      margin: 0 auto;
+      /* Center the group */
+      text-align: center;
+    }
 
-        @keyframes spin {
-            0% { transform: rotate(0deg); }
-            100% { transform: rotate(360deg); }
-        }
+    .container {
+      /* MODIFICATION: Container is no longer the main centering/positioning element for inputs */
+      /* position: relative; /* Kept for cog icon positioning */
+      display: flex;
+      flex-direction: column; /* Added for better stacking of internal elements */
+      align-items: center; /* Center items like download button, message */
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 700px; /* Added for better responsiveness on large screens */
+      text-align: center;
+      margin: 20px auto;
+      /* Centering the content box below the input bar */
+      position: relative;
+      /* For cog positioning inside this specific box if preferred */
+    }
 
-        #loadingIndicator {
-            margin-top: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            height: 30px;
-        }
+    /* MODIFICATION: Relative positioning for cog icon placement */
+    /* Let's position cog relative to the main container, below the input bar */
+    #settingsCog {
+      position: fixed;
+      /* Change to fixed positioning relative to viewport */
+      top: 15px;
+      right: 15px;
+      cursor: pointer;
+      font-size: 20px;
+      /* Adjust size as needed */
+      color: #555;
+      display: none;
+      /* Hidden by default, shown by JS if API key is set */
+    }
 
-        /* MODIFICATION: Style for the cipher text */
-        #loadingText {
-            font-family: 'Courier New', Courier, monospace; /* Optional: for a more cipher-like feel */
-            display: inline-block;
-        }
+    #settingsCog:hover {
+      color: #007bff;
+    }
 
-        /* --- MODIFICATION: Toast Notification Styles --- */
-        .toast-container {
-            position: fixed;
-            top: 20px; /* MODIFICATION: Adjust if it overlaps with the new input bar, maybe lower or different corner */
-            /* Let's move it down a bit to ensure it doesn't overlap with a potentially tall input bar if window is small */
-            right: 20px;
-            z-index: 1050; /* Ensure it's above other elements */
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+    h1 { /* Though no H1 is in the HTML, good to have a base style */
+      color: #333;
+      margin-bottom: 20px;
+    }
 
-        .toast {
-            padding: 12px 20px;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 14px;
-            font-weight: bold;
-            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
-            opacity: 0;
-            transform: translateX(110%); /* Start off-screen to the right */
-            transition: opacity 0.4s ease-out, transform 0.4s ease-out;
-            min-width: 280px;
-            max-width: 350px;
-            word-wrap: break-word;
-        }
+    textarea {
+      width: calc(100% - 20px);
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      box-sizing: border-box;
+      /* Ensure padding and border are inside width/height */
+      border-radius: 4px;
+      resize: vertical;
+      min-height: 100px;
+    }
 
-        .toast.show {
-            opacity: 1;
-            transform: translateX(0);
-        }
+    input[type="text"],
+    select {
+      width: calc(100% - 20px);
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      box-sizing: border-box;
+      border-radius: 4px;
+    }
 
-        .toast.toast-info { background-color: #17a2b8; }
-        .toast.toast-success { background-color: #28a745; }
-        .toast.toast-error { background-color: #dc3545; }
-        .toast.toast-warning { background-color: #ffc107; color: #212549; } /* Darker text for yellow */
-        /* --- END MODIFICATION: Toast Notification Styles --- */
+    button {
+      background-color: #007bff;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 10px;
+    }
 
-        .sentence-container {
-            margin-top: 15px;
-            padding: 10px;
-            border: 1px solid #eee;
-            border-radius: 4px;
-            text-align: left;
-            line-height: 1.8;
-            max-height: 150px;
-            overflow-y: auto;
-        }
-        .sentence-container span.sentence-segment {
-            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
-            padding: 2px 4px;
-            margin-right: 4px;
-            border-radius: 3px;
-            display: inline;
-            opacity: 0;
-            border-right: 2px solid transparent;
-        }
-        .sentence-segment.initial-split-visual {
-            border-right-color: #007bff;
-            margin-right: 6px;
-            padding-right: 6px;
-        }
+    button:hover {
+      background-color: #0056b3;
+    }
 
-        .sentence-container span.sentence-segment.playing {
-            background-color: #007bff;
-            color: white;
-            transform: scale(1.03);
-            box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
-        }
+    button:disabled { /* Style for disabled button */
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
 
-        /* MODIFICATION: CSS for redacted effect on sentences being fetched */
-        .sentence-segment.fetching-redacted {
-            color: transparent !important; /* Hide the actual text */
-            background-color: #444 !important; /* Dark grey block for redaction */
-            /* Opacity will still be controlled by fadeIn animation if not yet fully visible */
-            /* transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out; */
-            /* The main transition on .sentence-segment already covers this */
-        }
+    .message {
+      margin-top: 10px;
+      color: red;
+      /* Default to red, can be changed by JS */
+      font-weight: bold;
+    }
+
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      border-left-color: #007bff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      /* MODIFICATION: Spinner will be the only content in loadingIndicator, so no margin needed here */
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    #loadingIndicator {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+    }
+
+    /* MODIFICATION: Style for the cipher text */
+    #loadingText {
+      font-family: 'Courier New', Courier, monospace;
+      /* Optional: for a more cipher-like feel */
+      display: inline-block;
+    }
+
+    /* --- MODIFICATION: Toast Notification Styles --- */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      /* MODIFICATION: Adjust if it overlaps with the new input bar, maybe lower or different corner */
+      /* Let's move it down a bit to ensure it doesn't overlap with a potentially tall input bar if window is small */
+      right: 20px;
+      z-index: 1050;
+      /* Ensure it's above other elements */
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      padding: 12px 20px;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+      opacity: 0;
+      transform: translateX(110%);
+      /* Start off-screen to the right */
+      transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+      min-width: 280px;
+      max-width: 350px;
+      word-wrap: break-word;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .toast.toast-info {
+      background-color: #17a2b8;
+    }
+
+    .toast.toast-success {
+      background-color: #28a745;
+    }
+
+    .toast.toast-error {
+      background-color: #dc3545;
+    }
+
+    .toast.toast-warning {
+      background-color: #ffc107;
+      color: #212549;
+    }
+
+    /* Darker text for yellow */
+    /* --- END MODIFICATION: Toast Notification Styles --- */
+
+    .sentence-container {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      text-align: left;
+      line-height: 1.8;
+      max-height: 150px; /* Consider making this more flexible or larger if needed */
+      overflow-y: auto;
+      width: 100%; /* Ensure it takes full width of its parent (.container) */
+      box-sizing: border-box; /* Include padding and border in the element's total width and height */
+    }
+
+    .sentence-container span.sentence-segment {
+      transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
+      padding: 2px 4px;
+      margin-right: 4px;
+      border-radius: 3px;
+      display: inline;
+      /* Changed from inline-block to inline for better flow with text justification */
+      opacity: 0;
+      border-right: 2px solid transparent;
+    }
+
+    .sentence-segment.initial-split-visual {
+      border-right-color: #007bff;
+      margin-right: 6px;
+      padding-right: 6px;
+    }
+
+    .sentence-container span.sentence-segment.playing {
+      background-color: #007bff;
+      color: white;
+      transform: scale(1.03);
+      box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+    }
+
+    /* MODIFICATION: CSS for redacted effect on sentences being fetched */
+    .sentence-segment.fetching-redacted {
+      color: transparent !important;
+      /* Hide the actual text */
+      background-color: #444 !important;
+      /* Dark grey block for redaction */
+      /* Opacity will still be controlled by fadeIn animation if not yet fully visible */
+      /* transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out; */
+      /* The main transition on .sentence-segment already covers this */
+    }
 
 
-        @keyframes fadeIn {
-            to {
-                opacity: 1;
-            }
-        }
-    </style>
+    @keyframes fadeIn {
+      to {
+        opacity: 1;
+      }
+    }
+  </style>
 </head>
+
 <body>
-    <div class="top-input-bar">
-        <div class="input-group">
-            <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
-            <select id="voiceIdInput">
-                <option value="achernar">achernar</option>
-                <option value="achird">achird</option>
-                <option value="algenib">algenib</option>
-                <option value="algieba">algieba</option>
-                <option value="alnilam">alnilam</option>
-                <option value="aoede">aoede</option>
-                <option value="autonoe">autonoe</option>
-                <option value="callirrhoe">callirrhoe</option>
-                <option value="charon">charon</option>
-                <option value="despina">despina</option>
-                <option value="enceladus">enceladus</option>
-                <option value="erinome">erinome</option>
-                <option value="fenrir">fenrir</option>
-                <option value="gacrux">gacrux</option>
-                <option value="iapetus">iapetus</option>
-                <option value="kore">kore</option>
-                <option value="laomedeia">laomedeia</option>
-                <option value="leda">leda</option>
-                <option value="orus">orus</option>
-                <option value="puck">puck</option>
-                <option value="pulcherrima">pulcherrima</option>
-                <option value="rasalgethi">rasalgethi</option>
-                <option value="sadachbia">sadachbia</option>
-                <option value="sadaltager">sadaltager</option>
-                <option value="schedar">schedar</option>
-                <option value="sulafat">sulafat</option>
-                <option value="umbriel">umbriel</option>
-                <option value="vindemiatrix">vindemiatrix</option>
-                <option value="zephyr">zephyr</option>
-                <option value="zubenelgenubi">zubenelgenubi</option>
-            </select>
-            <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
-            <button id="speakButton">Speak</button>
-        </div>
+  <div class="top-input-bar">
+    <div class="input-group">
+      <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
+      <select id="voiceIdInput">
+        <option value="achernar">achernar</option>
+        <option value="achird">achird</option>
+        <option value="algenib">algenib</option>
+        <option value="algieba">algieba</option>
+        <option value="alnilam">alnilam</option>
+        <option value="aoede">aoede</option>
+        <option value="autonoe">autonoe</option>
+        <option value="callirrhoe">callirrhoe</option>
+        <option value="charon">charon</option>
+        <option value="despina">despina</option>
+        <option value="enceladus">enceladus</option>
+        <option value="erinome">erinome</option>
+        <option value="fenrir">fenrir</option>
+        <option value="gacrux">gacrux</option>
+        <option value="iapetus">iapetus</option>
+        <option value="kore">kore</option>
+        <option value="laomedeia">laomedeia</option>
+        <option value="leda">leda</option>
+        <option value="orus">orus</option>
+        <option value="puck">puck</option>
+        <option value="pulcherrima">pulcherrima</option>
+        <option value="rasalgethi">rasalgethi</option>
+        <option value="sadachbia">sadachbia</option>
+        <option value="sadaltager">sadaltager</option>
+        <option value="schedar">schedar</option>
+        <option value="sulafat">sulafat</option>
+        <option value="umbriel">umbriel</option>
+        <option value="vindemiatrix">vindemiatrix</option>
+        <option value="zephyr">zephyr</option>
+        <option value="zubenelgenubi">zubenelgenubi</option>
+      </select>
+      <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
+      <button id="speakButton">Speak</button>
     </div>
+  </div>
 
-    <div class="container">
-        <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
-        <div id="sentenceDisplayContainer" class="sentence-container"></div>
-        <a id="downloadButton" download="audio.opus" style="display: none;">
-            <button>Download Opus</button>
-        </a>
-        <div id="loadingIndicator" style="display: none;">
-            <div class="spinner"></div>
-        </div>
-        <div id="message" class="message"></div>
-        <div id="toastContainer" class="toast-container"></div>
+  <div class="container">
+    <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
+    <div id="sentenceDisplayContainer" class="sentence-container"></div>
+    <a id="downloadButton" download="audio.opus" style="display: none; margin-top: 15px;">
+      <button>Download Opus</button>
+    </a>
+    <div id="loadingIndicator" style="display: none;">
+      <div class="spinner"></div>
     </div>
+    <div id="message" class="message"></div>
+    <div id="toastContainer" class="toast-container"></div> </div>
 
-    <script>
-        window.ORCHESTRATOR_WORKER_URL = '';
+  <script>
+    window.ORCHESTRATOR_WORKER_URL = ''; // Ensure this is configured
+    const SENTENCE_FETCH_TIMEOUT_MS = 15000; // Increased default fetch timeout
+    const FIRST_SENTENCE_TIMEOUT_MS = 20000; // Increased timeout for first sentence
 
-        document.addEventListener('DOMContentLoaded', () => {
-            const apiKeyInput = document.getElementById('apiKeyInput');
-            const settingsCog = document.getElementById('settingsCog');
-            const storedApiKey = localStorage.getItem('apiKey');
+    document.addEventListener('DOMContentLoaded', () => {
+      const apiKeyInput = document.getElementById('apiKeyInput');
+      const settingsCog = document.getElementById('settingsCog');
+      const storedApiKey = localStorage.getItem('apiKey');
 
-            if (storedApiKey) {
-                apiKeyInput.value = storedApiKey;
-                apiKeyInput.type = 'password'; // Keep it obscured
-                apiKeyInput.style.display = 'none'; // Hide it initially
-                settingsCog.style.display = 'inline-block'; // Show the cog
+      if (storedApiKey) {
+        apiKeyInput.value = storedApiKey;
+        apiKeyInput.type = 'password'; // Keep it obscured
+        apiKeyInput.style.display = 'none'; // Hide it initially
+        settingsCog.style.display = 'inline-block'; // Show the cog
+      } else {
+        apiKeyInput.style.display = 'block'; // Ensure it's visible if no key
+        settingsCog.style.display = 'inline-block'; // Still show cog
+      }
+
+      const storedVoiceId = localStorage.getItem('voiceId');
+      if (storedVoiceId) {
+        document.getElementById('voiceIdInput').value = storedVoiceId;
+      }
+
+      // --- MODIFICATION: Dynamic Body Padding for Fixed Input Bar ---
+      const topInputBar = document.querySelector('.top-input-bar');
+      function updateBodyPadding() {
+        if (topInputBar) {
+          const barHeight = topInputBar.offsetHeight;
+          document.body.style.paddingTop = `${barHeight + 20}px`; // 20px margin
+        }
+      }
+
+      if (topInputBar) {
+        updateBodyPadding();
+        window.addEventListener('resize', updateBodyPadding);
+        new ResizeObserver(updateBodyPadding).observe(topInputBar);
+      }
+      // --- END MODIFICATION ---
+
+      settingsCog.addEventListener('click', () => {
+        const isHidden = apiKeyInput.style.display === 'none';
+        apiKeyInput.style.display = isHidden ? 'block' : 'none';
+        if (isHidden && apiKeyInput.value) {
+          apiKeyInput.type = 'text';
+        } else if (!isHidden) {
+          apiKeyInput.type = 'password';
+        }
+      });
+
+      document.getElementById('voiceIdInput').addEventListener('change', (event) => {
+        localStorage.setItem('voiceId', event.target.value);
+      });
+    });
+
+    function showToast(message, type = 'info', duration = 4000) {
+      const toastContainer = document.getElementById('toastContainer');
+      const messageDiv = document.getElementById('message'); // Fallback
+
+      if (!toastContainer) {
+        if (messageDiv) {
+          messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
+          messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
+        }
+        console.warn("Toast container not found. Using fallback message div.");
+        return;
+      }
+
+      const toast = document.createElement('div');
+      toast.className = `toast toast-${type}`;
+      toast.textContent = message;
+      toastContainer.appendChild(toast);
+
+      setTimeout(() => toast.classList.add('show'), 10); // Allow DOM update for transition
+
+      setTimeout(() => {
+        toast.classList.remove('show');
+        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+      }, duration);
+    }
+
+    function applyRedactedStyle(spanElement) {
+      if (!spanElement.hasAttribute('data-original-text')) {
+        spanElement.setAttribute('data-original-text', spanElement.textContent);
+      }
+      spanElement.classList.add('fetching-redacted');
+    }
+
+    function removeRedactedStyle(spanElement) {
+      spanElement.classList.remove('fetching-redacted');
+      const originalText = spanElement.getAttribute('data-original-text');
+      if (originalText && spanElement.textContent !== originalText) {
+        // This might not be needed if CSS handles text visibility purely
+        // spanElement.textContent = originalText;
+      }
+    }
+
+    function splitIntoSentences(text) {
+      const abbreviationPlaceholder = "###ABBR###";
+      const decimalPlaceholder = "###DEC###";
+
+      let processedText = text
+        .replace(/(Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|Maj|Gov|Sen|Rep|etc|e\.g|i\.e)\./g, `$1${abbreviationPlaceholder}`)
+        .replace(/(\d+)\.(\d+)/g, `$1${decimalPlaceholder}$2`);
+
+      const sentences = processedText.split(
+        new RegExp(`(?<=[.!?])\\s*(?<!${abbreviationPlaceholder.replace('.', '\\.')})(?<!${decimalPlaceholder.replace('.', '\\.')})(?=\\S|$)`, 'g')
+      );
+
+      return sentences
+        .map(s => s
+          .replace(new RegExp(abbreviationPlaceholder, 'g'), '.')
+          .replace(new RegExp(decimalPlaceholder, 'g'), '.')
+          .trim()
+        )
+        .filter(s => s.length > 0 && /\S/.test(s));
+    }
+
+
+    document.getElementById('speakButton').addEventListener('click', async () => {
+      const text = document.getElementById('textInput').value;
+      const voiceId = document.getElementById('voiceIdInput').value;
+      const apiKey = document.getElementById('apiKeyInput').value;
+      const messageDiv = document.getElementById('message');
+      const downloadButtonLink = document.getElementById('downloadButton');
+      const speakButton = document.getElementById('speakButton');
+      const loadingIndicator = document.getElementById('loadingIndicator');
+      const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
+
+      sentenceDisplayContainer.innerHTML = '';
+      let sentenceSpanElements = [];
+      messageDiv.textContent = '';
+      downloadButtonLink.style.display = 'none';
+      downloadButtonLink.href = '';
+      speakButton.disabled = true;
+      loadingIndicator.style.display = 'flex';
+
+      if (!text || !apiKey) {
+        showToast('Please enter text and API Key.', 'error');
+        speakButton.disabled = false;
+        loadingIndicator.style.display = 'none';
+        return;
+      }
+      if (!window.ORCHESTRATOR_WORKER_URL) {
+        showToast('Error: Orchestrator URL not configured.', 'error');
+        speakButton.disabled = false;
+        loadingIndicator.style.display = 'none';
+        return;
+      }
+
+      localStorage.setItem('apiKey', apiKey); // Store API key on successful attempt initiation
+      let audioContext;
+      let audioDestinationNode;
+      let mediaRecorder;
+      let recordedChunks = []; // Moved here to be accessible in onstop
+
+      try {
+        const sentences = splitIntoSentences(text);
+
+        if (sentences.length > 0) {
+          sentences.forEach((sentenceText, index) => {
+            const span = document.createElement('span');
+            span.textContent = sentenceText;
+            span.setAttribute('data-original-text', sentenceText);
+            span.id = `sentence-tts-${index}`;
+            span.className = 'sentence-segment initial-split-visual';
+            span.style.animation = `fadeIn 0.5s ease-out forwards`;
+            span.style.animationDelay = `${0.5 + index * 0.15}s`;
+
+            sentenceDisplayContainer.appendChild(span);
+            sentenceDisplayContainer.appendChild(document.createTextNode(" ")); // Add space between spans
+            sentenceSpanElements.push(span);
+          });
+
+          setTimeout(() => {
+            sentenceSpanElements.forEach(span => span.classList.remove('initial-split-visual'));
+          }, 500 + sentences.length * 150); // Delay removal based on number of sentences
+        } else {
+          showToast('No text to synthesize.', 'warning');
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          return;
+        }
+
+        audioContext = new(window.AudioContext || window.webkitAudioContext)();
+        const sampleRate = 24000;
+        const numChannels = 1;
+
+        audioDestinationNode = audioContext.createMediaStreamDestination();
+        const speakerPlaybackNode = audioContext.createGain();
+        speakerPlaybackNode.gain.value = 1;
+        speakerPlaybackNode.connect(audioContext.destination);
+        speakerPlaybackNode.connect(audioDestinationNode);
+
+        mediaRecorder = new MediaRecorder(audioDestinationNode.stream, { mimeType: 'audio/ogg; codecs=opus' });
+
+        mediaRecorder.ondataavailable = event => {
+          if (event.data.size > 0) {
+            recordedChunks.push(event.data);
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          if (recordedChunks.length > 0 && recordedChunks.some(chunk => chunk.size > 0)) {
+            const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
+            const opusUrl = URL.createObjectURL(opusBlob);
+            downloadButtonLink.href = opusUrl;
+            downloadButtonLink.style.display = 'block';
+            showToast("Speech generation complete.", 'success');
+          } else {
+            showToast("No audio was generated to download.", 'warning');
+            downloadButtonLink.style.display = 'none';
+          }
+          recordedChunks = []; // Clear for next run
+          // audioContext.close().catch(e => console.error("AudioContext close error on mediaRecorder.stop:", e));
+        };
+
+        mediaRecorder.onerror = (event) => {
+          console.error('MediaRecorder error:', event.error);
+          showToast(`Error recording audio: ${event.error.name}`, 'error');
+          downloadButtonLink.style.display = 'none';
+          // if (audioContext && audioContext.state !== 'closed') {
+          //   audioContext.close().catch(e => console.error("AudioContext close error on mediaRecorder.onerror:", e));
+          // }
+        };
+
+        mediaRecorder.start();
+
+        let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0.05; // Small initial offset
+        let currentSentencePlayIndex = 0;
+        let firstSentenceTimeoutId = null;
+        const resultsInOrder = new Array(sentences.length).fill(null);
+
+
+        const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
+          const spanElement = sentenceSpanElements[index];
+          if (spanElement) applyRedactedStyle(spanElement);
+
+          try {
+            const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+              },
+              body: JSON.stringify({ text: sentence.trim(), voiceId }),
+            });
+
+            if (!pcmResponse.ok) {
+              const errorText = await pcmResponse.text();
+              const statusInfo = `Status ${pcmResponse.status}`;
+              console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${statusInfo}, message: ${errorText}`);
+              if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) {
+                console.log(`Retrying sentence ${index + 1} (${statusInfo}), ${retriesLeft} retries left...`);
+                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
+                return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
+              }
+              return { error: `Fetch failed (${statusInfo})`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+            }
+            const pcmData = await pcmResponse.json();
+            const pcmAudioContentBase64 = pcmData.audioContentBase64;
+
+            if (!pcmAudioContentBase64) {
+              console.error(`No PCM audio content received for sentence ${index + 1} ("${sentence.trim()}")`);
+              return { error: `No audio for sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+            }
+            const pcmBinaryString = atob(pcmAudioContentBase64);
+            const pcmLen = pcmBinaryString.length;
+            const pcmBytes = new Uint8Array(pcmLen);
+            for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
+            return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
+
+          } catch (e) {
+            console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
+            if (retriesLeft > 0) {
+              console.log(`Retrying sentence ${index + 1} due to exception, ${retriesLeft} retries left...`);
+              await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
+              return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
+            }
+            return { error: `Exception: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+          }
+        };
+
+        const fetchSentenceWithTimeout = (sentence, index, retries = 2, timeoutDuration = SENTENCE_FETCH_TIMEOUT_MS) => {
+          return new Promise((resolve, reject) => { // Explicitly use reject for internal promise management
+            const spanElement = sentenceSpanElements[index];
+            const timeoutId = setTimeout(() => {
+              if (spanElement) removeRedactedStyle(spanElement);
+              // Resolve with error object for consistency, don't reject the outer promise here
+              resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
+            }, timeoutDuration);
+
+            fetchSentenceAttempt(sentence, index, retries)
+              .then(result => { // This result is what fetchSentenceAttempt resolves to
+                  clearTimeout(timeoutId);
+                  if (spanElement && !result.error) removeRedactedStyle(spanElement); // Remove only on success here
+                  resolve(result);
+              })
+              .catch(internalError => { // Should ideally not be hit if fetchSentenceAttempt always resolves an object
+                  clearTimeout(timeoutId);
+                  if (spanElement) removeRedactedStyle(spanElement);
+                  console.error("Internal error in fetchSentenceAttempt promise chain:", internalError);
+                  resolve({ error: `Internal error: ${internalError.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
+              });
+          });
+        };
+
+
+        function tryPlayNextReadySentence() {
+          if (currentSentencePlayIndex >= sentences.length) {
+            // All sentences processed or skipped
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+              setTimeout(() => { // Ensure last bits are captured
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop();
+                }
+              }, 700); // Delay a bit more
+            }
+            return;
+          }
+
+          const result = resultsInOrder[currentSentencePlayIndex];
+          if (result) { // Data (or error) for this sentence is available
+            if (currentSentencePlayIndex === 0 && firstSentenceTimeoutId) {
+              clearTimeout(firstSentenceTimeoutId);
+              firstSentenceTimeoutId = null;
+            }
+
+            const sentenceSpan = sentenceSpanElements[currentSentencePlayIndex];
+            if (result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
+              const shortText = result.sentenceText ? result.sentenceText.substring(0, 20) + '...' : `sentence ${currentSentencePlayIndex + 1}`;
+              showToast(`Skipping: "${shortText}" (Error: ${result.error || 'No audio data'})`, 'warning', 2000);
+              if (sentenceSpan) {
+                sentenceSpan.style.textDecoration = 'line-through wavy red';
+                removeRedactedStyle(sentenceSpan); // Ensure redaction is removed if it failed
+              }
+              currentSentencePlayIndex++;
+              tryPlayNextReadySentence();
+              return;
+            }
+
+            const { pcmBytes } = result;
+            const frameCount = pcmBytes.byteLength / (2 * numChannels); // 16-bit PCM = 2 bytes per sample
+            if (frameCount === 0) { // Handle empty audio data explicitly
+                showToast(`Skipping: "${result.sentenceText.substring(0, 20)}..." (Empty audio data)`, 'warning', 2000);
+                if (sentenceSpan) sentenceSpan.style.textDecoration = 'line-through wavy orange';
+                removeRedactedStyle(sentenceSpan);
+                currentSentencePlayIndex++;
+                tryPlayNextReadySentence();
+                return;
+            }
+            const sentenceAudioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
+            const nowBuffering = sentenceAudioBuffer.getChannelData(0);
+            const dataView = new DataView(pcmBytes.buffer);
+
+            for (let j = 0; j < frameCount; j++) {
+              nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0; // true for little-endian
+            }
+
+            const source = audioContext.createBufferSource();
+            source.buffer = sentenceAudioBuffer;
+
+            if (sentenceSpan) {
+              removeRedactedStyle(sentenceSpan); // Crucial: remove redaction before playing
+              const sourceScheduledStartTime = globalScheduleTime;
+              const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
+
+              setTimeout(() => {
+                sentenceSpanElements.forEach(sp => sp.classList.remove('playing'));
+                sentenceSpan.classList.add('playing');
+              }, startHighlightDelay);
+
+              source.onended = () => {
+                sentenceSpan.classList.remove('playing');
+                // sentenceSpan.style.transform = ''; // Reset if needed, handled by class removal
+                // sentenceSpan.style.boxShadow = ''; // Reset if needed
+                currentSentencePlayIndex++;
+                tryPlayNextReadySentence();
+              };
             } else {
-                apiKeyInput.style.display = 'block'; // Ensure it's visible if no key
-                settingsCog.style.display = 'inline-block'; // Still show cog, it will just toggle an empty visible field
+              source.onended = () => {
+                currentSentencePlayIndex++;
+                tryPlayNextReadySentence();
+              };
             }
 
-            const storedVoiceId = localStorage.getItem('voiceId');
-            if (storedVoiceId) {
-                document.getElementById('voiceIdInput').value = storedVoiceId;
-            }
+            source.connect(speakerPlaybackNode);
 
-            // --- MODIFICATION: Dynamic Body Padding for Fixed Input Bar ---
-            const topInputBar = document.querySelector('.top-input-bar');
-            function updateBodyPadding() {
-                if (topInputBar) {
-                    const barHeight = topInputBar.offsetHeight;
-                    document.body.style.paddingTop = `${barHeight + 15}px`; // 15px margin
+            if (audioContext.currentTime > globalScheduleTime) {
+              globalScheduleTime = audioContext.currentTime + 0.02; // Add tiny buffer if fallen behind
+            }
+            source.start(globalScheduleTime);
+            globalScheduleTime += sentenceAudioBuffer.duration;
+
+          }
+          // If data is not yet available for currentSentencePlayIndex, this function will be called again when it arrives.
+        }
+
+        sentences.forEach((sentence, index) => {
+          const timeoutToUse = index === 0 ? FIRST_SENTENCE_TIMEOUT_MS : SENTENCE_FETCH_TIMEOUT_MS;
+          fetchSentenceWithTimeout(sentence, index, 2, timeoutToUse)
+            .then(result => {
+              resultsInOrder[index] = result;
+              const spanEl = sentenceSpanElements[index];
+
+              if (result.error && spanEl) { // If fetch resulted in error, remove redaction
+                removeRedactedStyle(spanEl);
+                spanEl.style.textDecoration = 'line-through wavy orange'; // Indicate fetch failure
+              }
+
+              if (index === 0 && firstSentenceTimeoutId) {
+                clearTimeout(firstSentenceTimeoutId);
+                firstSentenceTimeoutId = null;
+                if (result && !result.error && result.pcmBytes && result.pcmBytes.byteLength > 0) {
+                  if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
+                } else if (result && result.error) {
+                  showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
+                  if (currentSentencePlayIndex === 0) { // If it's still waiting for the first
+                    // currentSentencePlayIndex++; // This is handled by tryPlayNext if result is an error
+                    tryPlayNextReadySentence(); // Try to move to next if first one failed
+                  }
                 }
-            }
+              } else if (currentSentencePlayIndex === index) {
+                // If this is the sentence we are currently waiting to play
+                tryPlayNextReadySentence();
+              }
 
-            if (topInputBar) {
-                // Initial adjustment
-                updateBodyPadding();
-                // Adjust on window resize
-                window.addEventListener('resize', updateBodyPadding);
-                // Adjust if content inside the bar (like textarea) resizes
-                new ResizeObserver(updateBodyPadding).observe(topInputBar);
-            }
-            // --- END MODIFICATION ---
-
-            settingsCog.addEventListener('click', () => {
-                const isHidden = apiKeyInput.style.display === 'none';
-                apiKeyInput.style.display = isHidden ? 'block' : 'none';
-                if (isHidden && apiKeyInput.value) {
-                    apiKeyInput.type = 'text';
-                } else if (!isHidden) {
-                    apiKeyInput.type = 'password';
-                }
+              // Check if all fetches are done to stop recorder
+              const allResultsIn = resultsInOrder.every(r => r !== null);
+              if (allResultsIn && mediaRecorder.state === "recording" && currentSentencePlayIndex >= sentences.length) {
+                setTimeout(() => {
+                  if (mediaRecorder && mediaRecorder.state === "recording") {
+                      mediaRecorder.stop();
+                  }
+                }, 700); // Slightly longer delay
+              }
+            })
+            .catch(error => { // Should only happen if fetchSentenceWithTimeout itself rejects, which it shouldn't
+              console.error(`Unhandled promise rejection from fetchSentenceWithTimeout for sentence ${index}:`, error);
+              resultsInOrder[index] = { error: error.message || "Fetch promise rejected", pcmBytes: null, sentenceText: sentences[index], originalIndex: index };
+              const spanEl = sentenceSpanElements[index];
+              if(spanEl) {
+                removeRedactedStyle(spanEl);
+                spanEl.style.textDecoration = 'line-through wavy red';
+              }
+              if (index === 0 && firstSentenceTimeoutId) {
+                clearTimeout(firstSentenceTimeoutId);
+                firstSentenceTimeoutId = null;
+                showToast(`Failed to load first sentence (promise error): ${error.message}`, 'error');
+              }
+              if (currentSentencePlayIndex === index) tryPlayNextReadySentence();
             });
         });
 
-        document.getElementById('voiceIdInput').addEventListener('change', (event) => {
-            localStorage.setItem('voiceId', event.target.value);
-        });
-
-        // --- MODIFICATION: Toast Notification Function ---
-        function showToast(message, type = 'info', duration = 4000) {
-            const toastContainer = document.getElementById('toastContainer');
-            // Fallback to messageDiv if toastContainer isn't there for some reason
-            const messageDiv = document.getElementById('message');
-            if (!toastContainer) {
-                if (messageDiv) {
-                    messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
-                    messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
-                }
-                console.warn("Toast container not found. Using fallback message div.");
-                return;
+        firstSentenceTimeoutId = setTimeout(() => {
+          if (currentSentencePlayIndex === 0 && (!resultsInOrder[0] || (resultsInOrder[0] && (resultsInOrder[0].error || !resultsInOrder[0].pcmBytes)))) {
+            const firstSentenceText = sentences.length > 0 ? (sentences[0].substring(0, 20) + '...') : "first sentence";
+            showToast(`Timeout: "${firstSentenceText}" took too long.`, 'error', 5000);
+            firstSentenceTimeoutId = null;
+            if (resultsInOrder[0] == null) { // If no result yet, mark as error
+                resultsInOrder[0] = { error: `Timeout fetching sentence 1`, pcmBytes: null, sentenceText: sentences[0], originalIndex: 0 };
             }
+            // currentSentencePlayIndex++; // Handled by tryPlayNextReadySentence picking up the error result
+            tryPlayNextReadySentence();
+          }
+        }, FIRST_SENTENCE_TIMEOUT_MS);
 
-            const toast = document.createElement('div');
-            toast.className = `toast toast-${type}`;
-            toast.textContent = message;
+        // Initial kick-off, especially if first sentence resolves very quickly
+        setTimeout(() => {
+            if (currentSentencePlayIndex === 0 && resultsInOrder[0]) { // if first sentence resolved before firstSentenceTimeoutId and this timeout
+                tryPlayNextReadySentence();
+            }
+        }, 50);
 
-            toastContainer.appendChild(toast);
 
-            setTimeout(() => toast.classList.add('show'), 10); // Allow element to be in DOM for transition
-
-            setTimeout(() => {
-                toast.classList.remove('show');
-                toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-            }, duration);
+      } catch (error) {
+        console.error('General Error in speakButton listener:', error);
+        showToast(`Error: ${error.message}`, 'error');
+        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+        if (audioContext && audioContext.state !== 'closed') {
+          audioContext.close().catch(e => console.error("AudioContext close error in general catch:", e));
         }
-
-        // Renamed from startSentenceCipher to applyRedactedStyle
-        function applyRedactedStyle(spanElement) {
-            // Ensure original text is stored if not already
-            if (!spanElement.hasAttribute('data-original-text')) {
-                spanElement.setAttribute('data-original-text', spanElement.textContent);
+      } finally {
+        speakButton.disabled = false;
+        loadingIndicator.style.display = 'none';
+        // Check if all sentences processed and if media recorder should be stopped (if not already)
+        // This is more of a failsafe, should be handled by tryPlayNextReadySentence or fetch completion logic
+        const allResultsFinalized = resultsInOrder.every(r => r !== null);
+        if (allResultsFinalized && currentSentencePlayIndex >= sentences.length) {
+            if (mediaRecorder && mediaRecorder.state === "recording") {
+                setTimeout(() => {
+                    if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+                }, 1000); // Ensure it stops if processing ended quickly
             }
-            // The text content remains the original; CSS handles the redaction visual
-            spanElement.classList.add('fetching-redacted');
         }
-
-        // Renamed from stopSentenceCipher to removeRedactedStyle
-        function removeRedactedStyle(spanElement) {
-            spanElement.classList.remove('fetching-redacted');
-            // Restore text content if it was ever changed (though it's not in this redacted style)
-            // This also helps if the span was empty before and got content, then redaction, then restored.
-            const originalText = spanElement.getAttribute('data-original-text');
-            if (originalText && spanElement.textContent !== originalText) {
-                 spanElement.textContent = originalText;
-            }
-            // Ensure opacity is reset if it was manipulated outside of fadeIn animation
-            // However, fadeIn should handle opacity correctly once the fetching class is removed.
-        }
-        // --- END MODIFICATION ---
-
-        document.getElementById('speakButton').addEventListener('click', async () => {
-            const text = document.getElementById('textInput').value;
-            const voiceId = document.getElementById('voiceIdInput').value;
-            const apiKey = document.getElementById('apiKeyInput').value;
-            const messageDiv = document.getElementById('message');
-            const downloadButtonLink = document.getElementById('downloadButton');
-            const speakButton = document.getElementById('speakButton');
-            const loadingIndicator = document.getElementById('loadingIndicator');
-
-            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
-            sentenceDisplayContainer.innerHTML = '';
-            let sentenceSpanElements = [];
-
-            // Clear previous text messages if any
-            messageDiv.textContent = '';
-            downloadButtonLink.style.display = 'none';
-            downloadButtonLink.href = '';
-
-            speakButton.disabled = true;
-            loadingIndicator.style.display = 'flex';
-
-            if (!text || !apiKey) {
-                messageDiv.textContent = 'Please enter text and API Key.'; messageDiv.style.color = 'red';
-                showToast('Please enter text and API Key.', 'error'); // Keep toasts for important alerts
-                speakButton.disabled = false;
-                loadingIndicator.style.display = 'none';
-                return;
-            }
-             if (!window.ORCHESTRATOR_WORKER_URL) {
-                messageDiv.textContent = 'Error: Orchestrator URL not configured.'; messageDiv.style.color = 'red';
-                showToast('Error: Orchestrator URL not configured.', 'error'); // Keep toasts
-                speakButton.disabled = false;
-                loadingIndicator.style.display = 'none';
-                return;
-            }
-
-            localStorage.setItem('apiKey', apiKey);
-            let audioContext;
-            let audioDestinationNode; // For connecting sources before MediaRecorder if needed
-            let mediaRecorder;
-
-            try {
-                const splitIntoSentences = (text) => {
-                    // Temporarily replace common abbreviations and numerical decimals to prevent splitting
-                    // This is a simplified list; a more comprehensive solution might use a library
-                    const abbreviationPlaceholder = "###ABBR###";
-                    const decimalPlaceholder = "###DEC###";
-
-                    // Regex to find common abbreviations followed by a period (not end of sentence)
-                    // and decimals to temporarily replace them
-                    let processedText = text
-                        .replace(/(Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|Maj|Gov|Sen|Rep|etc|e\.g|i\.e)\./g, `$1${abbreviationPlaceholder}`)
-                        .replace(/(\d+)\.(\d+)/g, `$1${decimalPlaceholder}$2`);
-
-                    // Split by sentence-ending punctuation, ensuring it's not preceded by an abbreviation placeholder
-                    // Lookbehind `(?<!${abbreviationPlaceholder})` ensures we don't split after replaced abbreviations.
-                    // Also handles multiple punctuation marks, and ensures a space or end of string follows
-                    const sentences = processedText.split(/(?<=[.!?])\s*(?<!${abbreviationPlaceholder})(?<!${decimalPlaceholder})(?=\S|$)/);
-
-                    // Restore abbreviations and decimals, and filter out empty strings
-                    return sentences
-                        .map(s => s
-                            .replace(new RegExp(abbreviationPlaceholder, 'g'), '.')
-                            .replace(new RegExp(decimalPlaceholder, 'g'), '.')
-                            .trim()
-                        )
-                        .filter(s => s.length > 0 && /\S/.test(s)); // Also ensures at least one non-whitespace character
-                };
-
-                const sentences = splitIntoSentences(text);
-
-                if (sentences.length > 0) {
-                    sentences.forEach((sentenceText, index) => {
-                        const span = document.createElement('span');
-                        span.textContent = sentenceText;
-                        span.setAttribute('data-original-text', sentenceText); // Store original text for cipher
-                        span.id = `sentence-tts-${index}`;
-                        span.className = 'sentence-segment';
-                        span.classList.add('initial-split-visual');
-                        span.style.animation = `fadeIn 0.5s ease-out forwards`;
-                        span.style.animationDelay = `${0.5 + index * 0.15}s`;
-
-                        sentenceDisplayContainer.appendChild(span);
-                        sentenceDisplayContainer.appendChild(document.createTextNode(" "));
-                        sentenceSpanElements.push(span);
-                    });
-
-                    setTimeout(() => {
-                        sentenceSpanElements.forEach(span => {
-                            span.classList.remove('initial-split-visual');
-                        });
-                    }, 500);
-
-                } else {
-                    messageDiv.textContent = 'No text to synthesize.'; messageDiv.style.color = 'orange';
-                    showToast('No text to synthesize.', 'warning'); // Keep toasts
-                    speakButton.disabled = false;
-                    loadingIndicator.style.display = 'none';
-                    return;
-                }
-
-                audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const sampleRate = 24000;
-                const numChannels = 1;
-
-                audioDestinationNode = audioContext.createMediaStreamDestination();
-                const speakerPlaybackNode = audioContext.createGain();
-                speakerPlaybackNode.gain.value = 1;
-                speakerPlaybackNode.connect(audioContext.destination); // For live playback
-                speakerPlaybackNode.connect(audioDestinationNode); // For recording
-                
-                let recordedChunks = [];
-                mediaRecorder = new MediaRecorder(audioDestinationNode.stream, { mimeType: 'audio/ogg; codecs=opus' });
-
-                mediaRecorder.ondataavailable = event => {
-                    if (event.data.size > 0) {
-                        recordedChunks.push(event.data);
-                    }
-                };
-
-                mediaRecorder.onstop = () => {
-                    const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
-                    const opusUrl = URL.createObjectURL(opusBlob);
-                    downloadButtonLink.href = opusUrl;
-                    downloadButtonLink.style.display = 'block';
-                    recordedChunks = [];
-                    if (audioContext && audioContext.state !== 'closed') {
-                         // audioContext.close().catch(e => console.error("AudioContext close error:", e)); // Don't close immediately, let it run
-                    }
-                    // Check if any audio was actually generated before success message
-                    const wasAudioRecorded = recordedChunks.length > 0 || opusBlob.size > 0;
-                    if (wasAudioRecorded) {
-                        showToast("Speech generation complete.", 'success');
-                    }
-                };
-
-                mediaRecorder.onerror = (event) => {
-                    console.error('MediaRecorder error:', event.error);
-                    messageDiv.textContent = `Error recording audio: ${event.error.name}`; messageDiv.style.color = 'red';
-                    showToast(`Error recording audio: ${event.error.name}`, 'error'); // Keep toasts
-                    downloadButtonLink.style.display = 'none';
-                    if (audioContext && audioContext.state !== 'closed') {
-                       // audioContext.close().catch(e => console.error("AudioContext close error:", e)); // Don't close immediately
-                    }
-                };
-
-                mediaRecorder.start();
-
-                let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
-                let currentSentencePlayIndex = 0;
-                let allSentencesProcessedForPlayback = false;
-                const FIRST_SENTENCE_TIMEOUT_MS = 10000; // Increased timeout for first sentence
-                let firstSentenceTimeoutId = null;
-
-                // let activeRequests = 0; // Ensure this is reset for each speakButton click
-                const resultsInOrder = new Array(sentences.length).fill(null);
-
-                // MODIFICATION: Enhanced fetchSentence with retries and overall timeout
-                const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
-                    const spanElement = sentenceSpanElements[index];
-                    if (spanElement && !spanElement.classList.contains('fetching-redacted')) {
-                        applyRedactedStyle(spanElement);
-                    }
-                    try {
-                        const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`
-                            },
-                            body: JSON.stringify({ text: sentence.trim(), voiceId }),
-                        });
-
-                        if (!pcmResponse.ok) { // HTTP error
-                            const errorText = await pcmResponse.text();
-                            const statusInfo = `Status ${pcmResponse.status}`;
-                            console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${statusInfo}, message: ${errorText}`);
-                            if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) { // Retry on 429 or 5xx errors
-                                console.log(`Retrying sentence ${index + 1} (${statusInfo}), ${retriesLeft} retries left...`);
-                                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft))); // Delay: 1s, 2s
-                                return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
-                            }
-                            return { error: `Fetch failed (${statusInfo})`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
-                        }
-                        const pcmData = await pcmResponse.json();
-                        const pcmAudioContentBase64 = pcmData.audioContentBase64;
-                        if (!pcmAudioContentBase64) {
-                            console.error(`No PCM audio content received for sentence ${index + 1} ("${sentence.trim()}")`);
-                            return { error: `No audio for sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
-                        }
-                        const pcmBinaryString = atob(pcmAudioContentBase64);
-                        const pcmLen = pcmBinaryString.length;
-                        const pcmBytes = new Uint8Array(pcmLen);
-                        for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
-                        return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
-
-                    } catch (e) { // Network or other exception during fetch
-                        console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
-                        if (retriesLeft > 0) {
-                            console.log(`Retrying sentence ${index + 1} due to exception, ${retriesLeft} retries left...`);
-                            await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
-                            return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
-                        }
-                        return { error: `Exception: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
-                    } finally {
-                    }
-                };
-
-                const fetchSentenceWithTimeout = (sentence, index, initialRetries = 2) => {
-                    const spanElement = sentenceSpanElements[index]; // Get span for finally block
-                    const timeoutId = setTimeout(() => {
-                        if (spanElement) removeRedactedStyle(spanElement);
-                        resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
-                    }, SENTENCE_FETCH_TIMEOUT_MS);
-
-                    fetchSentenceAttempt(sentence, index, initialRetries)
-                        .then(resolve)
-                        .catch(reject) // Should ideally not happen if fetchSentenceAttempt always resolves
-                        .finally(() => {
-                            clearTimeout(timeoutId);
-                            if (spanElement) removeRedactedStyle(spanElement); // Ensure style is removed
-                        });
-                };
-                function tryPlayNextReadySentence() {
-                    if (currentSentencePlayIndex >= sentences.length) {
-                        if (!mediaRecorder.state === "inactive") {
-                             // All played or skipped, ensure recorder stops after a short delay for the last audio chunk
-                            setTimeout(() => {
-                                if (mediaRecorder && mediaRecorder.state === "recording") {
-                                    mediaRecorder.stop();
-                                }
-                            }, 500); // Adjust delay as needed
-                        }
-                        allSentencesProcessedForPlayback = true;
-                        return;
-                    }
-
-                    const result = resultsInOrder[currentSentencePlayIndex];
-
-                    if (result) { // Data (or error) for this sentence is available
-                        if (currentSentencePlayIndex === 0 && firstSentenceTimeoutId) {
-                            clearTimeout(firstSentenceTimeoutId); // First sentence data arrived
-                            firstSentenceTimeoutId = null;
-                        }
-
-                        const sentenceSpan = sentenceSpanElements[currentSentencePlayIndex];
-                        if (result.error || !result.pcmBytes || !result.pcmBytes.byteLength) {
-                            const shortText = result.sentenceText ? result.sentenceText.substring(0,20) + '...' : `sentence ${currentSentencePlayIndex + 1}`;
-                            showToast(`Skipping: "${shortText}" (Error: ${result.error || 'No audio data'})`, 'warning', 2000);
-                            if(sentenceSpan) sentenceSpan.style.textDecoration = 'line-through wavy red';
-                            currentSentencePlayIndex++;
-                            tryPlayNextReadySentence(); // Immediately try next
-                            return;
-                        }
-
-                        const { pcmBytes, originalIndex } = result;
-                        const frameCount = pcmBytes.byteLength / (2 * numChannels);
-                        const sentenceAudioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
-                        const nowBuffering = sentenceAudioBuffer.getChannelData(0);
-                        const dataView = new DataView(pcmBytes.buffer);
-                        for (let j = 0; j < frameCount; j++) {
-                            nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0;
-                        }
-
-                        const source = audioContext.createBufferSource();
-                        source.buffer = sentenceAudioBuffer;
-
-                        if (sentenceSpan) {
-                            const sourceScheduledStartTime = globalScheduleTime;
-                            const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
-                            setTimeout(() => {
-                                sentenceSpanElements.forEach(sp => sp.classList.remove('playing'));
-                                sentenceSpan.classList.add('playing');
-                            }, startHighlightDelay);
-
-                            source.onended = () => {
-                                sentenceSpan.classList.remove('playing');
-                                sentenceSpan.style.transform = '';
-                                sentenceSpan.style.boxShadow = '';
-                                currentSentencePlayIndex++;
-                                tryPlayNextReadySentence(); // Play next sentence
-                            };
-                        } else { // Should not happen if sentenceSpanElements is populated correctly
-                             source.onended = () => {
-                                currentSentencePlayIndex++;
-                                tryPlayNextReadySentence();
-                            };
-                        }
-
-                        source.connect(speakerPlaybackNode); // Already connected to dest for recorder
-
-                        if (audioContext.currentTime > globalScheduleTime) {
-                            globalScheduleTime = audioContext.currentTime;
-                        }
-                        source.start(globalScheduleTime);
-                        globalScheduleTime += sentenceAudioBuffer.duration;
-                    } else {
-                        // Data for currentSentencePlayIndex not yet available.
-                        // If it's the first sentence and timeout hasn't passed, we wait.
-                        // Otherwise, this function will be called again when data arrives.
-                        if (currentSentencePlayIndex === 0 && !firstSentenceTimeoutId && !resultsInOrder[0]) {
-                           // This case means timeout already fired or first sentence processed.
-                           // If timeout fired and we are here, it implies an error, handled by timeout.
-                        }
-                    }
-                }
-
-                // --- MODIFICATION: Initiate all fetches without concurrency limit ---
-                sentences.forEach((sentence, index) => {
-                    fetchSentenceWithTimeout(sentence, index) // Use the new wrapper
-                        .then(result => {
-                            resultsInOrder[index] = result;
-                            if (index === 0 && firstSentenceTimeoutId) { // If first sentence data arrives
-                                clearTimeout(firstSentenceTimeoutId);
-                                firstSentenceTimeoutId = null;
-                                if (result && !result.error && result.pcmBytes && result.pcmBytes.byteLength > 0) {
-                                  // First sentence is ready, try to play immediately if it's its turn
-                                  if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
-                               } else if (result) { // If result exists but is an error
-                                   // First sentence failed, try to play next (timeout will also handle this)
-                                   showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
-                                   if(currentSentencePlayIndex === 0) {
-                                       currentSentencePlayIndex++;
-                                       tryPlayNextReadySentence();
-                                   }
-                               }
-                           } else if (currentSentencePlayIndex === index) {
-                               // If this is the sentence we are currently waiting to play
-                               tryPlayNextReadySentence();
-                           }
-                           // Check if all fetches are done to stop recorder if nothing played
-                           if (resultsInOrder.every(r => r !== null) && mediaRecorder.state === "recording" && currentSentencePlayIndex >= sentences.length) {
-                               setTimeout(() => mediaRecorder.stop(), 500);
-                           }
-                       })
-                       .catch(error => { // Should ideally be caught within fetchSentence's try/catch
-                           resultsInOrder[index] = { error: error.message || "Fetch failed", pcmBytes: null, sentenceText: sentences[index], originalIndex: index };
-                           if (index === 0 && firstSentenceTimeoutId) {
-                                 clearTimeout(firstSentenceTimeoutId);
-                               firstSentenceTimeoutId = null;
-                               showToast(`Failed to load first sentence: ${error.message}`, 'error');
-                           }
-                           if (currentSentencePlayIndex === index) tryPlayNextReadySentence();
-                       });
-               });
-
-                // Setup timeout for the first sentence
-                firstSentenceTimeoutId = setTimeout(() => {
-                    if (!resultsInOrder[0] || (resultsInOrder[0] && resultsInOrder[0].error)) { // If first sentence data hasn't arrived or is an error
-                        const firstSentenceText = sentences.length > 0 ? (sentences[0].substring(0,20) + '...') : "first sentence";
-                        showToast(`Timeout: "${firstSentenceText}" took too long.`, 'error');
-                        firstSentenceTimeoutId = null; // Mark as timed out
-                        // If nothing has started playing, stop the recorder.
-                        if (currentSentencePlayIndex === 0 && mediaRecorder.state === "recording") {
-                           // To prevent empty recording
-                           // mediaRecorder.stop(); // Or let it run if subsequent sentences might still play
-                        }
-                        // Attempt to play the next available sentence if first one timed out
-                        currentSentencePlayIndex++;
-                        tryPlayNextReadySentence();
-                    }
-                }, FIRST_SENTENCE_TIMEOUT_MS);
-
-                // Initial attempt to play. tryPlayNextReadySentence will be called more definitively by fetchSentence completions.
-                setTimeout(() => tryPlayNextReadySentence(), 50); // Small delay to allow first fetch to potentially resolve
-
-            } catch (error) { // Catch setup errors
-                console.error('General Error:', error);
-                messageDiv.textContent = `Error: ${error.message}`; messageDiv.style.color = 'red';
-                showToast(`Error: ${error.message}`, 'error'); // Keep toast
-                if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-                if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(e => console.error("AudioContext close error:", e));
-            } finally {
-                speakButton.disabled = false;
-                loadingIndicator.style.display = 'none';
-            }
-        });
-    </script>
+      }
+    });
+  </script>
 </body>
 </html>
