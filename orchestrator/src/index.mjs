@@ -147,24 +147,35 @@ async function handleTtsRequest(request, env, backendServices, numSrcWorkers) {
 
   const results = await Promise.allSettled(sentenceFetchPromises);
 
-  const audioChunks = results
-    .filter(result => result.status === 'fulfilled' && result.value.audioContentBase64)
-    .sort((a, b) => a.value.index - b.value.index)
-    .map(result => ({
-      index: result.value.index,
-      audioContentBase64: result.value.audioContentBase64
-    }));
+  const combinedAudioBlobs = new Map();
+  const errors = [];
 
-  if (audioChunks.length === 0) {
-    return new Response("No audio could be generated for the provided text.", { status: 500 });
+  results.forEach((result) => {
+    if (result.status === 'fulfilled' && result.value.audioContentBase64 !== null) {
+      combinedAudioBlobs.set(result.value.index, result.value.audioContentBase64);
+    } else if (result.status === 'fulfilled' && result.value.error) {
+      errors.push(`Sentence ${result.value.index}: ${result.value.error}`);
+    } else if (result.status === 'rejected') {
+      errors.push(`Sentence processing failed: ${result.reason}`);
+    }
+  });
+
+  const orderedAudioContent = Array.from({ length: sentences.length }, (_, i) => combinedAudioBlobs.get(i) || '')
+    .filter(Boolean)
+    .join('');
+
+  if (orderedAudioContent.length === 0) {
+    const errorMessage = errors.length > 0 ? errors.join('; ') : "No audio could be generated for the provided text.";
+    return new Response(JSON.stringify({ error: errorMessage }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 
-  // For now, return a simplified response. SSE streaming will be implemented in a later task.
+  // Return the combined audio blob. SSE streaming will be implemented in a later task.
   return new Response(JSON.stringify({
-    message: `Processed ${audioChunks.length} of ${sentences.length} sentences.`,
-    firstAudioChunkBase64: audioChunks[0].audioContentBase64,
+    message: `Successfully processed and combined audio for ${combinedAudioBlobs.size} of ${sentences.length} sentences.`,
+    audioContentBase64: orderedAudioContent,
     totalSentences: sentences.length,
-    processedSentences: audioChunks.length
+    processedSentences: combinedAudioBlobs.size,
+    errors: errors.length > 0 ? errors : undefined,
   }), {
     headers: { 'Content-Type': 'application/json' },
     status: 200
