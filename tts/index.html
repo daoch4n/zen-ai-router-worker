@@ -590,15 +590,24 @@
             });
 
             if (!pcmResponse.ok) {
-              const errorText = await pcmResponse.text();
-              const statusInfo = `Status ${pcmResponse.status}`;
-              console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${statusInfo}, message: ${errorText}`);
+              // Attempt to parse as JSON first, but fall back to text if it's not JSON
+              let errorData;
+              let errorMessage = `HTTP error Status ${pcmResponse.status}`;
+              try {
+                errorData = await pcmResponse.json();
+                errorMessage = errorData.error?.message || errorData.message || errorMessage;
+              } catch (e) {
+                // If it's not JSON, read as plain text
+                errorMessage = await pcmResponse.text() || errorMessage;
+              }
+
+              console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${pcmResponse.status} - ${errorMessage}`);
               if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) {
-                console.log(`Retrying sentence ${index + 1} (${statusInfo}), ${retriesLeft} retries left...`);
+                console.log(`Retrying sentence ${index + 1} (Status ${pcmResponse.status}), ${retriesLeft} retries left...`);
                 await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft))); // Basic backoff
                 return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
               }
-              return { error: `Fetch failed (${statusInfo})`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+              return { error: `Backend Error: ${errorMessage}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index, isCritical: true };
             }
             const pcmData = await pcmResponse.json();
             const pcmAudioContentBase64 = pcmData.audioContentBase64;
@@ -774,7 +783,7 @@
                     console.log(`Concurrency decreased to: ${currentMaxConcurrentFetches}`);
                     failureCount = 0; // Reset failure count after adjustment
                   }
-                  showToast(`Fetch failed for sentence ${originalSentenceIndex + 1}. Concurrency adjusted to ${currentMaxConcurrentFetches}.`, 'warning', 3000);
+                  showToast(`Fetch failed for sentence ${originalSentenceIndex + 1}. Concurrency adjusted to ${currentMaxConcurrentFetches}.`, result.isCritical ? 'error' : 'warning', 3000);
 
                 } else if (result.pcmBytes && result.pcmBytes.byteLength > 0) {
                   // Successful fetch
