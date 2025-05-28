@@ -204,15 +204,23 @@ jobs:
 
       - name: Set Orchestrator Worker URL Output
         id: set_orchestrator_url
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          WORKER_NAME="zen-ai-router-orchestrator"
-          WORKER_INFO=$(wrangler worker get "${WORKER_NAME}" --json)
-          WORKER_FULL_URL=$(echo "${WORKER_INFO}" | jq -r '.routes[0].pattern')
-          # Remove trailing '/*' if present
-          WORKER_BASE_URL=$(echo "${WORKER_FULL_URL}" | sed 's/\/\*$//')
+          ORCHESTRATOR_WORKER_URL=""
+          if [[ "${{ steps.deploy_orchestrator_attempt_1.outcome }}" == "success" ]]; then
+            ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_1.outputs.url }}"
+          elif [[ "${{ steps.deploy_orchestrator_attempt_2.outcome }}" == "success" ]]; then
+            ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_2.outputs.url }}"
+          fi
+
+          if [ -z "${ORCHESTRATOR_WORKER_URL}" ]; then
+            echo "Error: Could not determine Orchestrator Worker URL from deployment steps." >&2
+            exit 1
+          fi
+
+          # Remove trailing '/*' if present, as the wrangler-action's URL output might include it for routes.
+          # This is a safeguard, as the action's URL output is usually clean.
+          WORKER_BASE_URL=$(echo "${ORCHESTRATOR_WORKER_URL}" | sed 's/\/\*$//')
+
           echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
           echo "Injected URL: ${WORKER_BASE_URL}"
 
