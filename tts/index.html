@@ -180,47 +180,70 @@
 
             try {
                 // Fetch PCM for playback (prioritized)
-                const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                        'Authorization': `Bearer ${apiKey}`
-                    },
-                    body: JSON.stringify({ text, voiceId }),
-                });
+                // Function to split text into sentences
+                const splitIntoSentences = (text) => {
+                    // This regex splits by periods, question marks, exclamation marks, optionally followed by quotes or parentheses,
+                    // and then whitespace. It tries to keep ellipses and common abbreviations together.
+                    return text.match(/[^.!?]+[.!?]*|[\w\s,"]+(?=\.\.\.)|\b(?:Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|etc|e\.g|i\.e)\.|\d+\.\d+|\S+/g)
+                               .filter(sentence => sentence.trim().length > 0);
+                };
 
-                if (!pcmResponse.ok) {
-                    const errorText = await pcmResponse.text();
-                    throw new Error(`HTTP error! status: ${pcmResponse.status}, message: ${errorText}`);
-                }
-
-                const pcmData = await pcmResponse.json();
-                const pcmAudioContentBase64 = pcmData.audioContentBase64;
-
-                if (!pcmAudioContentBase64) {
-                    throw new Error('No PCM audio content received from worker');
-                }
-
-                // Decode base64 PCM to Uint8Array
-                const pcmBinaryString = atob(pcmAudioContentBase64);
-                const pcmLen = pcmBinaryString.length;
-                const pcmBytes = new Uint8Array(pcmLen);
-                for (let i = 0; i < pcmLen; i++) {
-                    pcmBytes[i] = pcmBinaryString.charCodeAt(i);
-                }
-
-                // Web Audio API for Raw PCM Playback and MediaRecorder setup
+                const sentences = splitIntoSentences(text);
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const sampleRate = 24000;
                 const numChannels = 1;
+                let totalFrameCount = 0;
+                let allPcmBytes = [];
 
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const frameCount = pcmBytes.byteLength / (2 * numChannels); // 2 bytes per sample for 16-bit PCM (L16)
+                // Fetch PCM for each sentence in parallel
+                const fetchPromises = sentences.map(async (sentence) => {
+                    const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                    });
 
-                const audioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
+                    if (!pcmResponse.ok) {
+                        const errorText = await pcmResponse.text();
+                        throw new Error(`HTTP error! status: ${pcmResponse.status}, message: ${errorText}`);
+                    }
+
+                    const pcmData = await pcmResponse.json();
+                    const pcmAudioContentBase64 = pcmData.audioContentBase64;
+
+                    if (!pcmAudioContentBase64) {
+                        throw new Error(`No PCM audio content received for sentence: "${sentence}"`);
+                    }
+
+                    const pcmBinaryString = atob(pcmAudioContentBase64);
+                    const pcmLen = pcmBinaryString.length;
+                    const pcmBytes = new Uint8Array(pcmLen);
+                    for (let i = 0; i < pcmLen; i++) {
+                        pcmBytes[i] = pcmBinaryString.charCodeAt(i);
+                    }
+                    totalFrameCount += pcmBytes.byteLength / (2 * numChannels);
+                    return pcmBytes;
+                });
+
+                const results = await Promise.all(fetchPromises);
+
+                // Concatenate all PCM bytes
+                const concatenatedPcmBytes = new Uint8Array(totalFrameCount * 2 * numChannels); // 2 bytes per sample (L16)
+                let offset = 0;
+                results.forEach(pcmBytes => {
+                    concatenatedPcmBytes.set(pcmBytes, offset);
+                    offset += pcmBytes.length;
+                });
+
+                // Web Audio API for Raw PCM Playback and MediaRecorder setup
+                const audioBuffer = audioContext.createBuffer(numChannels, totalFrameCount, sampleRate);
                 const nowBuffering = audioBuffer.getChannelData(0);
 
-                const dataView = new DataView(pcmBytes.buffer);
-                for (let i = 0; i < frameCount; i++) {
+                const dataView = new DataView(concatenatedPcmBytes.buffer);
+                for (let i = 0; i < totalFrameCount; i++) {
                     let int16Sample = dataView.getInt16(i * 2, true); // true for little-endian
                     nowBuffering[i] = int16Sample / 32768.0; // Normalize to -1 to 1 range
                 }
@@ -228,10 +251,9 @@
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
 
-                // Create a MediaStreamDestination to capture the audio
                 const dest = audioContext.createMediaStreamDestination();
-                source.connect(dest); // Connect the source to the MediaStreamDestination
-                source.connect(audioContext.destination); // Also connect to speakers for playback
+                source.connect(dest);
+                source.connect(audioContext.destination);
 
                 let recordedChunks = [];
                 const mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/ogg; codecs=opus' });
@@ -246,20 +268,19 @@
                     const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
                     const opusUrl = URL.createObjectURL(opusBlob);
                     downloadButtonLink.href = opusUrl;
-                    downloadButtonLink.style.display = 'block'; // Show download button
-                    recordedChunks = []; // Clear chunks for next recording
+                    downloadButtonLink.style.display = 'block';
+                    recordedChunks = [];
                 };
 
                 mediaRecorder.onerror = (event) => {
                     console.error('MediaRecorder error:', event.error);
                     messageDiv.textContent = `Error recording audio: ${event.error.name}`;
-                    downloadButtonLink.style.display = 'none'; // Hide download button on error
+                    downloadButtonLink.style.display = 'none';
                 };
 
-                source.start(); // Start playback
-                mediaRecorder.start(); // Start recording
+                source.start();
+                mediaRecorder.start();
                 
-                // Stop recording when playback ends
                 source.onended = () => {
                     mediaRecorder.stop(); 
                 };
