@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { handleTTS } from '../../src/handlers/tts.mjs';
+import { handleTTS, handleRawTTS } from '../../src/handlers/tts.mjs';
 
 // Mock the fetch function
 global.fetch = jest.fn();
@@ -544,6 +544,230 @@ describe('TTS Handler', () => {
       // Check sample rate in WAV header (bytes 24-27, little-endian)
       const sampleRate = wavBytes[24] | (wavBytes[25] << 8) | (wavBytes[26] << 16) | (wavBytes[27] << 24);
       expect(sampleRate).toBe(44100);
+    });
+  });
+});
+
+describe('Raw TTS Handler', () => {
+  let mockApiKey;
+
+  beforeEach(() => {
+    mockApiKey = 'test-api-key-123';
+    fetch.mockClear();
+  });
+
+  describe('Request Parsing and Validation', () => {
+    it('should successfully parse valid request and return base64 audio', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'dGVzdC1hdWRpby1kYXRh', // base64 encoded "test-audio-data"
+                    mimeType: 'audio/L16;rate=24000'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+      const responseText = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('audio/L16;rate=24000');
+      expect(responseText).toBe('dGVzdC1hdWRpby1kYXRh'); // Should return base64 audio directly
+
+      // Verify the fetch call was made correctly
+      expect(fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'x-goog-api-key': mockApiKey
+          }),
+          body: expect.stringContaining('"text":"Hello, world!"')
+        })
+      );
+    });
+
+    it('should successfully parse request with optional secondVoiceName', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'bXVsdGktc3BlYWtlci1hdWRpbw==', // base64 encoded "multi-speaker-audio"
+                    mimeType: 'audio/L16;rate=22050'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A&secondVoiceName=en-US-Standard-B', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+      const responseText = await response.text();
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('audio/L16;rate=22050');
+      expect(responseText).toBe('bXVsdGktc3BlYWtlci1hdWRpbw=='); // Should return base64 audio directly
+
+      // Verify the fetch call was made with multi-speaker configuration
+      expect(fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'x-goog-api-key': mockApiKey
+          }),
+          body: expect.stringContaining('"multiSpeakerVoiceConfig"')
+        })
+      );
+    });
+
+    it('should return 400 when voiceName is missing', async () => {
+      const request = new Request('https://example.com/rawtts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('voiceName query parameter is required');
+    });
+
+    it('should return 400 when text is missing from request body', async () => {
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('text field is required in request body');
+    });
+
+    it('should return 400 when model is missing from request body', async () => {
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('model field is required in request body');
+    });
+
+    it('should return 401 when API key is missing', async () => {
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, null);
+
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe('API key is required');
+    });
+
+    it('should return 400 when request body is invalid JSON', async () => {
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: 'invalid json'
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Invalid JSON in request body');
+    });
+
+    it('should handle Google API errors gracefully', async () => {
+      // Mock Google API error response
+      const errorResponse = {
+        error: {
+          code: 400,
+          message: "Invalid voice name specified"
+        }
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify(errorResponse))
+      });
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('The specified voice is not available. Please check the voice name and try again.');
     });
   });
 });

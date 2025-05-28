@@ -292,16 +292,79 @@ export async function handleTTS(request, apiKey) {
  */
 export async function handleRawTTS(request, apiKey) {
   try {
-    // TODO: Implement raw TTS logic
-    // This is a placeholder implementation
-    return new Response(JSON.stringify({
-      message: "Raw TTS endpoint - implementation pending"
-    }), fixCors({
+    // Verify apiKey is provided (should be handled by worker, but defensive check)
+    if (!apiKey) {
+      throw new HttpError("API key is required", 401);
+    }
+
+    // Parse query parameters for voice configuration
+    const url = new URL(request.url);
+    const voiceName = url.searchParams.get('voiceName');
+    const secondVoiceName = url.searchParams.get('secondVoiceName');
+
+    // Parse JSON request body for text and model
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      throw new HttpError("Invalid JSON in request body", 400);
+    }
+
+    const { text, model } = requestBody;
+
+    // Validate required fields
+    if (!voiceName) {
+      throw new HttpError("voiceName query parameter is required", 400);
+    }
+
+    if (!text) {
+      throw new HttpError("text field is required in request body", 400);
+    }
+
+    if (!model) {
+      throw new HttpError("model field is required in request body", 400);
+    }
+
+    // Enhanced validation using new validation functions
+
+    // Validate text length and format (includes byte-length checking)
+    validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
+
+    // Validate model format
+    if (typeof model !== 'string' || model.trim().length === 0) {
+      throw new HttpError("model must be a non-empty string", 400);
+    }
+
+    // Validate voice name format using pattern matching
+    validateVoiceName(voiceName, VOICE_NAME_PATTERNS);
+
+    // Validate secondVoiceName if provided
+    if (secondVoiceName !== null) {
+      validateVoiceName(secondVoiceName, VOICE_NAME_PATTERNS);
+    }
+
+    // Construct Google Generative AI TTS request body
+    const googleApiRequestBody = constructGoogleTTSRequestBody({
+      text: text.trim(),
+      voiceName: voiceName.trim(),
+      secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
+    });
+
+    // Call Google Generative AI API to generate audio
+    const { base64Audio, mimeType } = await callGoogleTTSAPI(
+      model.trim(),
+      googleApiRequestBody,
+      apiKey
+    );
+
+    // Return the base64 audio data directly with the correct mimeType
+    return new Response(base64Audio, fixCors({
       status: 200,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': mimeType
       }
     }));
+
   } catch (err) {
     // Use centralized error handler for consistent error responses
     return errorHandler(err, fixCors);

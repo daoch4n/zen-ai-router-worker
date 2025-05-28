@@ -1,6 +1,6 @@
 # Task ID: 1
 # Title: Create `handleRawTTS` Function Skeleton
-# Status: pending
+# Status: in-progress
 # Dependencies: None
 # Priority: high
 # Description: Create the basic asynchronous function `handleRawTTS(request, apiKey)` in `src/handlers/tts.mjs` to serve as the entry point for the new `/rawtts` endpoint logic.

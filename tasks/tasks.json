@@ -8,7 +8,7 @@
       "testStrategy": "Verify that the file `src/handlers/tts.mjs` exists and contains the exported `handleRawTTS` function signature without syntax errors.",
       "priority": "high",
       "dependencies": [],
-      "status": "pending",
+      "status": "in-progress",
       "subtasks": []
     },
     {
