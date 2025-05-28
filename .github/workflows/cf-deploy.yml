@@ -216,6 +216,11 @@ jobs:
             echo "Warning: Could not extract worker URL from deployment output (Attempt 2)." >&2
           fi
 
+      - name: Debug Orchestrator URL Outputs
+        run: |
+          echo "Attempt 1 URL: ${{ steps.deploy_orchestrator_attempt_1.outputs.ORCHESTRATOR_WORKER_URL }}"
+          echo "Attempt 2 URL: ${{ steps.deploy_orchestrator_attempt_2.outputs.ORCHESTRATOR_WORKER_URL }}"
+
       - name: Inject Orchestrator URL into Frontend
         run: |
           ORCHESTRATOR_URL_TO_INJECT=""
