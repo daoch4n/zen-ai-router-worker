@@ -1,6 +1,6 @@
 # Task ID: 4
 # Title: Construct Raw Audio Response Body for `/rawtts`
-# Status: pending
+# Status: done
 # Dependencies: 3
 # Priority: high
 # Description: Set the HTTP response body to the `base64Audio` string received directly from Google's API, without any decoding or WAV conversion.

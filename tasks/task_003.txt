@@ -1,6 +1,6 @@
 # Task ID: 3
 # Title: Integrate Google TTS API Call in `handleRawTTS`
-# Status: pending
+# Status: done
 # Dependencies: 2
 # Priority: high
 # Description: Utilize `constructGoogleTTSRequestBody` to prepare the request payload and `callGoogleTTSAPI` to interact with Google's Generative AI TTS service. Extract `base64Audio` and `mimeType` from the Google API response.

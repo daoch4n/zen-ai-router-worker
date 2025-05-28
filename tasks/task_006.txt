@@ -1,6 +1,6 @@
 # Task ID: 6
 # Title: Implement CORS and Error Handling in `handleRawTTS`
-# Status: pending
+# Status: done
 # Dependencies: 4, 5
 # Priority: high
 # Description: Apply CORS headers using `fixCors` and implement standard error handling using `errorHandler` for any exceptions during the `/rawtts` request processing.

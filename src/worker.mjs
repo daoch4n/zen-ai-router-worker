@@ -9,7 +9,8 @@ import {
   handleCompletions,
   handleEmbeddings,
   handleModels,
-  handleTTS
+  handleTTS,
+  handleRawTTS
 } from './handlers/index.mjs';
 
 import {
@@ -31,6 +32,7 @@ import { handleOPTIONS } from './utils/cors.mjs';
  * - POST /embeddings - Text embedding requests
  * - GET /models - Available model listing
  * - POST /tts - Text-to-speech requests
+ * - POST /rawtts - Raw text-to-speech requests (returns base64 audio)
  *
  * @param {Request} request - The incoming HTTP request
  * @param {Object} env - Cloudflare Worker environment variables
@@ -87,6 +89,13 @@ async function fetch(request, env) {
           throw new Error("Assertion failed: expected POST request");
         }
         return handleTTS(request, apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/rawtts"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleRawTTS(request, apiKey)
           .catch(errHandler);
 
       default:

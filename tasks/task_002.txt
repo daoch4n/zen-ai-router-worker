@@ -1,6 +1,6 @@
 # Task ID: 2
 # Title: Implement Request Parsing and Validation for `/rawtts`
-# Status: pending
+# Status: done
 # Dependencies: 1
 # Priority: high
 # Description: Reuse existing logic from `handleTTS` to parse query parameters (`voiceName`, `secondVoiceName`) and JSON body (`text`, `model`) for the `/rawtts` endpoint. Apply existing input validation functions (`validateTextLength`, `validateVoiceName`, etc.).

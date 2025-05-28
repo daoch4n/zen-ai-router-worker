@@ -1,6 +1,6 @@
 # Task ID: 5
 # Title: Set `Content-Type` Header for `/rawtts` Response
-# Status: pending
+# Status: done
 # Dependencies: 3
 # Priority: high
 # Description: Set the `Content-Type` header of the HTTP response to the `mimeType` string provided by Google's API.

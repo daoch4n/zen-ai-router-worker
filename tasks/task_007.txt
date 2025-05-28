@@ -1,6 +1,6 @@
 # Task ID: 7
 # Title: Export `handleRawTTS` from `src/handlers/index.mjs`
-# Status: pending
+# Status: done
 # Dependencies: 6
 # Priority: medium
 # Description: Ensure the newly created `handleRawTTS` function is properly exported from `src/handlers/tts.mjs` and re-exported via `src/handlers/index.mjs` so it can be imported by the main worker.
