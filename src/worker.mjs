@@ -96,9 +96,13 @@ async function fetch(request, env) {
         const requestBody = await request.json();
         const apiKeyTTS = getRandomApiKey(request, env); // Ensure getRandomApiKey is correctly used
         const ttsResponse = await handleTTS(requestBody, apiKeyTTS);
-        const fixedTtsResponse = new Response(ttsResponse.body, fixCors(ttsResponse));
-        console.log(`TTS response status: ${fixedTtsResponse.status}`);
-        return fixedTtsResponse;
+        // Directly apply CORS headers to the ttsResponse headers
+        ttsResponse.headers.set("Access-Control-Allow-Origin", "*");
+        ttsResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+        ttsResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
+        ttsResponse.headers.set("Access-Control-Max-Age", "86400");
+        console.log(`TTS response status: ${ttsResponse.status}`);
+        return ttsResponse;
 
       default:
         throw new HttpError("404 Not Found", 404);
