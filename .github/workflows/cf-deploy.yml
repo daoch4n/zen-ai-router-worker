@@ -339,6 +339,7 @@ jobs:
   cleanup_self_workflow_run:
     runs-on: ubuntu-latest
     name: Delete Self Workflow Run
+    needs: [deploy, deploy_preview, cleanup_preview]
     if: always() # Ensure this job always runs
     permissions:
       actions: write # Required permission to delete workflow runs
