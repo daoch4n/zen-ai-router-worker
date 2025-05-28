@@ -109,14 +109,12 @@
     <script>
         window.ORCHESTRATOR_WORKER_URL = ''; // Placeholder for dynamic injection
 
-        // Removed encodeWAV and writeString functions as they are no longer needed
-
         document.getElementById('speakButton').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
             const voiceId = document.getElementById('voiceIdInput').value;
             const apiKey = document.getElementById('apiKeyInput').value;
             const messageDiv = document.getElementById('message');
-            const audioPlayer = document.getElementById('audioPlayer'); // Keep this for potential fallback or future use if needed
+            const audioPlayer = document.getElementById('audioPlayer');
 
             messageDiv.textContent = '';
             audioPlayer.src = ''; // Clear existing audio
@@ -143,7 +141,6 @@
 
                 const responseData = await response.json();
                 const audioContentBase64 = responseData.audioContentBase64;
-                // const mimeType = responseData.mimeType; // This will be audio/L16;codec=pcm;rate=24000
 
                 if (!audioContentBase64) {
                     throw new Error('No audio content received from worker');
@@ -181,12 +178,6 @@
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
                 source.start();
-
-                // Optional: You can still use the HTML audio player as a fallback or for visual feedback
-                // const audioUrl = URL.createObjectURL(new Blob([bytes], { type: 'audio/raw' })); // Or appropriate MIME type if needed
-                // audioPlayer.src = audioUrl;
-                // audioPlayer.controls = true; // Ensure controls are visible for playback
-                // audioPlayer.play();
 
             } catch (error) {
                 console.error('Error:', error);
