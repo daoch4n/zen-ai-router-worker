@@ -77,9 +77,10 @@ The `tts/index.html` frontend can be optionally deployed to GitHub Pages. Your `
 
 To enable GitHub Pages for your repository:
 
-1.  **Navigate to your Repository Settings**: Go to your repository on GitHub and click on the "Settings" tab.
-2.  **Go to "Pages"**: In the left sidebar, under "Code and automation", click on "Pages".
-3.  **Configure GitHub Pages Source**: Under the "Build and deployment" section, for "Source", select "GitHub Actions".
+1.  **Enable GitHub Actions**: Go to the "Actions" tab of your repository and enable GitHub Actions if they are not already enabled.
+2.  **Navigate to your Repository Settings**: Go to your repository on GitHub and click on the "Settings" tab.
+3.  **Go to "Pages"**: In the left sidebar, under "Code and automation", click on "Pages".
+4.  **Configure GitHub Pages Source**: Under the "Build and deployment" section, for "Source", select "GitHub Actions".
 
 After these steps, and a successful run of your `cf-deploy.yml` workflow, your TTS Web UI will be published and accessible via your GitHub Pages URL (e.g., `https://your-username.github.io/your-repo-name/`).
 
