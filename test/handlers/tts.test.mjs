@@ -1,8 +1,9 @@
+import { jest } from '@jest/globals';
 import { optimizeTextForJson, newWavHeader, convertToWavFormat, handleTTS } from '../../src/handlers/tts.mjs';
 import { errorHandler } from '../../src/utils/error.mjs';
 
 // Mock the errorHandler to prevent actual error handling logic from running during tests
-jest.mock('../../src/utils/error.mjs', () => ({
+jest.unstable_mockModule('../../src/utils/error.mjs', () => ({
   errorHandler: jest.fn((error) => new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })),
 }));
 
