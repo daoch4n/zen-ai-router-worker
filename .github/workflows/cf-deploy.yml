@@ -289,12 +289,6 @@ jobs:
       - uses: actions/checkout@v4 # Add checkout for access to files
       - name: Install Wrangler
         run: npm install -g wrangler
-      - name: Generate PR Environment Name
-        id: vars
-        run: |
-          # This output is used later in the workflow, but the echo itself is not needed in the logs.
-          # The variable is still set for subsequent steps.
-          echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
 
 
       - name: Delete Preview src Workers
