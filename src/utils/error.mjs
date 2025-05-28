@@ -31,5 +31,8 @@ export class HttpError extends Error {
  */
 export const errorHandler = (err, fixCors) => {
   console.error(err);
-  return new Response(err.message, fixCors({ status: err.status ?? 500 }));
+  return new Response(err.message, {
+    status: err.status ?? 500,
+    headers: fixCors({}).headers, // Apply CORS headers
+  });
 };
