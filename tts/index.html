@@ -183,7 +183,7 @@
             overflow-y: auto;
         }
         .sentence-container span.sentence-segment {
-            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-in-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
             padding: 2px 4px;
             margin-right: 4px;
             border-radius: 3px;
@@ -534,8 +534,6 @@
                 const resultsInOrder = new Array(sentences.length).fill(null);
 
                 // MODIFICATION: Enhanced fetchSentence with retries and overall timeout
-                const SENTENCE_FETCH_TIMEOUT_MS = 15000; // 15 seconds overall timeout for one sentence
-
                 const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
                     const spanElement = sentenceSpanElements[index];
                     if (spanElement && !spanElement.classList.contains('cipher-fetching')) { // Start cipher only if not already started for this attempt
@@ -596,12 +594,21 @@
                 };
 
                 const fetchSentenceWithTimeout = (sentence, index, initialRetries = 2) => {
+                    // New constants for dynamic timeout
+                    const MIN_SENTENCE_TIMEOUT_MS = 5000; // 5 seconds base
+                    const MS_PER_CHARACTER_FACTOR = 75; // 75ms per character
+                    const MAX_SENTENCE_TIMEOUT_MS = 45000; // 45 seconds maximum
+
+                    // Calculate dynamic timeout
+                    const dynamicTimeout = MIN_SENTENCE_TIMEOUT_MS + (sentence.length * MS_PER_CHARACTER_FACTOR);
+                    const currentSentenceTimeout = Math.min(MAX_SENTENCE_TIMEOUT_MS, dynamicTimeout);
+
                     return new Promise((resolve, reject) => {
                         const timeoutId = setTimeout(() => {
                             const spanElement = sentenceSpanElements[index];
                             if (spanElement) stopSentenceCipher(spanElement);
                             resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
-                        }, SENTENCE_FETCH_TIMEOUT_MS);
+                        }, currentSentenceTimeout); // Use the dynamically calculated timeout
 
                         fetchSentenceAttempt(sentence, index, initialRetries)
                             .then(resolve)
