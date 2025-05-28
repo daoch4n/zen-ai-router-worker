@@ -13,6 +13,7 @@ export function setupTTSClient(orchestratorWorkerUrl) {
     let fullAudioBuffers = []; // Array to store all decoded audio buffers for reconstruction
     let currentHighlightedWordIndex = 0; // New: To keep track of the currently highlighted word
     let words = []; // New: To store the words from the input text
+    let currentSentenceIndex = -1; // New: To track the currently playing sentence index
 
     function showToast(message, type = 'info', duration = 4000) {
         const toastContainer = document.getElementById('toastContainer');
@@ -40,15 +41,16 @@ export function setupTTSClient(orchestratorWorkerUrl) {
         }, duration);
     }
 
-    const connectToEventSource = (text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, textDisplayArea) => {
+    const connectToEventSource = (text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea) => {
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
             // Only consider actual words for highlighting, not spaces or punctuation alone
             if (word.match(/\b(\w+)\b/)) {
-                return { text: word, index: index, element: null };
+                return { text: word, originalIndex: index, element: null, sentenceIndex: -1 };
             }
-            return { text: word, index: index, element: null, isSeparator: true };
+            return { text: word, originalIndex: index, element: null, isSeparator: true, sentenceIndex: -1 };
         });
         currentHighlightedWordIndex = 0;
+        currentSentenceIndex = -1;
 
         const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}`;
         const eventSource = new EventSource(sseUrl, {
@@ -69,14 +71,20 @@ export function setupTTSClient(orchestratorWorkerUrl) {
             fullAudioBuffers = []; // Clear full audio buffers
             currentSource = null; // Clear current source
 
+            loadingText.textContent = 'Playing...'; // Update loading text
+            progressBarContainer.style.display = 'block'; // Show progress bar
+            progressBar.style.width = '0%'; // Reset progress bar
+
             // Initial setup for highlighting
             const wordSpans = textDisplayArea.querySelectorAll('span[data-word-index]');
-            words.forEach(word => {
-                if (!word.isSeparator) {
-                    word.element = textDisplayArea.querySelector(`span[data-word-index="${word.index}"]`);
+            wordSpans.forEach(span => {
+                const originalIndex = parseInt(span.dataset.wordIndex);
+                const wordObj = words.find(w => w.originalIndex === originalIndex);
+                if (wordObj) {
+                    wordObj.element = span;
                 }
             });
-            clearAllHighlights();
+            clearAllHighlights(textDisplayArea);
         };
 
         eventSource.onmessage = async (event) => {
@@ -90,8 +98,25 @@ export function setupTTSClient(orchestratorWorkerUrl) {
             }
 
             const audioChunk = data.audioChunk;
-            const index = data.index;
+            const index = data.index; // This is the sentence index now
             const mimeType = data.mimeType;
+
+            // Assign sentence index to words
+            // Assuming `data.text` is the sentence being spoken
+            // This part needs more robust mapping if `data.text` isn't the full sentence or if words are split differently
+            // For now, a simple approach: if data.text is provided, find the words belonging to that sentence
+            if (data.text) {
+                const sentenceWords = data.text.split(/\b(\w+)\b|\s+/).filter(Boolean);
+                let wordCursor = 0;
+                for (let i = 0; i < words.length; i++) {
+                    if (!words[i].isSeparator && words[i].text === sentenceWords[wordCursor]) {
+                        words[i].sentenceIndex = index;
+                        wordCursor++;
+                        if (wordCursor === sentenceWords.length) break; // End of current sentence words
+                    }
+                }
+            }
+
 
             if (audioChunk && audioContext) {
                 try {
@@ -103,7 +128,7 @@ export function setupTTSClient(orchestratorWorkerUrl) {
                     audioQueue.sort((a, b) => a.index - b.index); // Ensure correct order
 
                     if (!currentSource || (audioContext.currentTime >= cumulativeAudioDuration + audioContext.baseLatency && lastPlayedIndex < index)) {
-                        playNextChunk(textDisplayArea); // Pass textDisplayArea
+                        playNextChunk(textDisplayArea, progressBar); // Pass progressBar
                     }
 
                 } catch (e) {
@@ -117,7 +142,7 @@ export function setupTTSClient(orchestratorWorkerUrl) {
             console.log('SSE stream ended.');
             showToast('Audio stream completed.', 'success');
             eventSource.close();
-            clearAllHighlights(); // Clear highlights when done
+            clearAllHighlights(textDisplayArea); // Clear highlights when done
 
             if (fullAudioBuffers.length > 0 && audioContext) {
                 fullAudioBuffers.sort((a, b) => a.index - b.index);
@@ -144,6 +169,8 @@ export function setupTTSClient(orchestratorWorkerUrl) {
 
             speakButton.disabled = false;
             loadingIndicator.style.display = 'none';
+            progressBarContainer.style.display = 'none';
+            progressBar.style.width = '0%';
         });
 
         eventSource.onerror = (error) => {
@@ -155,11 +182,13 @@ export function setupTTSClient(orchestratorWorkerUrl) {
             eventSource.close();
             speakButton.disabled = false;
             loadingIndicator.style.display = 'none';
-            clearAllHighlights(); // Clear highlights on error
+            progressBarContainer.style.display = 'none';
+            progressBar.style.width = '0%';
+            clearAllHighlights(textDisplayArea); // Clear highlights on error
         };
     };
 
-    const playNextChunk = (textDisplayArea) => {
+    const playNextChunk = (textDisplayArea, progressBar) => {
         if (audioQueue.length > 0) {
             const { buffer, index } = audioQueue.shift();
 
@@ -177,69 +206,38 @@ export function setupTTSClient(orchestratorWorkerUrl) {
             lastPlayedIndex = index;
             cumulativeAudioDuration += buffer.duration;
 
-            const totalWords = words.filter(w => !w.isSeparator).length;
-            const wordsInThisChunk = words.slice(currentHighlightedWordIndex).filter(w => !w.isSeparator).length;
-            const estimatedWordDuration = buffer.duration / wordsInThisChunk; // Simple estimation
+            // Update progress bar
+            const totalTextLength = words.map(w => w.text).join('').length;
+            const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;
+            const progress = (playedTextLength / totalTextLength) * 100;
+            progressBar.style.width = `${progress}%`;
 
-            let wordHighlightTimeout;
-            let currentChunkWordIndex = 0;
-
-            const highlightWord = () => {
-                if (currentHighlightedWordIndex < words.length) {
-                    // Remove previous highlight
-                    if (currentHighlightedWordIndex > 0) {
-                        const prevWord = words[currentHighlightedWordIndex - 1];
-                        if (prevWord && prevWord.element) {
-                            prevWord.element.classList.remove('highlighted-word');
-                        }
-                    }
-
-                    // Find the next actual word to highlight
-                    while (currentHighlightedWordIndex < words.length && words[currentHighlightedWordIndex].isSeparator) {
-                        currentHighlightedWordIndex++;
-                    }
-
-                    if (currentHighlightedWordIndex < words.length && words[currentHighlightedWordIndex].element) {
-                        words[currentHighlightedWordIndex].element.classList.add('highlighted-word');
-                        currentHighlightedWordIndex++;
-                        currentChunkWordIndex++;
-                        if (currentChunkWordIndex < wordsInThisChunk) {
-                            wordHighlightTimeout = setTimeout(highlightWord, estimatedWordDuration * 1000);
-                        }
-                    } else {
-                        currentHighlightedWordIndex++; // Advance even if no element to highlight (e.g., punctuation)
-                        if (currentHighlightedWordIndex < words.length) {
-                            wordHighlightTimeout = setTimeout(highlightWord, estimatedWordDuration * 1000);
-                        }
-                    }
+            // Highlight current sentence
+            clearAllHighlights(textDisplayArea);
+            currentSentenceIndex = index;
+            words.forEach(word => {
+                if (word.element && word.sentenceIndex === currentSentenceIndex) {
+                    word.element.classList.add('highlighted-word');
                 }
-            };
-            highlightWord();
+            });
 
 
             source.onended = () => {
-                clearTimeout(wordHighlightTimeout); // Clear timeout for this chunk
-                // Remove highlight from the last word of this chunk
-                const lastWordOfChunk = words[currentHighlightedWordIndex - 1];
-                if (lastWordOfChunk && lastWordOfChunk.element) {
-                    lastWordOfChunk.element.classList.remove('highlighted-word');
-                }
-
                 if (audioQueue.length > 0) {
-                    playNextChunk(textDisplayArea);
+                    playNextChunk(textDisplayArea, progressBar);
                 } else {
                     currentSource = null;
-                    clearAllHighlights(); // Ensure all highlights are cleared at the very end
+                    clearAllHighlights(textDisplayArea); // Ensure all highlights are cleared at the very end
+                    progressBar.style.width = '100%'; // Mark as complete
+                    setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
                 }
             };
         }
     };
 
-    function clearAllHighlights() {
-        words.forEach(word => {
-            if (word.element) {
-                word.element.classList.remove('highlighted-word');
-            }
+    function clearAllHighlights(textDisplayArea) {
+        textDisplayArea.querySelectorAll('.highlighted-word').forEach(element => {
+            element.classList.remove('highlighted-word');
         });
     }
 
