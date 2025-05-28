@@ -349,43 +349,4 @@ jobs:
           SINGLE_WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}"
            wrangler delete --name "${SINGLE_WORKER_NAME}" --force || true
  
-          TOTAL_KEYS=${{ steps.prep_api_data_cleanup.outputs.all_api_keys_count }}
-          # Use the environment variable directly. Shell quoting is simpler here.
-          API_KEYS_JSON_STRING="$API_KEYS_JSON_FROM_OUTPUT"
-
-          echo "Retrieved TOTAL_KEYS: ${TOTAL_KEYS}"
-          # It's good practice to check if API_KEYS_JSON_STRING is empty, though with TOTAL_KEYS > 0 it shouldn't be.
-          if [ -z "$API_KEYS_JSON_STRING" ]; then
-            echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
-            exit 1
-          fi
-
-          # Read the JSON array string output back into a bash array using jq
-          # This ensures keys with spaces or special characters are handled correctly.
-          if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
-            echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
-            echo "The string content will not be displayed." >&2
-            exit 1
-          fi
-          
-          # Verify count after re-parsing (optional debug)
-          if [ "${#API_KEYS_ARRAY[@]}" -ne "${TOTAL_KEYS}" ]; then
-            echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
-            # Depending on strictness, you might choose to exit here or proceed.
-          fi
-          echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
-
-          KEYS_PER_WORKER=8
-          NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
-
-          # If no keys are found, and we already attempted to delete the single worker,
-          # then there are no indexed workers to delete.
-          if [ "$NUM_WORKERS" -eq 0 ]; then
-            echo "No indexed workers to delete based on API keys count."
-          else
-            for i in $(seq 0 $((NUM_WORKERS - 1))); do
-              WORKER_NAME="zen-ai-router-worker-preview-${{ github.event.pull_request.number }}-${i}"
-               wrangler delete --name "${WORKER_NAME}" --force || true
-            done
-          fi
 
