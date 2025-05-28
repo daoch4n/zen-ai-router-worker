@@ -433,16 +433,30 @@
 
             try {
                 const splitIntoSentences = (text) => {
-                    // MODIFICATION: Added a filter to ensure at least one word character is present.
-                    const potentialSentences = text.match(/[^.!?]+[.!?]*|[\w\s,"]+(?=\.\.\.)|\b(?:Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|etc|e\.g|i\.e)\.|\d+\.\d+|\S+/g);
-                    if (!potentialSentences) {
-                        return [];
-                    }
-                    // Filter out empty/whitespace-only strings AND strings without at least one word character.
-                    return potentialSentences.filter(sentence => {
-                        const trimmedSentence = sentence.trim();
-                        return trimmedSentence.length > 0 && /\w/.test(trimmedSentence);
-                    });
+                    // Temporarily replace common abbreviations and numerical decimals to prevent splitting
+                    // This is a simplified list; a more comprehensive solution might use a library
+                    const abbreviationPlaceholder = "###ABBR###";
+                    const decimalPlaceholder = "###DEC###";
+
+                    // Regex to find common abbreviations followed by a period (not end of sentence)
+                    // and decimals to temporarily replace them
+                    let processedText = text
+                        .replace(/(Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|Maj|Gov|Sen|Rep|etc|e\.g|i\.e)\./g, `$1${abbreviationPlaceholder}`)
+                        .replace(/(\d+)\.(\d+)/g, `$1${decimalPlaceholder}$2`);
+
+                    // Split by sentence-ending punctuation, ensuring it's not preceded by an abbreviation placeholder
+                    // Lookbehind `(?<!${abbreviationPlaceholder})` ensures we don't split after replaced abbreviations.
+                    // Also handles multiple punctuation marks, and ensures a space or end of string follows
+                    const sentences = processedText.split(/(?<=[.!?])\s*(?<!${abbreviationPlaceholder})(?<!${decimalPlaceholder})(?=\S|$)/);
+
+                    // Restore abbreviations and decimals, and filter out empty strings
+                    return sentences
+                        .map(s => s
+                            .replace(new RegExp(abbreviationPlaceholder, 'g'), '.')
+                            .replace(new RegExp(decimalPlaceholder, 'g'), '.')
+                            .trim()
+                        )
+                        .filter(s => s.length > 0 && /\S/.test(s)); // Also ensures at least one non-whitespace character
                 };
 
                 const sentences = splitIntoSentences(text);
