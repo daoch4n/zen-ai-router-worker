@@ -202,31 +202,39 @@ jobs:
         env:
           PASS: ${{ secrets.PASS }}
 
-      - name: Set Orchestrator Worker URL Output
-        id: set_orchestrator_url
+      - name: Set Orchestrator Worker URL Output (Attempt 1)
+        id: set_orchestrator_url_1
+        if: ${{ steps.deploy_orchestrator_attempt_1.outcome == 'success' }}
         run: |
-          ORCHESTRATOR_WORKER_URL=""
-          if [[ "${{ steps.deploy_orchestrator_attempt_1.outcome }}" == "success" ]]; then
-            ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_1.outputs.url }}"
-          elif [[ "${{ steps.deploy_orchestrator_attempt_2.outcome }}" == "success" ]]; then
-            ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_2.outputs.url }}"
-          fi
-
-          if [ -z "${ORCHESTRATOR_WORKER_URL}" ]; then
-            echo "Error: Could not determine Orchestrator Worker URL from deployment steps." >&2
-            exit 1
-          fi
-
+          ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_1.outputs.url }}"
           # Remove trailing '/*' if present, as the wrangler-action's URL output might include it for routes.
-          # This is a safeguard, as the action's URL output is usually clean.
           WORKER_BASE_URL=$(echo "${ORCHESTRATOR_WORKER_URL}" | sed 's/\/\*$//')
-
           echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
-          echo "Injected URL: ${WORKER_BASE_URL}"
+          echo "Injected URL (Attempt 1): ${WORKER_BASE_URL}"
+
+      - name: Set Orchestrator Worker URL Output (Attempt 2)
+        id: set_orchestrator_url_2
+        if: ${{ steps.deploy_orchestrator_attempt_2.outcome == 'success' }}
+        run: |
+          ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_2.outputs.url }}"
+          # Remove trailing '/*' if present, as the wrangler-action's URL output might include it for routes.
+          WORKER_BASE_URL=$(echo "${ORCHESTRATOR_WORKER_URL}" | sed 's/\/\*$//')
+          echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
+          echo "Injected URL (Attempt 2): ${WORKER_BASE_URL}"
 
       - name: Inject Orchestrator URL into Frontend
         run: |
-          sed -i "s|window.ORCHESTRATOR_WORKER_URL = '';|window.ORCHESTRATOR_WORKER_URL = '${{ steps.set_orchestrator_url.outputs.ORCHESTRATOR_WORKER_URL }}';|" tts/index.html
+          ORCHESTRATOR_URL_TO_INJECT=""
+          if [ -n "${{ steps.set_orchestrator_url_1.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
+            ORCHESTRATOR_URL_TO_INJECT="${{ steps.set_orchestrator_url_1.outputs.ORCHESTRATOR_WORKER_URL }}"
+          elif [ -n "${{ steps.set_orchestrator_url_2.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
+            ORCHESTRATOR_URL_TO_INJECT="${{ steps.set_orchestrator_url_2.outputs.ORCHESTRATOR_WORKER_URL }}"
+          fi
+          if [ -z "${ORCHESTRATOR_URL_TO_INJECT}" ]; then
+            echo "Error: No Orchestrator Worker URL found from any attempt." >&2
+            exit 1
+          fi
+          sed -i "s|window.ORCHESTRATOR_WORKER_URL = '';|window.ORCHESTRATOR_WORKER_URL = '${ORCHESTRATOR_URL_TO_INJECT}';|" tts/index.html
 
       - name: Prepare Frontend for GitHub Pages
         run: |
