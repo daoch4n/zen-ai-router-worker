@@ -15,7 +15,7 @@
             background-color: #f4f4f4;
             margin: 0;
             padding-top: 230px; /* MODIFICATION: Add padding to body to offset fixed input bar height */
-                                /* Adjust this value based on the actual height of .top-input-bar */
+                                /* This will be dynamically updated by JavaScript */
         }
         /* MODIFICATION: Style for the fixed input bar */
         .top-input-bar {
@@ -71,6 +71,7 @@
             padding: 10px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
+            box-sizing: border-box; /* Ensure padding and border are inside width/height */
             border-radius: 4px;
             resize: vertical;
             min-height: 100px;
@@ -80,6 +81,7 @@
             padding: 10px;
             margin-bottom: 10px;
             border: 1px solid #ddd;
+            box-sizing: border-box;
             border-radius: 4px;
         }
         button {
@@ -294,6 +296,25 @@
             if (storedVoiceId) {
                 document.getElementById('voiceIdInput').value = storedVoiceId;
             }
+
+            // --- MODIFICATION: Dynamic Body Padding for Fixed Input Bar ---
+            const topInputBar = document.querySelector('.top-input-bar');
+            function updateBodyPadding() {
+                if (topInputBar) {
+                    const barHeight = topInputBar.offsetHeight;
+                    document.body.style.paddingTop = `${barHeight + 15}px`; // 15px margin
+                }
+            }
+
+            if (topInputBar) {
+                // Initial adjustment
+                updateBodyPadding();
+                // Adjust on window resize
+                window.addEventListener('resize', updateBodyPadding);
+                // Adjust if content inside the bar (like textarea) resizes
+                new ResizeObserver(updateBodyPadding).observe(topInputBar);
+            }
+            // --- END MODIFICATION ---
 
             settingsCog.addEventListener('click', () => {
                 const isHidden = apiKeyInput.style.display === 'none';
