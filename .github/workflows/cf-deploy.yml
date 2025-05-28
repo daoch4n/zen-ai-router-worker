@@ -120,8 +120,10 @@ jobs:
               ${WORKER_VARS}
           done
 
-      - name: Generate Orchestrator Wrangler Config (Production)
+      - name: Generate Orchestrator Config (with DO Migration)
+        id: generate_orchestrator_config_with_migration # Step ID
         run: |
+          echo "Generating orchestrator/wrangler.toml WITH RouterCounter migration..."
           TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
           KEYS_PER_WORKER=8
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
@@ -132,6 +134,7 @@ jobs:
           CONFIG_CONTENT+="[[durable_objects.bindings]]\n"
           CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
           CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
+          # This migration is for initial setup. It might fail if DO already exists.
           CONFIG_CONTENT+="[[migrations]]\n"
           CONFIG_CONTENT+="tag = \"v1-router-counter-initial-sqlite-setup\"\n"
           CONFIG_CONTENT+="new_sqlite_classes = [\"RouterCounter\"]\n\n"
@@ -142,10 +145,51 @@ jobs:
             CONFIG_CONTENT+="service = \"zen-ai-router-worker-${i}\"\n\n"
           done
           echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
-          echo "Generated orchestrator/wrangler.toml:"
+          echo "Generated orchestrator/wrangler.toml (with migration):"
           cat orchestrator/wrangler.toml
 
-      - name: Deploy Orchestrator Worker
+      - name: Attempt 1 of Deploy Orchestrator Worker (with DO Migration)
+        id: deploy_orchestrator_attempt_1 # Step ID
+        continue-on-error: true # Important: Allow workflow to continue if this fails
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: "deploy --config orchestrator/wrangler.toml"
+          vars: |
+            PASS
+        env:
+          PASS: ${{ secrets.PASS }}
+
+      - name: Generate Orchestrator Config (NO DO Migration for RouterCounter)
+        id: generate_orchestrator_config_no_migration # Step ID
+        if: steps.deploy_orchestrator_attempt_1.outcome == 'failure' # Only run if first attempt failed
+        run: |
+          echo "First orchestrator deployment failed. Generating orchestrator/wrangler.toml WITHOUT RouterCounter new_sqlite_classes migration..."
+          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
+          KEYS_PER_WORKER=8
+          NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
+          CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
+          CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
+          CONFIG_CONTENT+="compatibility_date = \"2024-05-01\"\n\n"
+          CONFIG_CONTENT+="[placement]\nmode = \"smart\"\n\n"
+          CONFIG_CONTENT+="[[durable_objects.bindings]]\n" # Binding is still needed
+          CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
+          CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
+          # NO MIGRATIONS for new_sqlite_classes = ["RouterCounter"] here
+
+          for i in $(seq 0 $((NUM_WORKERS - 1))); do
+            CONFIG_CONTENT+="[[services]]\n"
+            CONFIG_CONTENT+="binding = \"BACKEND_SERVICE_${i}\"\n"
+            CONFIG_CONTENT+="service = \"zen-ai-router-worker-${i}\"\n\n"
+          done
+          echo -e "$CONFIG_CONTENT" > orchestrator/wrangler.toml
+          echo "Generated orchestrator/wrangler.toml (without RouterCounter migration):"
+          cat orchestrator/wrangler.toml
+
+      - name: Attempt 2 of Deploy Orchestrator Worker (NO DO Migration for RouterCounter)
+        id: deploy_orchestrator_attempt_2 # Step ID
+        if: steps.deploy_orchestrator_attempt_1.outcome == 'failure' # Only run if first attempt failed
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
