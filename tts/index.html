@@ -296,7 +296,6 @@
         <option value="callirrhoe">callirrhoe</option>
         <option value="charon">charon</option>
         <option value="despina">despina</option>
-        <option value="enceladus">enceladus</option>
         <option value="erinome">erinome</option>
         <option value="fenrir">fenrir</option>
         <option value="gacrux">gacrux</option>
@@ -439,28 +438,6 @@
       // }
     }
 
-    function splitIntoSentences(text) {
-      const abbreviationPlaceholder = "###ABBR###";
-      const decimalPlaceholder = "###DEC###";
-
-      let processedText = text
-        .replace(/(Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|Maj|Gov|Sen|Rep|etc|e\.g|i\.e)\./g, `$1${abbreviationPlaceholder}`)
-        .replace(/(\d+)\.(\d+)/g, `$1${decimalPlaceholder}$2`);
-
-      const sentences = processedText.split(
-        new RegExp(`(?<=[.!?])\\s*(?<!${abbreviationPlaceholder.replace('.', '\\.')})(?<!${decimalPlaceholder.replace('.', '\\.')})(?=\\S|$)`, 'g')
-      );
-
-      return sentences
-        .map(s => s
-          .replace(new RegExp(abbreviationPlaceholder, 'g'), '.')
-          .replace(new RegExp(decimalPlaceholder, 'g'), '.')
-          .trim()
-        )
-        .filter(s => s.length > 0 && /\S/.test(s));
-    }
-
-
     document.getElementById('speakButton').addEventListener('click', async () => {
       const text = document.getElementById('textInput').value;
       const voiceId = document.getElementById('voiceIdInput').value;
@@ -471,16 +448,12 @@
       const loadingIndicator = document.getElementById('loadingIndicator');
       const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
 
-      sentenceDisplayContainer.innerHTML = '';
-      let sentenceSpanElements = [];
+      sentenceDisplayContainer.innerHTML = ''; // Clear previous sentences
       messageDiv.textContent = '';
       downloadButtonLink.style.display = 'none';
       downloadButtonLink.href = '';
       speakButton.disabled = true;
       loadingIndicator.style.display = 'flex';
-
-      // MODIFICATION: Initialize resultsInOrder here
-      let resultsInOrder = [];
 
       if (!text || !apiKey) {
         showToast('Please enter text and API Key.', 'error');
@@ -496,401 +469,124 @@
       }
 
       localStorage.setItem('apiKey', apiKey);
-      let audioContext;
-      let audioDestinationNode;
-      let mediaRecorder;
-      let recordedChunks = [];
 
       try {
-        const sentences = splitIntoSentences(text);
+        showToast("TTS request sent to orchestrator. Awaiting stream...", 'info');
 
-        if (sentences.length > 0) {
-          sentences.forEach((sentenceText, index) => {
-            const span = document.createElement('span');
-            span.textContent = sentenceText;
-            span.setAttribute('data-original-text', sentenceText); // Store original text for redaction if needed
-            span.id = `sentence-tts-${index}`;
-            span.className = 'sentence-segment initial-split-visual';
-            span.style.animation = `fadeIn 0.5s ease-out forwards`;
-            span.style.animationDelay = `${0.5 + index * 0.15}s`;
+        let audioContext;
+        let audioQueue = [];
+        let currentSource = null;
+        let playStartTime = 0;
+        let lastPlayedIndex = -1;
+        let cumulativeAudioDuration = 0;
+        let connectionErrorOccurred = false;
 
-            sentenceDisplayContainer.appendChild(span);
-            sentenceDisplayContainer.appendChild(document.createTextNode(" "));
-            sentenceSpanElements.push(span);
+        const connectToEventSource = () => {
+          const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}`;
+          const eventSource = new EventSource(sseUrl, {
+            headers: {
+              'Authorization': `Bearer ${apiKey}`
+            }
           });
 
-          setTimeout(() => {
-            sentenceSpanElements.forEach(span => span.classList.remove('initial-split-visual'));
-          }, 500 + sentences.length * 150);
-        } else {
-          showToast('No text to synthesize.', 'warning');
-          speakButton.disabled = false;
-          loadingIndicator.style.display = 'none';
-          return;
-        }
-
-        audioContext = new(window.AudioContext || window.webkitAudioContext)();
-        const sampleRate = 24000;
-        const numChannels = 1;
-
-        audioDestinationNode = audioContext.createMediaStreamDestination();
-        const speakerPlaybackNode = audioContext.createGain();
-        speakerPlaybackNode.gain.value = 1;
-        speakerPlaybackNode.connect(audioContext.destination);
-        speakerPlaybackNode.connect(audioDestinationNode);
-
-        mediaRecorder = new MediaRecorder(audioDestinationNode.stream, { mimeType: 'audio/ogg; codecs=opus' });
-
-        mediaRecorder.ondataavailable = event => {
-          if (event.data.size > 0) {
-            recordedChunks.push(event.data);
-          }
-        };
-
-        mediaRecorder.onstop = () => {
-          if (recordedChunks.length > 0 && recordedChunks.some(chunk => chunk.size > 0)) {
-            const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
-            const opusUrl = URL.createObjectURL(opusBlob);
-            downloadButtonLink.href = opusUrl;
-            downloadButtonLink.style.display = 'block';
-            showToast("Speech generation complete.", 'success');
-          } else {
-            showToast("No audio was generated to download.", 'warning');
-            downloadButtonLink.style.display = 'none';
-          }
-          recordedChunks = [];
-        };
-
-        mediaRecorder.onerror = (event) => {
-          console.error('MediaRecorder error:', event.error);
-          showToast(`Error recording audio: ${event.error.name}`, 'error');
-          downloadButtonLink.style.display = 'none';
-        };
-
-        mediaRecorder.start();
-
-        let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0.05;
-        let currentSentencePlayIndex = 0;
-        let firstSentenceTimeoutId = null;
-        resultsInOrder = new Array(sentences.length).fill(null); // Initialize properly
-
-        // --- MODIFICATION: Fetching Logic Variables ---
-        let activeFetchesCount = 0;
-        let currentFetchQueueIndex = 0;
-        // --- END MODIFICATION ---
-
-        const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
-          // Redaction is applied before calling fetchSentenceWithTimeout, which calls this.
-          // spanElement is available in the caller (fetchSentenceWithTimeout) for redaction updates.
-          try {
-            const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-              body: JSON.stringify({ text: sentence.trim(), voiceId }),
-            });
-
-            if (!pcmResponse.ok) {
-              // Attempt to parse as JSON first, but fall back to text if it's not JSON
-              let errorData;
-              let errorMessage = `HTTP error Status ${pcmResponse.status}`;
-              try {
-                errorData = await pcmResponse.json();
-                errorMessage = errorData.error?.message || errorData.message || errorMessage;
-              } catch (e) {
-                // If it's not JSON, read as plain text
-                errorMessage = await pcmResponse.text() || errorMessage;
-              }
-
-              console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${pcmResponse.status} - ${errorMessage}`);
-              if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) {
-                console.log(`Retrying sentence ${index + 1} (Status ${pcmResponse.status}), ${retriesLeft} retries left...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft))); // Basic backoff
-                return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
-              }
-              return { error: `Backend Error: ${errorMessage}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index, isCritical: true };
+          eventSource.onopen = () => {
+            console.log('SSE connection opened.');
+            showToast('SSE stream connected.', 'success');
+            // Ensure audioContext is initialized only after user gesture (e.g., button click)
+            if (!audioContext) {
+              audioContext = new (window.AudioContext || window.webkitAudioContext)();
             }
-            const pcmData = await pcmResponse.json();
-            const pcmAudioContentBase64 = pcmData.audioContentBase64;
+          };
 
-            if (!pcmAudioContentBase64) {
-              console.error(`No PCM audio content received for sentence ${index + 1} ("${sentence.trim()}")`);
-              return { error: `No audio for sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
-            }
-            const pcmBinaryString = atob(pcmAudioContentBase64);
-            const pcmLen = pcmBinaryString.length;
-            const pcmBytes = new Uint8Array(pcmLen);
-            for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
-            return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
-
-          } catch (e) {
-            console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
-            if (retriesLeft > 0) {
-              console.log(`Retrying sentence ${index + 1} due to exception, ${retriesLeft} retries left...`);
-              await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
-              return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
-            }
-            return { error: `Exception: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
-          }
-        };
-
-        const fetchSentenceWithTimeout = (sentence, index, retries = 2, timeoutDuration = SENTENCE_FETCH_TIMEOUT_MS) => {
-          return new Promise((resolve) => { // Always resolve, never reject externally
-            const spanElement = sentenceSpanElements[index];
-            let timeoutHandle = setTimeout(() => {
-              timeoutHandle = null; // Mark timeout as having fired
-              if (spanElement) removeRedactedStyle(spanElement);
-              resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
-            }, timeoutDuration);
-
-            fetchSentenceAttempt(sentence, index, retries)
-              .then(result => {
-                if (timeoutHandle) { // Check if timeout has NOT already fired
-                  clearTimeout(timeoutHandle);
-                  timeoutHandle = null;
-                  if (spanElement) { // Remove redaction regardless of result.error, as the attempt is complete
-                    removeRedactedStyle(spanElement);
-                  }
-                  resolve(result);
-                }
-                // If timeoutHandle is null, timeout already occurred and resolved. Do nothing more.
-              })
-              .catch(internalError => { // Should ideally not be hit if fetchSentenceAttempt always resolves an object
-                if (timeoutHandle) {
-                  clearTimeout(timeoutHandle);
-                  timeoutHandle = null;
-                  if (spanElement) removeRedactedStyle(spanElement);
-                  console.error("Internal error from fetchSentenceAttempt's promise chain:", internalError);
-                  resolve({ error: `Internal error: ${internalError.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
-                }
-              });
-          });
-        };
-
-
-        function tryPlayNextReadySentence() {
-          if (currentSentencePlayIndex >= sentences.length) {
-            if (mediaRecorder && mediaRecorder.state === "recording") {
-              setTimeout(() => {
-                if (mediaRecorder && mediaRecorder.state === "recording") {
-                    mediaRecorder.stop();
-                }
-              }, 700);
-            }
-            return;
-          }
-
-          const result = resultsInOrder[currentSentencePlayIndex];
-          if (result) {
-            if (currentSentencePlayIndex === 0 && firstSentenceTimeoutId) {
-              clearTimeout(firstSentenceTimeoutId);
-              firstSentenceTimeoutId = null;
-            }
-
-            const sentenceSpan = sentenceSpanElements[currentSentencePlayIndex];
-            if (result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
-              const shortText = result.sentenceText ? result.sentenceText.substring(0, 20) + '...' : `sentence ${currentSentencePlayIndex + 1}`;
-              showToast(`Skipping: "${shortText}" (Error: ${result.error || 'No audio data'})`, 'warning', 2000);
-              if (sentenceSpan) {
-                sentenceSpan.style.textDecoration = 'line-through wavy red';
-                removeRedactedStyle(sentenceSpan); // Ensure redaction removed on failure/skip
-              }
-              currentSentencePlayIndex++;
-              tryPlayNextReadySentence();
+          eventSource.onmessage = async (event) => {
+            const data = JSON.parse(event.data);
+            if (data.error) {
+              console.error('SSE Error:', data.error);
+              showToast(`Stream Error: ${data.error.message || 'Unknown error'}`, 'error');
+              connectionErrorOccurred = true;
+              eventSource.close();
               return;
             }
 
-            const { pcmBytes } = result;
-            const frameCount = pcmBytes.byteLength / (2 * numChannels);
-             if (frameCount === 0) {
-                showToast(`Skipping: "${result.sentenceText.substring(0, 20)}..." (Empty audio data)`, 'warning', 2000);
-                if (sentenceSpan) sentenceSpan.style.textDecoration = 'line-through wavy orange';
-                removeRedactedStyle(sentenceSpan); // Ensure redaction removed
-                currentSentencePlayIndex++;
-                tryPlayNextReadySentence();
-                return;
-            }
-            const sentenceAudioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
-            const nowBuffering = sentenceAudioBuffer.getChannelData(0);
-            const dataView = new DataView(pcmBytes.buffer);
+            const audioChunk = data.audioChunk;
+            const index = data.index;
+            const mimeType = data.mimeType;
 
-            for (let j = 0; j < frameCount; j++) {
-              nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0;
+            if (audioChunk && audioContext) {
+              try {
+                const audioData = Uint8Array.from(atob(audioChunk), c => c.charCodeAt(0));
+                const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
+
+                audioQueue.push({ buffer: audioBuffer, index: index });
+                audioQueue.sort((a, b) => a.index - b.index); // Ensure correct order
+
+                if (!currentSource || (audioContext.currentTime >= cumulativeAudioDuration + audioContext.baseLatency && lastPlayedIndex < index)) {
+                  playNextChunk();
+                }
+
+              } catch (e) {
+                console.error('Error decoding audio data:', e);
+                showToast(`Audio Error: ${e.message}`, 'error');
+              }
             }
+          };
+
+          eventSource.addEventListener('end', () => {
+            console.log('SSE stream ended.');
+            showToast('Audio stream completed.', 'success');
+            eventSource.close();
+            downloadButtonLink.style.display = 'block'; // Show download button on stream end
+            speakButton.disabled = false;
+            loadingIndicator.style.display = 'none';
+          });
+
+          eventSource.onerror = (error) => {
+            console.error('SSE Error:', error);
+            if (!connectionErrorOccurred) { // Avoid showing multiple error toasts for the same connection issue
+              showToast('SSE connection error. Please try again.', 'error');
+              connectionErrorOccurred = true;
+            }
+            eventSource.close();
+            speakButton.disabled = false;
+            loadingIndicator.style.display = 'none';
+          };
+        };
+
+        const playNextChunk = () => {
+          if (audioQueue.length > 0) {
+            const { buffer, index } = audioQueue.shift();
 
             const source = audioContext.createBufferSource();
-            source.buffer = sentenceAudioBuffer;
+            source.buffer = buffer;
+            source.connect(audioContext.destination);
 
-            if (sentenceSpan) {
-              // Redaction should have been removed by fetchSentenceWithTimeout on success
-              // removeRedactedStyle(sentenceSpan); // Not strictly needed here if fetchSentenceWithTimeout is robust
-              const sourceScheduledStartTime = globalScheduleTime;
-              const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
-
-              setTimeout(() => {
-                sentenceSpanElements.forEach(sp => sp.classList.remove('playing'));
-                sentenceSpan.classList.add('playing');
-              }, startHighlightDelay);
-
-              source.onended = () => {
-                sentenceSpan.classList.remove('playing');
-                currentSentencePlayIndex++;
-                tryPlayNextReadySentence();
-              };
-            } else {
-              source.onended = () => {
-                currentSentencePlayIndex++;
-                tryPlayNextReadySentence();
-              };
+            let scheduledTime = cumulativeAudioDuration;
+            if (scheduledTime < audioContext.currentTime) {
+              scheduledTime = audioContext.currentTime; // Play immediately if behind
             }
 
-            source.connect(speakerPlaybackNode);
-            if (audioContext.currentTime > globalScheduleTime) {
-              globalScheduleTime = audioContext.currentTime + 0.02;
-            }
-            source.start(globalScheduleTime);
-            globalScheduleTime += sentenceAudioBuffer.duration;
+            source.start(scheduledTime);
+            currentSource = source;
+            lastPlayedIndex = index;
+            cumulativeAudioDuration += buffer.duration;
+
+            source.onended = () => {
+              if (audioQueue.length > 0) {
+                playNextChunk();
+              } else {
+                currentSource = null; // No more chunks in queue
+              }
+            };
           }
-        }
+        };
 
-        // --- MODIFICATION: New function to manage fetching sentences sequentially/concurrently ---
-        function manageSentenceFetching() {
-          while (activeFetchesCount < currentMaxConcurrentFetches && currentFetchQueueIndex < sentences.length) {
-            activeFetchesCount++;
-            const sentenceToFetch = sentences[currentFetchQueueIndex];
-            const originalSentenceIndex = currentFetchQueueIndex; // Closure for index
-            const timeoutToUse = originalSentenceIndex === 0 ? FIRST_SENTENCE_TIMEOUT_MS : SENTENCE_FETCH_TIMEOUT_MS;
-            const spanElementForFetch = sentenceSpanElements[originalSentenceIndex];
-
-            if (spanElementForFetch) {
-              applyRedactedStyle(spanElementForFetch); // Apply redaction before fetch starts
-            }
-
-            currentFetchQueueIndex++; // Increment for the next iteration/call
-
-            fetchSentenceWithTimeout(sentenceToFetch, originalSentenceIndex, 2, timeoutToUse)
-              .then(result => {
-                resultsInOrder[originalSentenceIndex] = result;
-                const fetchedSpanElement = sentenceSpanElements[originalSentenceIndex];
-
-                if (result.error) {
-                  if (fetchedSpanElement) {
-                    fetchedSpanElement.style.textDecoration = 'line-through wavy orange'; // Indicate fetch failure
-                  }
-                  failureCount++;
-                  consecutiveSuccessfulFetches = 0; // Reset consecutive successes on failure
-                  if (failureCount >= FAILURE_TO_DECREASE && currentMaxConcurrentFetches > MIN_ALLOWED_CONCURRENCY) {
-                    currentMaxConcurrentFetches = Math.max(MIN_ALLOWED_CONCURRENCY, currentMaxConcurrentFetches - 1);
-                    console.log(`Concurrency decreased to: ${currentMaxConcurrentFetches}`);
-                    failureCount = 0; // Reset failure count after adjustment
-                  }
-                  showToast(`Fetch failed for sentence ${originalSentenceIndex + 1}. Concurrency adjusted to ${currentMaxConcurrentFetches}.`, result.isCritical ? 'error' : 'warning', 3000);
-
-                } else if (result.pcmBytes && result.pcmBytes.byteLength > 0) {
-                  // Successful fetch
-                  consecutiveSuccessfulFetches++;
-                  failureCount = 0; // Reset failures on success
-                  if (consecutiveSuccessfulFetches >= CONSECUTIVE_SUCCESS_TO_INCREASE && currentMaxConcurrentFetches < MAX_ALLOWED_CONCURRENCY) {
-                    currentMaxConcurrentFetches = Math.min(MAX_ALLOWED_CONCURRENCY, currentMaxConcurrentFetches + 1);
-                    console.log(`Concurrency increased to: ${currentMaxConcurrentFetches}`);
-                    consecutiveSuccessfulFetches = 0; // Reset consecutive successes after adjustment
-                  }
-                } else {
-                  // No error, but no audio data (e.g., empty response)
-                  if (fetchedSpanElement) {
-                    fetchedSpanElement.style.textDecoration = 'line-through wavy orange'; // Indicate no audio data
-                  }
-                  showToast(`No audio data for sentence ${originalSentenceIndex + 1}.`, 'warning', 2000);
-                }
-
-                if (originalSentenceIndex === 0 && firstSentenceTimeoutId) {
-                  clearTimeout(firstSentenceTimeoutId);
-                  firstSentenceTimeoutId = null;
-                  if (result && !result.error && result.pcmBytes && result.pcmBytes.byteLength > 0) {
-                    if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
-                  } else if (result && result.error) {
-                    showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
-                    if (currentSentencePlayIndex === 0) {
-                      tryPlayNextReadySentence();
-                    }
-                  }
-                } else if (currentSentencePlayIndex === originalSentenceIndex) {
-                  tryPlayNextReadySentence();
-                }
-
-                const allResultsProcessed = resultsInOrder.every(r => r !== null);
-                if (allResultsProcessed && currentSentencePlayIndex >= sentences.length) {
-                  if (mediaRecorder && mediaRecorder.state === "recording") {
-                    setTimeout(() => {
-                      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-                    }, 700);
-                  }
-                }
-              })
-              .catch(error => { // Should not be hit if fetchSentenceWithTimeout always resolves
-                console.error(`Unhandled promise rejection for sentence ${originalSentenceIndex}:`, error);
-                resultsInOrder[originalSentenceIndex] = { error: error.message || "Fetch promise rejected", pcmBytes: null, sentenceText: sentences[originalSentenceIndex], originalIndex: originalSentenceIndex };
-                const errorSpanElement = sentenceSpanElements[originalSentenceIndex];
-                if (errorSpanElement) {
-                  removeRedactedStyle(errorSpanElement); // Ensure redaction is removed
-                  errorSpanElement.style.textDecoration = 'line-through wavy red';
-                }
-                if (originalSentenceIndex === 0 && firstSentenceTimeoutId) {
-                  clearTimeout(firstSentenceTimeoutId);
-                  firstSentenceTimeoutId = null;
-                  showToast(`Failed to load first sentence (promise error): ${error.message}`, 'error');
-                }
-                if (currentSentencePlayIndex === originalSentenceIndex) tryPlayNextReadySentence();
-              })
-              .finally(() => {
-                activeFetchesCount--;
-                manageSentenceFetching(); // Attempt to fetch the next sentence
-              });
-          }
-        }
-        // --- END MODIFICATION ---
-
-        // MODIFICATION: Initial call to start the fetching process
-        manageSentenceFetching();
-
-        firstSentenceTimeoutId = setTimeout(() => {
-          if (currentSentencePlayIndex === 0 && (!resultsInOrder[0] || (resultsInOrder[0] && (resultsInOrder[0].error || !resultsInOrder[0].pcmBytes)))) {
-            const firstSentenceText = sentences.length > 0 ? (sentences[0].substring(0, 20) + '...') : "first sentence";
-            showToast(`Timeout: "${firstSentenceText}" took too long.`, 'error', 5000);
-            firstSentenceTimeoutId = null; // Clear the ID
-            if (resultsInOrder[0] == null) { // If no result yet, mark as error
-                resultsInOrder[0] = { error: `Timeout fetching sentence 1`, pcmBytes: null, sentenceText: sentences[0], originalIndex: 0 };
-                const spanEl = sentenceSpanElements[0];
-                if(spanEl) removeRedactedStyle(spanEl); // Ensure redaction removed
-            }
-            tryPlayNextReadySentence(); // Attempt to play what's available (might be the errored first sentence or next)
-          }
-        }, FIRST_SENTENCE_TIMEOUT_MS);
-
-        setTimeout(() => {
-            if (currentSentencePlayIndex === 0 && resultsInOrder[0] && !firstSentenceTimeoutId) { // If first sentence is ready and its specific timeout hasn't fired
-                tryPlayNextReadySentence();
-            }
-        }, 50); // Small delay for initial kick-off if first fetch is very fast
-
+        connectToEventSource();
       } catch (error) {
-        console.error('General Error in speakButton listener:', error);
+        console.error('TTS Request Error:', error);
         showToast(`Error: ${error.message}`, 'error');
-        if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-        if (audioContext && audioContext.state !== 'closed') {
-          audioContext.close().catch(e => console.error("AudioContext close error in general catch:", e));
-        }
       } finally {
         speakButton.disabled = false;
         loadingIndicator.style.display = 'none';
-        // Failsafe for recorder stop, though specific logic should handle it earlier
-        const allResultsFinalizedCheck = resultsInOrder.every(r => r !== null);
-        if (allResultsFinalizedCheck && currentSentencePlayIndex >= sentences.length) {
-            if (mediaRecorder && mediaRecorder.state === "recording") {
-                setTimeout(() => {
-                    if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-                }, 1000);
-            }
-        }
       }
     });
   </script>
