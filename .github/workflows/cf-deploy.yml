@@ -336,24 +336,3 @@ jobs:
  
 
 
-  cleanup_self_workflow_run:
-    runs-on: ubuntu-latest
-    name: Delete Self Workflow Run
-    needs: [deploy, deploy_preview, cleanup_preview]
-    if: always() # Ensure this job always runs
-    permissions:
-      actions: write # Required permission to delete workflow runs
-    steps:
-      - name: Delete current workflow run
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          OWNER: ${{ github.repository_owner }}
-          REPO: ${{ github.event.repository.name }}
-          RUN_ID: ${{ github.run_id }}
-        run: |
-          echo "Attempting to delete workflow run ID: $RUN_ID"
-          curl -X DELETE \
-            -H "Accept: application/vnd.github+json" \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
-            https://api.github.com/repos/$OWNER/$REPO/actions/runs/$RUN_ID
-          echo "Workflow run deletion request sent."
