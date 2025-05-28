@@ -71,6 +71,18 @@ This project is designed to be deployed to Cloudflare Workers using GitHub Actio
 2.  Configure the required GitHub Secrets in your repository settings.
 3.  Push to the `main` branch or open a Pull Request to trigger the deployment workflow.
 
+### Optional: Deploying TTS Web UI to GitHub Pages
+
+The `tts/index.html` frontend can be optionally deployed to GitHub Pages. Your `cf-deploy.yml` workflow is already configured to build and upload the necessary artifact.
+
+To enable GitHub Pages for your repository:
+
+1.  **Navigate to your Repository Settings**: Go to your repository on GitHub and click on the "Settings" tab.
+2.  **Go to "Pages"**: In the left sidebar, under "Code and automation", click on "Pages".
+3.  **Configure GitHub Pages Source**: Under the "Build and deployment" section, for "Source", select "GitHub Actions".
+
+After these steps, and a successful run of your `cf-deploy.yml` workflow, your TTS Web UI will be published and accessible via your GitHub Pages URL (e.g., `https://your-username.github.io/your-repo-name/`).
+
 ## Best Practices
 
 ### When to Use Each Mode
