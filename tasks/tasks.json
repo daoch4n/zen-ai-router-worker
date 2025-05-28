@@ -163,7 +163,7 @@
       "testStrategy": "1. Unit test `decodeBase64Audio` with known base64 strings and verify the resulting `Uint8Array`.\n2. Unit test `generateWavHeader` with various valid parameters (e.g., `dataLength=10000`, `sampleRate=24000`, `channels=1`, `bitsPerSample=16`) and verify the output `Uint8Array` matches a known correct WAV header byte sequence.",
       "priority": "medium",
       "dependencies": [],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -171,7 +171,7 @@
           "description": "Set up the main module file for audio utilities, `src/utils/audio.mjs`, to house the WAV-related functions.",
           "dependencies": [],
           "details": "Create the file `src/utils/audio.mjs` and add a basic module export structure for future functions.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -181,7 +181,7 @@
             1
           ],
           "details": "Implement `decodeBase64Audio(base64String)` to convert a Base64 string into its raw binary representation suitable for audio processing.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -191,7 +191,7 @@
             1
           ],
           "details": "Implement `generateWavHeader(sampleRate, numChannels, bitDepth, dataLength)` using `DataView` to precisely write the RIFF chunk, WAVE format, fmt chunk, and data chunk header. Ensure correct byte ordering (little-endian) and accurate size calculations for all fields.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 4,
@@ -201,7 +201,7 @@
             2
           ],
           "details": "Write test cases covering valid Base64 audio strings, empty strings, and potentially malformed inputs to ensure `decodeBase64Audio` behaves as expected.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 5,
@@ -211,7 +211,7 @@
             3
           ],
           "details": "Write test cases to validate the output of `generateWavHeader` against known WAV header structures for various parameters (sample rate, channels, bit depth, data length). Verify the integrity of RIFF, WAVE, fmt, and data chunk fields byte-by-byte.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
