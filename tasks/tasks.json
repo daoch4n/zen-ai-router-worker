@@ -8,7 +8,7 @@
       "testStrategy": "Send a dummy `POST` request to `/tts` and verify that the `handleTTS` function is invoked (e.g., by logging a message from within it). Expect a basic 400/500 error initially as no logic is implemented yet.",
       "priority": "high",
       "dependencies": [],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -16,7 +16,7 @@
           "description": "Create the new file `src/handlers/tts.mjs` to house the logic for the Text-to-Speech (TTS) endpoint.",
           "dependencies": [],
           "details": "This file will contain the `handleTTS` function and any related helper functions for text-to-speech processing.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -26,7 +26,7 @@
             1
           ],
           "details": "Update the `src/worker.mjs` file to import `handleTTS` from `src/handlers/tts.mjs` and add a `router.post('/tts', handleTTS)` entry.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -36,7 +36,7 @@
             1
           ],
           "details": "Define an `export async function handleTTS(request)` in `src/handlers/tts.mjs` that initially returns `new Response('TTS endpoint hit', { status: 200 })`.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

@@ -1,6 +1,6 @@
 # Task ID: 1
 # Title: Implement POST /tts Endpoint and handleTTS Handler
-# Status: pending
+# Status: done
 # Dependencies: None
 # Priority: high
 # Description: Create the `src/handlers/tts.mjs` file and add the routing for `POST /tts` in `src/worker.mjs` to direct requests to the new `handleTTS` function.
@@ -13,19 +13,19 @@
 Send a dummy `POST` request to `/tts` and verify that the `handleTTS` function is invoked (e.g., by logging a message from within it). Expect a basic 400/500 error initially as no logic is implemented yet.
 
 # Subtasks:
-## 1. Create TTS Handler File [pending]
+## 1. Create TTS Handler File [done]
 ### Dependencies: None
 ### Description: Create the new file `src/handlers/tts.mjs` to house the logic for the Text-to-Speech (TTS) endpoint.
 ### Details:
 This file will contain the `handleTTS` function and any related helper functions for text-to-speech processing.
 
-## 2. Add TTS Endpoint Route [pending]
+## 2. Add TTS Endpoint Route [done]
 ### Dependencies: 1.1
 ### Description: Configure the `src/worker.mjs` file to route `POST /tts` requests to the `handleTTS` function. This will involve importing the handler and adding a new route definition.
 ### Details:
 Update the `src/worker.mjs` file to import `handleTTS` from `src/handlers/tts.mjs` and add a `router.post('/tts', handleTTS)` entry.
 
-## 3. Implement Initial handleTTS Function [pending]
+## 3. Implement Initial handleTTS Function [done]
 ### Dependencies: 1.1
 ### Description: Create a basic `handleTTS` asynchronous function in `src/handlers/tts.mjs` that accepts a `Request` object and returns a placeholder `Response`.
 ### Details:
