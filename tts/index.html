@@ -54,10 +54,6 @@
         button:hover {
             background-color: #0056b3;
         }
-        audio {
-            width: 100%;
-            margin-top: 20px;
-        }
         .message {
             margin-top: 10px;
             color: red;
@@ -102,7 +98,6 @@
         </select>
         <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
         <button id="speakButton">Speak</button>
-        <audio id="audioPlayer" controls></audio>
         <div id="message" class="message"></div>
     </div>
 
@@ -114,10 +109,10 @@
             const voiceId = document.getElementById('voiceIdInput').value;
             const apiKey = document.getElementById('apiKeyInput').value;
             const messageDiv = document.getElementById('message');
-            const audioPlayer = document.getElementById('audioPlayer');
+            // Removed audioPlayer as it's no longer needed for playback
 
             messageDiv.textContent = '';
-            audioPlayer.src = ''; // Clear existing audio
+            // No need to clear audioPlayer.src as the element is removed
 
             if (!text || !apiKey) {
                 messageDiv.textContent = 'Please enter text and your API Key.';
