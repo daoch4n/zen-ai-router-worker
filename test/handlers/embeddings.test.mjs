@@ -137,12 +137,11 @@ describe('embeddings handler', () => {
         { error: { message: 'API Error' } },
         { ok: false, status: 400 }
       );
-      
+
       global.fetch.mockResolvedValueOnce(errorResponse);
 
-      const response = await handleEmbeddings(embeddingsRequest, apiKey);
-
-      expect(response.status).toBe(400);
+      // With enhanced error handling, the handler now throws HttpError instead of returning Response
+      await expect(handleEmbeddings(embeddingsRequest, apiKey)).rejects.toThrow('Invalid request format or parameters.');
     });
 
     it('should transform successful response to OpenAI format', async () => {

@@ -4,7 +4,7 @@
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
-import { HttpError } from '../utils/error.mjs';
+import { HttpError, processGoogleApiError } from '../utils/error.mjs';
 import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/index.mjs';
 
 /**
@@ -67,6 +67,9 @@ export async function handleEmbeddings(req, apiKey) {
       })),
       model: req.model,
     }, null, "  ");
+  } else {
+    // Handle API errors with enhanced error processing
+    throw await processGoogleApiError(response);
   }
 
   return new Response(body, fixCors(response));

@@ -9,7 +9,8 @@ import { jest } from '@jest/globals';
 jest.unstable_mockModule('../src/handlers/index.mjs', () => ({
   handleCompletions: jest.fn(),
   handleEmbeddings: jest.fn(),
-  handleModels: jest.fn()
+  handleModels: jest.fn(),
+  handleTTS: jest.fn()
 }));
 
 // Mock utils
@@ -31,7 +32,7 @@ jest.unstable_mockModule('../src/utils/cors.mjs', () => ({
 }));
 
 // Import modules after mocking
-const { handleCompletions, handleEmbeddings, handleModels } = await import('../src/handlers/index.mjs');
+const { handleCompletions, handleEmbeddings, handleModels, handleTTS } = await import('../src/handlers/index.mjs');
 const { getRandomApiKey, forceSetWorkerLocation, fixCors, errorHandler, HttpError } = await import('../src/utils/index.mjs');
 const { handleOPTIONS } = await import('../src/utils/cors.mjs');
 const worker = (await import('../src/worker.mjs')).default;
@@ -64,6 +65,7 @@ describe('Cloudflare Worker', () => {
     handleCompletions.mockResolvedValue(new Response('{"choices":[]}', { status: 200 }));
     handleEmbeddings.mockResolvedValue(new Response('{"data":[]}', { status: 200 }));
     handleModels.mockResolvedValue(new Response('{"data":[]}', { status: 200 }));
+    handleTTS.mockResolvedValue(new Response('TTS endpoint hit', { status: 200 }));
   });
 
   describe('CORS Handling', () => {
@@ -122,6 +124,19 @@ describe('Cloudflare Worker', () => {
       const response = await worker.fetch(mockRequest, mockEnv);
 
       expect(handleModels).toHaveBeenCalledWith('test-api-key');
+      expect(response.status).toBe(200);
+    });
+
+    test('should route POST /tts to handleTTS', async () => {
+      mockRequest = new Request('https://api.example.com/v1/tts', {
+        method: 'POST',
+        body: JSON.stringify({ text: 'Hello world', model: 'gemini-2.0-flash' }),
+        headers: { 'Content-Type': 'application/json' }
+      });
+
+      const response = await worker.fetch(mockRequest, mockEnv);
+
+      expect(handleTTS).toHaveBeenCalledWith(mockRequest, 'test-api-key');
       expect(response.status).toBe(200);
     });
 
@@ -185,6 +200,21 @@ describe('Cloudflare Worker', () => {
       expect(errorHandler).toHaveBeenCalledWith(
         expect.objectContaining({
           message: 'Assertion failed: expected GET request'
+        }),
+        expect.any(Function)
+      );
+    });
+
+    test('should reject non-POST requests to /tts', async () => {
+      mockRequest = new Request('https://api.example.com/v1/tts', {
+        method: 'GET'
+      });
+
+      const response = await worker.fetch(mockRequest, mockEnv);
+
+      expect(errorHandler).toHaveBeenCalledWith(
+        expect.objectContaining({
+          message: 'Assertion failed: expected POST request'
         }),
         expect.any(Function)
       );

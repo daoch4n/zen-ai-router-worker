@@ -1,0 +1,93 @@
+{
+  "meta": {
+    "generatedAt": "2025-05-28T10:56:34.816Z",
+    "tasksAnalyzed": 10,
+    "totalTasks": 10,
+    "analysisCount": 10,
+    "thresholdScore": 5,
+    "projectName": "Taskmaster",
+    "usedResearch": false
+  },
+  "complexityAnalysis": [
+    {
+      "taskId": 1,
+      "taskTitle": "Implement POST /tts Endpoint and handleTTS Handler",
+      "complexityScore": 3,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Break down the implementation of the `POST /tts` endpoint into file creation, routing configuration in `src/worker.mjs`, and initial `handleTTS` function structure in `src/handlers/tts.mjs`.",
+      "reasoning": "This task involves basic file creation and routing setup, which is a straightforward and common development pattern with minimal logical complexity."
+    },
+    {
+      "taskId": 2,
+      "taskTitle": "Integrate Existing Authentication and Centralized Error Handling",
+      "complexityScore": 5,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Detail the steps for integrating `getRandomApiKey` for authentication, wrapping the core `handleTTS` logic with a `try-catch` block, utilizing the `errorHandler` for exceptions, and ensuring `Content-Type: application/json` for error responses.",
+      "reasoning": "This task requires understanding and correctly integrating existing utility functions and error handling patterns, which can be tricky to get right across all error paths and ensure consistent responses."
+    },
+    {
+      "taskId": 3,
+      "taskTitle": "Parse Request Body and Query Parameters",
+      "complexityScore": 6,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Outline the steps for parsing `voiceName` and `secondVoiceName` from query parameters, `text` and `model` from the JSON request body, implementing validation for all required fields, and handling validation failures using the `errorHandler`.",
+      "reasoning": "Parsing multiple types of input (query and body) combined with robust validation for required fields and proper error handling paths adds a layer of complexity beyond simple parsing."
+    },
+    {
+      "taskId": 4,
+      "taskTitle": "Develop WAV Audio Utility Functions",
+      "complexityScore": 8,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Break down the development of WAV audio utilities into creating `src/utils/audio.mjs`, implementing `decodeBase64Audio`, and detailing the byte-level construction of `generateWavHeader` using `DataView` for RIFF, WAVE, fmt, and data chunks, including unit tests for both functions.",
+      "reasoning": "The `generateWavHeader` function requires precise, low-level byte manipulation and a deep understanding of the WAV file format specification, making it technically challenging. `decodeBase64Audio` is simpler but still a distinct utility."
+    },
+    {
+      "taskId": 5,
+      "taskTitle": "Construct Google Generative AI TTS Request Body (Single Speaker)",
+      "complexityScore": 5,
+      "recommendedSubtasks": 3,
+      "expansionPrompt": "Detail the construction of the Google Generative AI TTS request body, specifying how parsed `text`, `voiceName`, and `model` are mapped to the API's `contents`, `generationConfig`, and `speechConfig` JSON structure, ensuring `multiSpeakerVoiceConfig` is omitted when `secondVoiceName` is not present.",
+      "reasoning": "This task involves accurately mapping parsed input data into a specific, nested JSON structure required by an external API, which demands careful attention to detail and adherence to the API's schema."
+    },
+    {
+      "taskId": 6,
+      "taskTitle": "Execute Google Generative AI API Call and Extract Audio Data",
+      "complexityScore": 7,
+      "recommendedSubtasks": 6,
+      "expansionPrompt": "Break down the execution of the Google Generative AI API call into formulating the full endpoint URL, performing the `fetch` request with the constructed body, handling potential network and non-200 API responses, parsing the successful JSON response, extracting the base64 audio data and `mimeType`, and parsing the `sampleRate` from the `mimeType` string.",
+      "reasoning": "This task involves interacting with an external API, which introduces complexities like network errors, API-specific error handling, and parsing potentially complex nested JSON responses, including string manipulation for `sampleRate`."
+    },
+    {
+      "taskId": 7,
+      "taskTitle": "Assemble WAV File and Return Binary Audio Response",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Outline the steps for assembling the final WAV file: decoding the base64 audio data using `decodeBase64Audio`, determining the `dataLength`, generating the WAV header using `generateWavHeader`, concatenating the header and PCM data into a single binary array, and constructing the final `Response` object with `Content-Type: audio/wav`.",
+      "reasoning": "This task combines the results of previous steps, requiring careful handling and concatenation of binary data (`Uint8Array`s) and precise setting of response headers, which can be error-prone if not handled correctly."
+    },
+    {
+      "taskId": 8,
+      "taskTitle": "Implement Robust Error Handling and Input Validation",
+      "complexityScore": 7,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Detail the refinement of error handling, including mapping common Google API error codes/messages to user-friendly worker responses, implementing specific validation for `voiceName` and `text` length, and reviewing all `try-catch` blocks to ensure consistent utilization of the `errorHandler`.",
+      "reasoning": "This task focuses on making the system resilient and user-friendly in failure scenarios. It requires anticipating various error conditions, implementing comprehensive validation, and ensuring consistent error propagation, which can be complex and iterative."
+    },
+    {
+      "taskId": 9,
+      "taskTitle": "Optimize Worker Performance and Profile CPU Usage",
+      "complexityScore": 8,
+      "recommendedSubtasks": 4,
+      "expansionPrompt": "Break down the performance optimization task into identifying potential bottlenecks in audio processing and data manipulation, setting up and utilizing Cloudflare Worker's profiling tools or `console.time`/`console.timeEnd`, analyzing profiling results to pinpoint high-CPU operations, and implementing specific refactorings to meet the 10ms CPU target.",
+      "reasoning": "Performance optimization is inherently complex, requiring specialized tools, deep understanding of execution flow, and often iterative refactoring to achieve specific targets. Identifying and resolving bottlenecks can be challenging."
+    },
+    {
+      "taskId": 10,
+      "taskTitle": "Document Endpoint Usage and Conduct Integration Testing",
+      "complexityScore": 6,
+      "recommendedSubtasks": 5,
+      "expansionPrompt": "Outline the steps for documenting the `POST /tts` endpoint, including required headers, query parameters, request body format, and `curl` examples. Additionally, detail the planning and execution of end-to-end integration tests covering successful audio generation, various valid inputs, and common error scenarios.",
+      "reasoning": "This task involves both clear and comprehensive technical documentation, which requires attention to detail, and thorough integration testing, which demands careful scenario planning and execution to ensure the entire system functions correctly."
+    }
+  ]
+}

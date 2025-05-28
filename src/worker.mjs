@@ -8,7 +8,8 @@
 import {
   handleCompletions,
   handleEmbeddings,
-  handleModels
+  handleModels,
+  handleTTS
 } from './handlers/index.mjs';
 
 import {
@@ -29,6 +30,7 @@ import { handleOPTIONS } from './utils/cors.mjs';
  * - POST /chat/completions - Chat completion requests
  * - POST /embeddings - Text embedding requests
  * - GET /models - Available model listing
+ * - POST /tts - Text-to-speech requests
  *
  * @param {Request} request - The incoming HTTP request
  * @param {Object} env - Cloudflare Worker environment variables
@@ -78,6 +80,13 @@ async function fetch(request, env) {
           throw new Error("Assertion failed: expected GET request");
         }
         return handleModels(apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/tts"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleTTS(request, apiKey)
           .catch(errHandler);
 
       default:
