@@ -50,6 +50,7 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
+            margin-top: 10px; /* Added margin for spacing */
         }
         button:hover {
             background-color: #0056b3;
@@ -57,6 +58,12 @@
         .message {
             margin-top: 10px;
             color: red;
+        }
+        #downloadButton {
+            background-color: #28a745; /* Green color for download button */
+        }
+        #downloadButton:hover {
+            background-color: #218838;
         }
     </style>
 </head>
@@ -98,6 +105,9 @@
         </select>
         <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
         <button id="speakButton">Speak</button>
+        <a id="downloadButton" download="audio.opus" style="display: none;">
+            <button>Download Opus</button>
+        </a>
         <div id="message" class="message"></div>
     </div>
 
@@ -109,10 +119,11 @@
             const voiceId = document.getElementById('voiceIdInput').value;
             const apiKey = document.getElementById('apiKeyInput').value;
             const messageDiv = document.getElementById('message');
-            // Removed audioPlayer as it's no longer needed for playback
+            const downloadButtonLink = document.getElementById('downloadButton');
 
             messageDiv.textContent = '';
-            // No need to clear audioPlayer.src as the element is removed
+            downloadButtonLink.style.display = 'none'; // Hide download button until audio is ready
+            downloadButtonLink.href = ''; // Clear previous download link
 
             if (!text || !apiKey) {
                 messageDiv.textContent = 'Please enter text and your API Key.';
@@ -120,7 +131,8 @@
             }
 
             try {
-                const response = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
+                // Fetch PCM for playback (prioritized)
+                const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -129,24 +141,24 @@
                     body: JSON.stringify({ text, voiceId }),
                 });
 
-                if (!response.ok) {
-                    const errorText = await response.text();
-                    throw new Error(`HTTP error! status: ${response.status}, message: ${errorText}`);
+                if (!pcmResponse.ok) {
+                    const errorText = await pcmResponse.text();
+                    throw new Error(`HTTP error! status: ${pcmResponse.status}, message: ${errorText}`);
                 }
 
-                const responseData = await response.json();
-                const audioContentBase64 = responseData.audioContentBase64;
+                const pcmData = await pcmResponse.json();
+                const pcmAudioContentBase64 = pcmData.audioContentBase64;
 
-                if (!audioContentBase64) {
-                    throw new Error('No audio content received from worker');
+                if (!pcmAudioContentBase64) {
+                    throw new Error('No PCM audio content received from worker');
                 }
 
-                // Decode base64 to Uint8Array
-                const binaryString = atob(audioContentBase64);
-                const len = binaryString.length;
-                const bytes = new Uint8Array(len);
-                for (let i = 0; i < len; i++) {
-                    bytes[i] = binaryString.charCodeAt(i);
+                // Decode base64 PCM to Uint8Array
+                const pcmBinaryString = atob(pcmAudioContentBase64);
+                const pcmLen = pcmBinaryString.length;
+                const pcmBytes = new Uint8Array(pcmLen);
+                for (let i = 0; i < pcmLen; i++) {
+                    pcmBytes[i] = pcmBinaryString.charCodeAt(i);
                 }
 
                 // Web Audio API for Raw PCM Playback
@@ -154,17 +166,13 @@
                 const numChannels = 1;
 
                 const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                // 2 bytes per sample for 16-bit PCM (L16)
-                const frameCount = bytes.byteLength / (2 * numChannels);
+                const frameCount = pcmBytes.byteLength / (2 * numChannels); // 2 bytes per sample for 16-bit PCM (L16)
 
                 const audioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
-                const nowBuffering = audioBuffer.getChannelData(0); // Get the Float32Array for the channel
+                const nowBuffering = audioBuffer.getChannelData(0);
 
-                // Convert Int16 PCM (bytes) to Float32 for Web Audio API
-                // Assuming little-endian for 16-bit samples
-                const dataView = new DataView(bytes.buffer);
+                const dataView = new DataView(pcmBytes.buffer);
                 for (let i = 0; i < frameCount; i++) {
-                    // Read Int16 sample from Uint8Array bytes
                     let int16Sample = dataView.getInt16(i * 2, true); // true for little-endian
                     nowBuffering[i] = int16Sample / 32768.0; // Normalize to -1 to 1 range
                 }
@@ -173,6 +181,47 @@
                 source.buffer = audioBuffer;
                 source.connect(audioContext.destination);
                 source.start();
+
+                // Fetch Opus for download in parallel
+                try {
+                    const opusResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ text, voiceId, outputFormat: 'opus' }), // Request Opus format
+                    });
+
+                    if (!opusResponse.ok) {
+                        const errorText = await opusResponse.text();
+                        console.warn(`Failed to fetch Opus audio (might not be supported by backend): ${errorText}`);
+                        downloadButtonLink.style.display = 'none'; // Keep hidden if Opus not available
+                    } else {
+                        const opusData = await opusResponse.json();
+                        const opusAudioContentBase64 = opusData.audioContentBase64;
+
+                        if (opusAudioContentBase64) {
+                            const opusBinaryString = atob(opusAudioContentBase64);
+                            const opusLen = opusBinaryString.length;
+                            const opusBytes = new Uint8Array(opusLen);
+                            for (let i = 0; i < opusLen; i++) {
+                                opusBytes[i] = opusBinaryString.charCodeAt(i);
+                            }
+
+                            const opusBlob = new Blob([opusBytes], { type: 'audio/ogg; codecs=opus' });
+                            const opusUrl = URL.createObjectURL(opusBlob);
+                            downloadButtonLink.href = opusUrl;
+                            downloadButtonLink.style.display = 'block'; // Show download button
+                        } else {
+                            console.warn('No Opus audio content received from worker for download.');
+                            downloadButtonLink.style.display = 'none';
+                        }
+                    }
+                } catch (opusError) {
+                    console.error('Error fetching Opus audio for download:', opusError);
+                    downloadButtonLink.style.display = 'none';
+                }
 
             } catch (error) {
                 console.error('Error:', error);
