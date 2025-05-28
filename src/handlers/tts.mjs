@@ -25,41 +25,6 @@ export async function optimizeTextForJson(text) {
   return optimizedText;
 }
 
-export function newWavHeader(dataLength, sampleRate, channels, bitsPerSample) {
-  const header = new Uint8Array(44);
-  const view = new DataView(header.buffer);
-
-  // RIFF Chunk
-  view.setUint32(0, 0x52494646, false); // "RIFF"
-  view.setUint32(4, 36 + dataLength, true); // ChunkSize
-  view.setUint32(8, 0x57415645, false); // "WAVE"
-
-  // fmt Subchunk
-  view.setUint32(12, 0x666d7420, false); // "fmt "
-  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
-  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
-  view.setUint16(22, channels, true); // NumChannels
-  view.setUint32(24, sampleRate, true); // SampleRate
-  view.setUint32(28, sampleRate * channels * bitsPerSample / 8, true); // ByteRate
-  view.setUint16(32, channels * bitsPerSample / 8, true); // BlockAlign
-  view.setUint16(34, bitsPerSample, true); // BitsPerSample
-
-  // data Subchunk
-  view.setUint32(36, 0x64617461, false); // "data"
-  view.setUint32(40, dataLength, true); // Subchunk2Size
-
-  return header;
-}
-
-export function convertToWavFormat(pcmData, sampleRate, channels, bitsPerSample) {
-  const wavHeader = newWavHeader(pcmData.length, sampleRate, channels, bitsPerSample);
-  const wavFile = new Uint8Array(wavHeader.length + pcmData.length);
-
-  wavFile.set(wavHeader, 0);
-  wavFile.set(pcmData, wavHeader.length);
-
-  return wavFile;
-}
 
 import { errorHandler } from '../utils/error.mjs';
 
@@ -130,19 +95,9 @@ export async function handleTTS(requestBody, apiKey) {
       throw new Error('No audio content received from Google Generative AI TTS API');
     }
 
-    // Decode base64 to Uint8Array
-    const binaryString = atob(audioContentBase64);
-    const pcmData = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
-
-    // Convert PCM data to WAV format
-    // The sample rate is hardcoded to 24000 in tts.ps1 for PCM conversion if not extracted from mimeType.
-    // Assuming 1 channel (mono) and 16 bits per sample (LINEAR16) as per tts.ps1 default.
-    const wavData = convertToWavFormat(pcmData, 24000, 1, 16);
-
-    return new Response(wavData, {
+    return new Response(JSON.stringify({ audioContentBase64, mimeType }), {
       headers: {
-        'Content-Type': 'audio/wav',
-        'Content-Disposition': 'inline; filename="speech.wav"',
+        'Content-Type': 'application/json',
       },
     });
   } catch (error) {
