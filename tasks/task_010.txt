@@ -1,6 +1,6 @@
 # Task ID: 10
 # Title: Update API Documentation for `/rawtts` Endpoint
-# Status: pending
+# Status: in-progress
 # Dependencies: 9
 # Priority: medium
 # Description: Clearly document the new `/rawtts` endpoint, specifying its request parameters, the base64 encoded response body, and the `Content-Type` header's meaning. Provide examples for client-side consumption.

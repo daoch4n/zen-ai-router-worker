@@ -2,18 +2,24 @@
 
 ## Overview
 
-The `POST /tts` endpoint provides text-to-speech functionality using Google's Gemini 2.5 models with TTS capabilities. This endpoint converts text input into high-quality audio output in WAV format.
+This document covers two text-to-speech endpoints that provide different audio output formats:
 
-### Base URL
+- **`POST /tts`** - Returns processed WAV audio files (standard endpoint)
+- **`POST /rawtts`** - Returns raw base64-encoded audio data (new endpoint)
+
+Both endpoints use Google's Gemini 2.5 models with TTS capabilities to convert text input into high-quality audio output.
+
+### Base URLs
 ```
-https://<your-worker-domain>/tts
+https://<your-worker-domain>/tts      # Standard WAV endpoint
+https://<your-worker-domain>/rawtts   # Raw base64 endpoint
 ```
 
 ### Purpose
 - Convert text to speech using Google's advanced Gemini TTS models
 - Support single-speaker audio generation
 - Provide high-quality audio output with configurable voice options
-- Maintain compatibility with standard HTTP audio streaming
+- Offer both processed WAV files and raw audio data formats
 
 ## Authentication
 
@@ -39,7 +45,7 @@ Authorization: Bearer <WORKER_ACCESS_PASS>
 - `401 Bad credentials - wrong api key`: Invalid worker access pass
 - `401 Bad credentials - check api keys in worker`: No Google API keys configured
 
-## Endpoint Details
+## Standard TTS Endpoint (/tts)
 
 ### HTTP Method
 ```
@@ -142,6 +148,324 @@ The response contains a complete WAV file with:
   "error": {
     "message": "Internal server error description",
     "type": "api_error"
+  }
+}
+```
+
+## Raw TTS Endpoint (/rawtts)
+
+### Overview
+
+The `POST /rawtts` endpoint provides the same text-to-speech functionality as `/tts` but returns raw base64-encoded audio data instead of processed WAV files. This endpoint is designed for applications that need to handle audio processing client-side or require the raw audio data format from Google's API.
+
+### Key Differences from /tts
+
+| Feature | `/tts` | `/rawtts` |
+|---------|--------|-----------|
+| **Response Format** | Binary WAV file | Base64-encoded string |
+| **Content-Type** | `audio/wav` | Google API mimeType (e.g., `audio/L16;rate=24000`) |
+| **Processing** | Adds WAV header, converts to binary | Returns raw base64 from Google API |
+| **Use Case** | Direct audio playback | Client-side processing, custom audio handling |
+| **File Size** | Larger (WAV headers + binary) | Smaller (base64 string only) |
+
+### HTTP Method
+```
+POST /rawtts
+```
+
+### Content Type
+```
+Content-Type: application/json
+```
+
+### Required Headers
+```http
+Authorization: Bearer <WORKER_ACCESS_PASS>
+Content-Type: application/json
+```
+
+### Query Parameters
+
+The `/rawtts` endpoint uses **identical** query parameters to `/tts`:
+
+#### Required Parameters
+- **`voiceName`** (string): The voice to use for speech synthesis
+  - **Gemini voices**: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede`
+  - **Standard voices**: Format like `en-US-Standard-A`, `ja-JP-Wavenet-B`
+  - **Pattern validation**: Must match predefined voice name patterns
+
+#### Optional Parameters
+- **`secondVoiceName`** (string): Secondary voice for future multi-speaker support
+  - Currently not implemented in single-speaker mode
+  - Reserved for future multi-speaker functionality
+
+### Request Body Schema
+
+The `/rawtts` endpoint uses **identical** request body schema to `/tts`:
+
+```json
+{
+  "text": "string",
+  "model": "string"
+}
+```
+
+#### Required Fields
+
+**`text`** (string)
+- The text to convert to speech
+- **Minimum length**: 1 character
+- **Maximum length**: 4,000 characters (conservative estimate)
+- **Maximum bytes**: 5,000 bytes (Google API limit)
+- **Validation**: Non-empty string, byte-length checked
+
+**`model`** (string)
+- The Gemini model to use for TTS generation
+- **Format**: Must be a non-empty string
+- **Example**: `"gemini-2.5-flash-preview-tts"`
+- **Supported models**: Any Gemini 2.5 model with TTS capabilities
+
+### Response Format
+
+#### Success Response (200 OK)
+```http
+HTTP/1.1 200 OK
+Content-Type: audio/L16;rate=24000
+Content-Length: <base64-string-length>
+
+dGVzdC1hdWRpby1kYXRhLWJhc2U2NC1lbmNvZGVkLXN0cmluZw==
+```
+
+The response contains a base64-encoded audio string with:
+- **Format**: Base64-encoded audio data (no WAV headers)
+- **Content-Type**: Exact mimeType from Google API (varies by model)
+- **Sample Rate**: Embedded in Content-Type (e.g., `rate=24000`)
+- **Channels**: Typically 1 (mono)
+- **Encoding**: Raw PCM audio data encoded as base64
+
+#### Common Content-Type Values
+- `audio/L16;rate=24000` - 16-bit PCM at 24kHz
+- `audio/L16;rate=22050` - 16-bit PCM at 22.05kHz
+- `audio/L16;rate=16000` - 16-bit PCM at 16kHz
+
+#### Error Responses
+
+Error responses are **identical** to `/tts` endpoint:
+
+**400 Bad Request**
+```json
+{
+  "error": {
+    "message": "Detailed error description",
+    "type": "invalid_request_error"
+  }
+}
+```
+
+**401 Unauthorized**
+```json
+{
+  "error": {
+    "message": "Authentication error description",
+    "type": "authentication_error"
+  }
+}
+```
+
+**500 Internal Server Error**
+```json
+{
+  "error": {
+    "message": "Internal server error description",
+    "type": "api_error"
+  }
+}
+```
+
+### Usage Examples
+
+#### Basic Raw TTS Request
+```bash
+curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Hello, world! This is raw audio data.",
+    "model": "gemini-2.5-flash-preview-tts"
+  }' \
+  --output raw_audio.base64
+```
+
+#### Processing Raw Audio Data
+```bash
+# Get raw base64 audio data
+curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "text": "Raw audio processing example.",
+    "model": "gemini-2.5-flash-preview-tts"
+  }' \
+  --output raw_audio.base64
+
+# Decode base64 to binary PCM data (Linux/macOS)
+base64 -d raw_audio.base64 > raw_audio.pcm
+
+# Convert PCM to WAV using ffmpeg (requires ffmpeg)
+ffmpeg -f s16le -ar 24000 -ac 1 -i raw_audio.pcm output.wav
+```
+
+#### JavaScript Client-Side Processing
+```javascript
+// Fetch raw audio data
+const response = await fetch('/rawtts?voiceName=Puck', {
+  method: 'POST',
+  headers: {
+    'Authorization': 'Bearer sk-proj-your-worker-access-pass',
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    text: 'Client-side audio processing example.',
+    model: 'gemini-2.5-flash-preview-tts'
+  })
+});
+
+const base64Audio = await response.text();
+const contentType = response.headers.get('Content-Type');
+
+// Decode base64 to binary
+const binaryString = atob(base64Audio);
+const bytes = new Uint8Array(binaryString.length);
+for (let i = 0; i < binaryString.length; i++) {
+  bytes[i] = binaryString.charCodeAt(i);
+}
+
+// Create audio context and play
+const audioContext = new AudioContext();
+const audioBuffer = await audioContext.decodeAudioData(bytes.buffer);
+const source = audioContext.createBufferSource();
+source.buffer = audioBuffer;
+source.connect(audioContext.destination);
+source.start();
+```
+
+#### Comparing Output Formats
+```bash
+# Generate same text with both endpoints
+TEXT="Comparison test between TTS endpoints."
+
+# Standard WAV endpoint
+curl -X POST "https://your-worker-domain.workers.dev/tts?voiceName=Puck" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d "{\"text\": \"$TEXT\", \"model\": \"gemini-2.5-flash-preview-tts\"}" \
+  --output standard.wav
+
+# Raw base64 endpoint
+curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d "{\"text\": \"$TEXT\", \"model\": \"gemini-2.5-flash-preview-tts\"}" \
+  --output raw.base64
+
+# Compare file sizes
+echo "Standard WAV size: $(wc -c < standard.wav) bytes"
+echo "Raw base64 size: $(wc -c < raw.base64) bytes"
+```
+
+### Use Cases
+
+#### When to Use /rawtts
+
+1. **Client-Side Audio Processing**
+   - Custom audio format conversion
+   - Real-time audio manipulation
+   - Integration with Web Audio API
+
+2. **Custom Audio Pipelines**
+   - Audio streaming applications
+   - Custom audio format requirements
+   - Audio data analysis and processing
+
+3. **Bandwidth Optimization**
+   - Smaller payload size (no WAV headers)
+   - Custom compression algorithms
+   - Efficient data transfer
+
+4. **Integration with Audio Libraries**
+   - Direct integration with audio processing libraries
+   - Custom audio player implementations
+   - Audio data manipulation before playback
+
+#### When to Use /tts (Standard)
+
+1. **Direct Audio Playback**
+   - Immediate audio file usage
+   - Standard audio player compatibility
+   - Simple download-and-play scenarios
+
+2. **Legacy System Integration**
+   - Systems expecting WAV format
+   - Standard audio file workflows
+   - File-based audio processing
+
+### Performance Considerations
+
+#### Response Size Comparison
+
+| Text Length | /tts WAV Size | /rawtts Base64 Size | Savings |
+|-------------|---------------|---------------------|---------|
+| 50 chars | ~250KB | ~180KB | ~28% |
+| 100 chars | ~400KB | ~290KB | ~27% |
+| 500 chars | ~800KB | ~580KB | ~27% |
+
+#### Processing Time
+
+- **`/rawtts`**: Slightly faster (no WAV header generation)
+- **`/tts`**: Slightly slower (includes WAV header processing)
+- **Difference**: Typically < 100ms for most requests
+
+#### Network Transfer
+
+- **`/rawtts`**: More efficient for programmatic use
+- **`/tts`**: Better for direct browser playback
+
+### Error Handling
+
+Error handling is **identical** to the `/tts` endpoint. All validation rules, error messages, and status codes are the same.
+
+#### Common Error Examples
+
+**Missing voiceName**
+```bash
+curl -X POST "https://your-worker-domain.workers.dev/rawtts" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello", "model": "gemini-2.5-flash-preview-tts"}'
+```
+Response:
+```json
+{
+  "error": {
+    "message": "voiceName query parameter is required",
+    "type": "invalid_request_error"
+  }
+}
+```
+
+**Invalid voice name**
+```bash
+curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=invalid-voice" \
+  -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello", "model": "gemini-2.5-flash-preview-tts"}'
+```
+Response:
+```json
+{
+  "error": {
+    "message": "Invalid voice name format",
+    "type": "invalid_request_error"
   }
 }
 ```

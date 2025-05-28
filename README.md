@@ -9,6 +9,7 @@ A Cloudflare Worker that provides OpenAI-compatible API access to Google's Gemin
 - **Streaming Support**: Real-time response streaming
 - **Function Calling**: Tool use and function calling capabilities
 - **Search Integration**: Google Search tool integration
+- **Text-to-Speech**: High-quality TTS with both WAV and raw audio output formats
 - **Multiple Model Support**: Gemini, Gemma, and LearnLM models
 
 ## Quick Start
@@ -52,6 +53,22 @@ Model names with `-refined-{budget}` suffix use thinking internally but hide the
 | `low` | 1,024 | Basic reasoning tasks |
 | `medium` | 8,192 | Moderate complexity problems |
 | `high` | 24,576 | Complex reasoning, multi-step planning |
+
+## Text-to-Speech Endpoints
+
+This worker provides two TTS endpoints for different use cases:
+
+### Standard TTS (`/tts`)
+- Returns processed WAV audio files ready for immediate playback
+- Content-Type: `audio/wav`
+- Best for: Direct audio playback, standard audio workflows
+
+### Raw TTS (`/rawtts`)
+- Returns base64-encoded raw audio data from Google's API
+- Content-Type: Google API mimeType (e.g., `audio/L16;rate=24000`)
+- Best for: Client-side processing, custom audio handling, bandwidth optimization
+
+Both endpoints use identical authentication, parameters, and validation. See [TTS Documentation](docs/tts-endpoint.md) for detailed usage examples.
 
 ## Deployment
 
