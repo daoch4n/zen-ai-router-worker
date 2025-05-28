@@ -6,7 +6,7 @@ export default {
   // Use ES modules
   preset: null,
   moduleNameMapper: {
-    '^(\\.{1,2}/.*)$': '$1.mjs'
+    '^(\\.{1,2}/.*)\\.mjs$': '$1'
   },
 
   // Test environment
