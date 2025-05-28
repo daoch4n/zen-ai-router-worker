@@ -30,8 +30,7 @@ jobs:
           if [ $JQ_EXIT_CODE -ne 0 ]; then
             echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
             # Attempt to print a more detailed jq validation error
-            echo "Running 'jq .' on the secret to show validation errors (if any):"
-            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
             exit 1
           fi
           
@@ -186,8 +185,7 @@ jobs:
           if [ $JQ_EXIT_CODE -ne 0 ]; then
             echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
             # Attempt to print a more detailed jq validation error
-            echo "Running 'jq .' on the secret to show validation errors (if any):"
-            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
             exit 1
           fi
           
@@ -317,8 +315,7 @@ jobs:
           if [ $JQ_EXIT_CODE -ne 0 ]; then
             echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
             # Attempt to print a more detailed jq validation error
-            echo "Running 'jq .' on the secret to show validation errors (if any):"
-            jq '.' <<< "$ALL_API_KEYS_JSON_SECRET" # This will print errors to stderr if JSON is invalid
+            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
             exit 1
           fi
           
