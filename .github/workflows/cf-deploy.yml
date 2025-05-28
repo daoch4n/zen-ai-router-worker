@@ -153,15 +153,22 @@ jobs:
       - name: Attempt 1 of Deploy Orchestrator Worker (with DO Migration)
         id: deploy_orchestrator_attempt_1 # Step ID
         continue-on-error: true # Important: Allow workflow to continue if this fails
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: "deploy --config orchestrator/wrangler.toml"
-          vars: |
-            PASS
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
+        run: |
+          echo "Attempting to deploy orchestrator worker with DO migration..."
+          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1 || true)
+          echo "$DEPLOY_OUTPUT"
+          # Extract the URL from the output
+          WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://\S+\.workers\.dev' | head -n 1)
+          if [ -n "$WORKER_URL" ]; then
+            echo "ORCHESTRATOR_WORKER_URL=${WORKER_URL}" >> $GITHUB_OUTPUT
+            echo "Successfully deployed orchestrator worker (Attempt 1). URL: $WORKER_URL"
+          else
+            echo "Warning: Could not extract worker URL from deployment output (Attempt 1)." >&2
+          fi
 
       - name: Generate Orchestrator Config (NO DO Migration for RouterCounter)
         id: generate_orchestrator_config_no_migration # Step ID
@@ -192,43 +199,30 @@ jobs:
       - name: Attempt 2 of Deploy Orchestrator Worker (NO DO Migration for RouterCounter)
         id: deploy_orchestrator_attempt_2 # Step ID
         if: steps.deploy_orchestrator_attempt_1.outcome == 'failure' # Only run if first attempt failed
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: "deploy --config orchestrator/wrangler.toml"
-          vars: |
-            PASS
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           PASS: ${{ secrets.PASS }}
-
-      - name: Set Orchestrator Worker URL Output (Attempt 1)
-        id: set_orchestrator_url_1
-        if: ${{ steps.deploy_orchestrator_attempt_1.outcome == 'success' }}
         run: |
-          ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_1.outputs.url }}"
-          # Remove trailing '/*' if present, as the wrangler-action's URL output might include it for routes.
-          WORKER_BASE_URL=$(echo "${ORCHESTRATOR_WORKER_URL}" | sed 's/\/\*$//')
-          echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
-          echo "Injected URL (Attempt 1): ${WORKER_BASE_URL}"
-
-      - name: Set Orchestrator Worker URL Output (Attempt 2)
-        id: set_orchestrator_url_2
-        if: ${{ steps.deploy_orchestrator_attempt_2.outcome == 'success' }}
-        run: |
-          ORCHESTRATOR_WORKER_URL="${{ steps.deploy_orchestrator_attempt_2.outputs.url }}"
-          # Remove trailing '/*' if present, as the wrangler-action's URL output might include it for routes.
-          WORKER_BASE_URL=$(echo "${ORCHESTRATOR_WORKER_URL}" | sed 's/\/\*$//')
-          echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
-          echo "Injected URL (Attempt 2): ${WORKER_BASE_URL}"
+          echo "Attempting to deploy orchestrator worker without DO migration..."
+          DEPLOY_OUTPUT=$(wrangler deploy --config orchestrator/wrangler.toml --var PASS:"${{ secrets.PASS }}" 2>&1 || true)
+          echo "$DEPLOY_OUTPUT"
+          # Extract the URL from the output
+          WORKER_URL=$(echo "$DEPLOY_OUTPUT" | grep -oP 'https://\S+\.workers\.dev' | head -n 1)
+          if [ -n "$WORKER_URL" ]; then
+            echo "ORCHESTRATOR_WORKER_URL=${WORKER_URL}" >> $GITHUB_OUTPUT
+            echo "Successfully deployed orchestrator worker (Attempt 2). URL: $WORKER_URL"
+          else
+            echo "Warning: Could not extract worker URL from deployment output (Attempt 2)." >&2
+          fi
 
       - name: Inject Orchestrator URL into Frontend
         run: |
           ORCHESTRATOR_URL_TO_INJECT=""
-          if [ -n "${{ steps.set_orchestrator_url_1.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
-            ORCHESTRATOR_URL_TO_INJECT="${{ steps.set_orchestrator_url_1.outputs.ORCHESTRATOR_WORKER_URL }}"
-          elif [ -n "${{ steps.set_orchestrator_url_2.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
-            ORCHESTRATOR_URL_TO_INJECT="${{ steps.set_orchestrator_url_2.outputs.ORCHESTRATOR_WORKER_URL }}"
+          if [ -n "${{ steps.deploy_orchestrator_attempt_1.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
+            ORCHESTRATOR_URL_TO_INJECT="${{ steps.deploy_orchestrator_attempt_1.outputs.ORCHESTRATOR_WORKER_URL }}"
+          elif [ -n "${{ steps.deploy_orchestrator_attempt_2.outputs.ORCHESTRATOR_WORKER_URL }}" ]; then
+            ORCHESTRATOR_URL_TO_INJECT="${{ steps.deploy_orchestrator_attempt_2.outputs.ORCHESTRATOR_WORKER_URL }}"
           fi
           if [ -z "${ORCHESTRATOR_URL_TO_INJECT}" ]; then
             echo "Error: No Orchestrator Worker URL found from any attempt." >&2
