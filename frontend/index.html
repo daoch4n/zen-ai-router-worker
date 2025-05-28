@@ -68,7 +68,38 @@
     <div class="container">
         <h1>Text-to-Speech</h1>
         <textarea id="textInput" placeholder="Enter text here..."></textarea>
-        <input type="text" id="voiceIdInput" placeholder="Enter Voice ID (e.g., en-US-Neural2-D)" value="en-US-Neural2-D">
+        <select id="voiceIdInput">
+            <option value="achernar">achernar</option>
+            <option value="achird">achird</option>
+            <option value="algenib">algenib</option>
+            <option value="algieba">algieba</option>
+            <option value="alnilam">alnilam</option>
+            <option value="aoede">aoede</option>
+            <option value="autonoe">autonoe</option>
+            <option value="callirrhoe">callirrhoe</option>
+            <option value="charon">charon</option>
+            <option value="despina">despina</option>
+            <option value="enceladus">enceladus</option>
+            <option value="erinome">erinome</option>
+            <option value="fenrir">fenrir</option>
+            <option value="gacrux">gacrux</option>
+            <option value="iapetus">iapetus</option>
+            <option value="kore">kore</option>
+            <option value="laomedeia">laomedeia</option>
+            <option value="leda">leda</option>
+            <option value="orus">orus</option>
+            <option value="puck">puck</option>
+            <option value="pulcherrima">pulcherrima</option>
+            <option value="rasalgethi">rasalgethi</option>
+            <option value="sadachbia">sadachbia</option>
+            <option value="sadaltager">sadaltager</option>
+            <option value="schedar">schedar</option>
+            <option value="sulafat">sulafat</option>
+            <option value="umbriel">umbriel</option>
+            <option value="vindemiatrix">vindemiatrix</option>
+            <option value="zephyr">zephyr</option>
+            <option value="zubenelgenubi">zubenelgenubi</option>
+        </select>
         <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
         <button id="speakButton">Speak</button>
         <audio id="audioPlayer" controls></audio>
@@ -86,8 +117,8 @@
             messageDiv.textContent = '';
             audioPlayer.src = '';
 
-            if (!text || !voiceId || !apiKey) {
-                messageDiv.textContent = 'Please enter text, a voice ID, and your API Key.';
+            if (!text || !apiKey) {
+                messageDiv.textContent = 'Please enter text and your API Key.';
                 return;
             }
 
