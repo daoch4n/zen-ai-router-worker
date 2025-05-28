@@ -1,36 +1,4 @@
-export async function optimizeTextForJson(text) {
-  let optimizedText = text;
-
-  // MODIFICATION: Preserve Unicode dashes and quotes by commenting out replacements.
-  // These characters are valid in JSON strings and we want to see if Google TTS handles them better.
-  // optimizedText = optimizedText.replace(/\u2013/g, '-'); // en dash
-  // optimizedText = optimizedText.replace(/\u2014/g, '--'); // em dash
-  // optimizedText = optimizedText.replace(/\u2018/g, "'"); // left single quote
-  // optimizedText = optimizedText.replace(/\u2019/g, "'"); // right single quote
-  // optimizedText = optimizedText.replace(/\u201C/g, '"'); // left double quote
-  // optimizedText = optimizedText.replace(/\u201D/g, '"'); // right double quote
-
-  // Remove invisible control characters, excluding newlines, carriage returns, and tabs.
-  // The regex [^\P{C}\n\r\t] from PowerShell needs to be adapted for JavaScript.
-  // \p{C} matches invisible control characters. \P{C} matches anything that is NOT an invisible control character.
-  // So, [^\P{C}\n\r\t] means "any character that is NOT (not a control character OR newline OR carriage return OR tab)".
-  // This simplifies to "any control character that is NOT newline, carriage return, or tab".
-  optimizedText = optimizedText.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
-
-  // Replace (e.g., with (e.g. to avoid pronunciation issues with TTS
-  optimizedText = optimizedText.replace(/\(e\.g\.,/g, '(e.g.');
-
-  // Normalize line endings from \r\n to \n
-  // JSON.stringify will handle escaping \n to \\n, so this is fine.
-  optimizedText = optimizedText.replace(/\r\n/g, '\n');
-
-  // Trim leading and trailing whitespace
-  optimizedText = optimizedText.trim();
-
-  return optimizedText;
-}
-
-
+import { optimizeTextForJson } from '../../orchestrator/src/utils/textProcessing.mjs'; // Import from orchestrator utils
 import { errorHandler } from '../utils/error.mjs';
 
 export async function handleTTS(requestBody, apiKey) {
@@ -42,7 +10,7 @@ export async function handleTTS(requestBody, apiKey) {
       throw new Error('Missing required parameters: text or voiceId');
     }
 
-    const optimizedText = await optimizeTextForJson(text);
+    const optimizedText = optimizeTextForJson(text); // Use the imported function
     console.log('TTS: Optimized text:', optimizedText ? optimizedText.substring(0, 50) + '...' : 'N/A');
 
     const model = 'gemini-2.5-flash-preview-tts'; // As per tts.ps1
