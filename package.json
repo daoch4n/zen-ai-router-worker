@@ -6,9 +6,9 @@
     "@whatwg-node/server": "0.9"
   },
   "devDependencies": {
-    "wrangler": "^4.16.1",
+    "@jest/globals": "^29.7.0",
     "jest": "^29.7.0",
-    "@jest/globals": "^29.7.0"
+    "wrangler": "^4.16.1"
   },
   "scripts": {
     "deploy": "wrangler deploy --env production",

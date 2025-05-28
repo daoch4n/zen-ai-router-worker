@@ -5,3 +5,4 @@
 export * from './completions.mjs';
 export * from './embeddings.mjs';
 export * from './models.mjs';
+export { handleTTS } from './tts.mjs';
