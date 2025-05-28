@@ -60,10 +60,28 @@
             color: red;
         }
         
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left-color: #007bff;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
         #loadingIndicator {
             margin-top: 10px;
-            color: #007bff;
-            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
     </style>
 </head>
@@ -108,7 +126,9 @@
         <a id="downloadButton" download="audio.opus" style="display: none;">
             <button>Download Opus</button>
         </a>
-        <div id="loadingIndicator" style="display: none; margin-top: 10px;">Processing...</div>
+        <div id="loadingIndicator" style="display: none;">
+            <div class="spinner"></div> Processing...
+        </div>
         <div id="message" class="message"></div>
     </div>
 
