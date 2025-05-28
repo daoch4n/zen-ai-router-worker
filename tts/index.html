@@ -135,6 +135,14 @@
     <script>
         window.ORCHESTRATOR_WORKER_URL = ''; // Placeholder for dynamic injection
 
+        // Load API key from local storage on page load
+        document.addEventListener('DOMContentLoaded', () => {
+            const storedApiKey = localStorage.getItem('apiKey');
+            if (storedApiKey) {
+                document.getElementById('apiKeyInput').value = storedApiKey;
+            }
+        });
+
         document.getElementById('speakButton').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
             const voiceId = document.getElementById('voiceIdInput').value;
@@ -157,6 +165,9 @@
                 loadingIndicator.style.display = 'none'; // Hide loading indicator
                 return;
             }
+
+            // Save API key to local storage
+            localStorage.setItem('apiKey', apiKey);
 
             try {
                 // Fetch PCM for playback (prioritized)
@@ -238,9 +249,10 @@
 
                 source.start(); // Start playback
                 mediaRecorder.start(); // Start recording
-
+                
+                // Stop recording when playback ends
                 source.onended = () => {
-                    mediaRecorder.stop(); // Stop recording when playback ends
+                    mediaRecorder.stop(); 
                 };
 
             } catch (error) {
