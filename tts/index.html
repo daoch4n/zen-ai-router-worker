@@ -107,6 +107,60 @@
     </div>
 
     <script>
+        window.ORCHESTRATOR_WORKER_URL = ''; // Placeholder for dynamic injection
+
+        // Function to encode raw PCM data into a WAV Blob
+        function encodeWAV(samples, sampleRate, numChannels, bitsPerSample) {
+            const bytesPerSample = bitsPerSample / 8;
+            const blockAlign = numChannels * bytesPerSample;
+            const byteRate = sampleRate * blockAlign;
+
+            const dataLength = samples.byteLength;
+            const buffer = new ArrayBuffer(44 + dataLength);
+            const view = new DataView(buffer);
+
+            /* RIFF identifier */
+            writeString(view, 0, 'RIFF');
+            /* file length */
+            view.setUint32(4, 36 + dataLength, true);
+            /* RIFF type */
+            writeString(view, 8, 'WAVE');
+            /* format chunk identifier */
+            writeString(view, 12, 'fmt ');
+            /* format chunk length */
+            view.setUint32(16, 16, true);
+            /* sample format (raw PCM) */
+            view.setUint16(20, 1, true);
+            /* channel count */
+            view.setUint16(22, numChannels, true);
+            /* sample rate */
+            view.setUint32(24, sampleRate, true);
+            /* byte rate (sample rate * block align) */
+            view.setUint32(28, byteRate, true);
+            /* block align (channels * bytes per sample) */
+            view.setUint16(32, blockAlign, true);
+            /* bits per sample */
+            view.setUint16(34, bitsPerSample, true);
+            /* data chunk identifier */
+            writeString(view, 36, 'data');
+            /* data chunk length */
+            view.setUint32(40, dataLength, true);
+
+            // Write the PCM data
+            const floatSamples = new Int16Array(samples.buffer); // Assuming 16-bit PCM
+            for (let i = 0; i < floatSamples.length; i++) {
+                view.setInt16(44 + i * bytesPerSample, floatSamples[i], true);
+            }
+
+            return new Blob([view], { type: 'audio/wav' });
+        }
+
+        function writeString(view, offset, string) {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
+            }
+        }
+
         document.getElementById('speakButton').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
             const voiceId = document.getElementById('voiceIdInput').value;
@@ -123,7 +177,7 @@
             }
 
             try {
-                const response = await fetch('https://zen-ai-router-worker-0.vl70x3.workers.dev/tts', {
+                const response = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json',
@@ -139,7 +193,7 @@
 
                 const responseData = await response.json();
                 const audioContentBase64 = responseData.audioContentBase64;
-                const mimeType = responseData.mimeType;
+                const mimeType = responseData.mimeType; // This will be audio/L16;codec=pcm;rate=24000
 
                 if (!audioContentBase64) {
                     throw new Error('No audio content received from worker');
@@ -153,7 +207,13 @@
                     bytes[i] = binaryString.charCodeAt(i);
                 }
 
-                const audioBlob = new Blob([bytes.buffer], { type: mimeType });
+                // Convert raw L16 PCM (bytes) to WAV format
+                // Assuming 24000 Hz sample rate, 1 channel, 16 bits per sample based on previous logs
+                const sampleRate = 24000;
+                const numChannels = 1;
+                const bitsPerSample = 16;
+                const audioBlob = encodeWAV(bytes, sampleRate, numChannels, bitsPerSample);
+
                 const audioUrl = URL.createObjectURL(audioBlob);
                 audioPlayer.src = audioUrl;
                 audioPlayer.play();
