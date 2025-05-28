@@ -12,6 +12,9 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     name: Deploy
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'repository_dispatch'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4
       - name: Install Wrangler
@@ -165,6 +168,9 @@ jobs:
     runs-on: ubuntu-latest
     name: Deploy Preview
     if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
+    permissions:
+      contents: read
+      pull-requests: write
     steps:
       - uses: actions/checkout@v4
       - name: Install Wrangler
@@ -286,6 +292,8 @@ jobs:
     runs-on: ubuntu-latest
     name: Cleanup Preview Environment
     if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@v4 # Add checkout for access to files
       - name: Install Wrangler
