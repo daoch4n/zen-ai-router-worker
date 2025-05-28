@@ -296,45 +296,6 @@ jobs:
           # The variable is still set for subsequent steps.
           echo "pr_environment_name=pr-${{ github.event.number }}" >> $GITHUB_OUTPUT
 
-      - name: Prepare API Key Data for Cleanup # Renamed and enhanced step
-        id: prep_api_data_cleanup
-        env:
-          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
-        run: |
-          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
-          
-          # Validate and parse JSON. jq -e exits with error if parsing fails or result is empty/false.
-          # jq -r '.[]' outputs each element of the JSON array on a new line.
-          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
-          JQ_EXIT_CODE=$?
-
-          if [ $JQ_EXIT_CODE -ne 0 ]; then
-            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
-            # Attempt to print a more detailed jq validation error
-            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
-            exit 1
-          fi
-          
-          # Populate a bash array from the newline-separated string
-          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
-          
-          local_api_keys_count=${#API_KEYS_ARRAY[@]}
-          echo "Successfully parsed ${local_api_keys_count} keys."
-          echo "all_api_keys_count=${local_api_keys_count}" >> $GITHUB_OUTPUT
-          
-          # Output the keys as a well-formed JSON array string for robust consumption by later steps
-          # This handles keys with spaces or special characters correctly.
-          if [ "${local_api_keys_count}" -gt 0 ]; then
-            # Convert bash array elements to individual JSON strings, then collect into a JSON array
-            API_KEYS_AS_JSON_ARRAY_STRING=$(printf "%s\n" "${API_KEYS_ARRAY[@]}" | jq -R . | jq -s .)
-          else
-            API_KEYS_AS_JSON_ARRAY_STRING="[]" # Handle empty array case
-          fi
-          
-          # Using a delimiter for multi-line output
-          echo "api_keys_as_json_array_string<<EOF_KEYS_JSON" >> $GITHUB_OUTPUT
-          echo "${API_KEYS_AS_JSON_ARRAY_STRING}" >> $GITHUB_OUTPUT
-          echo "EOF_KEYS_JSON" >> $GITHUB_OUTPUT
 
       - name: Delete Preview src Workers
         env:
