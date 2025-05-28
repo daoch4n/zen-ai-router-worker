@@ -1,0 +1,158 @@
+{
+  "metadata": {
+    "pr_number": 6,
+    "repo": "daoch4n/zen-ai-router-worker",
+    "title": "Feat/orchestrator parallel tts",
+    "timestamp_utc": "2025-05-28T19:00:46.930444+00:00",
+    "review_tool": "I'm your Gemini AI Reviewer",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false
+  },
+  "review_comments": [
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 197,
+      "comment_text_md": "**My Confidence: High**\n\nThe `activeFetches` counter is decremented immediately after initiating a fetch promise (`activeFetches--`). This means it decrements *before* the fetch operation has actually completed or settled. This will lead to more concurrent fetches than `MAX_CONCURRENT_SENTENCE_FETCHES` allows, potentially overwhelming backend services or exceeding resource limits.\n\n**Suggestion:** Move the `activeFetches--` into a `.finally()` block of the `currentPromise` to ensure it only decrements when the promise has settled (either resolved or rejected). Also, call `processQueue()` again within the `.finally()` block to ensure new tasks are picked up as soon as a slot becomes available.\n\n```javascript\n        const currentPromise = (async () => {\n            // ... existing fetch logic ...\n            return result;\n        })();\n\n        outstandingPromises.add(currentPromise);\n        currentPromise.finally(() => {\n            activeFetches--; // Decrement when promise settles\n            outstandingPromises.delete(currentPromise);\n            processQueue(); // Attempt to process more from the queue\n        });\n\n        currentPromise.then(resolve, reject); // Resolve/reject the original promise\n        // Remove the old activeFetches--; and processQueue(); from here\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 124,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `await request.json()` call is not wrapped in a `try...catch` block. If the incoming request body is not valid JSON, this call will throw an error, which will result in an unhandled exception and a generic 500 error response without a clear message to the client.\n\n**Suggestion:** Wrap the `request.json()` call in a `try...catch` block to handle potential parsing errors gracefully.\n\n```javascript\n  try {\n    const { text, voiceId, apiKey } = await request.json();\n    if (!text || !voiceId || !apiKey) {\n      return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });\n    }\n    // ... rest of the code\n  } catch (error) {\n    console.error('Orchestrator: Error parsing request body:', error);\n    return new Response('Invalid JSON in request body', { status: 400 });\n  }\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 223,
+      "comment_text_md": "**My Confidence: Low**\n\nThe `targetService.fetch` call uses `new Request(request.url, {...})`, which means the full original URL (e.g., `/api/tts?jobId=...`) is passed to the backend service. While this might work if the backend is configured to handle this specific path, it's more common for an orchestrator to rewrite the path to a canonical backend endpoint (e.g., `/tts` or `/generate`).\n\n**Suggestion:** Consider if the backend service expects a different, more specific path for TTS requests. If so, construct the URL for the backend fetch explicitly:\n\n```javascript\n                        const backendTtsUrl = new URL(request.url);\n                        backendTtsUrl.pathname = '/tts'; // Or whatever the backend's actual TTS endpoint is\n                        // Remove search params if not needed by backend\n                        backendTtsUrl.search = '';\n\n                        const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {\n                            method: 'POST',\n                            headers: {\n                                'Content-Type': 'application/json',\n                                'Authorization': `Bearer ${apiKey}`\n                            },\n                            body: JSON.stringify({ text: sentence.trim(), voiceId }),\n                        }));\n```",
+      "ai_confidence": "Low",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "security"
+    },
+    {
+      "file_path": "orchestrator/src/ttsStateDurableObject.mjs",
+      "github_diff_position": 1,
+      "comment_text_md": "**My Confidence: High**\n\nThe `loadState()` call in the constructor is asynchronous. This means that when a `fetch` request arrives shortly after the Durable Object is instantiated, the in-memory state (`this.text`, `this.voiceId`, `this.initialised`, etc.) might not yet be populated from storage, even if `loadState` has been initiated.\n\nThe current check in `fetch`: `if (!this.initialised && (await this.state.storage.get(\"initialised\")) === false)` attempts to mitigate this, but it doesn't guarantee that all in-memory state variables are fully loaded before other methods (like `getJobState` or `initialise`) are called. If `this.initialised` is `false` (because `loadState` hasn't completed) but storage returns `true` (because it was previously initialized), the request will proceed with potentially uninitialized in-memory state.\n\nTo ensure consistency and prevent race conditions, it's best practice to store the `loadState` promise in the constructor and `await` it at the beginning of the `fetch` method (and potentially `initialise` if it's meant to be idempotent after a restart). This guarantees the Durable Object's state is fully loaded into memory before any request is processed.\n\n```javascript\nexport class TTSStateDurableObject {\n    constructor(state, env) {\n        // ... other initializations ...\n        this.initialised = false; \n\n        // Store the promise from loadState\n        this.loadStatePromise = this.loadState().then(() => {\n            console.log(\"TTSStateDurableObject constructor: state loaded.\");\n        }).catch(error => {\n            console.error(\"TTSStateDurableObject constructor: failed to load state:\", error);\n            this.initialised = false; \n            // Consider re-throwing or storing the error to prevent processing requests\n            throw error; // Re-throw to propagate the error to the promise chain\n        });\n    }\n\n    async initialise(text, voiceId) {\n        // Wait for the initial load to complete before checking initialised status\n        await this.loadStatePromise; \n\n        if (this.initialised) { // Now this.initialised is reliable\n            console.log(\"TTSStateDurableObject already initialised.\");\n            return;\n        }\n        // ... rest of initialise logic ...\n    }\n\n    async fetch(request) {\n        // Ensure state is loaded before processing any request\n        try {\n            await this.loadStatePromise;\n        } catch (error) {\n            console.error(\"TTSStateDurableObject fetch: initial state load failed.\", error);\n            return new Response(\"Durable Object failed to initialize state.\", { status: 500 });\n        }\n\n        // Now this.initialised and other state variables are guaranteed to be loaded.\n        if (!this.initialised) {\n             console.error(\"TTSStateDurableObject not initialized, cannot process request.\");\n             return new Response(\"Durable Object not initialized.\", { status: 500 });\n        }\n        // ... rest of fetch logic ...\n    }\n}\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "critical",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "orchestrator/src/ttsStateDurableObject.mjs",
+      "github_diff_position": 74,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `updateProgress` method assigns `audioChunkBase64` directly to `this.audioChunks[sentenceIndex]`. In a parallel processing scenario where `sentenceIndex` might not be sequential (e.g., chunk 5 arrives before chunk 2), this will result in a sparse array (i.e., `audioChunks` will have `undefined` elements for missing indices).\n\nWhile JavaScript supports sparse arrays, consumers of the `audioChunks` array from `getJobState()` might not expect or correctly handle `undefined` values for indices that haven't been populated yet. Ensure that any code consuming this array is aware of and correctly handles potential sparse elements (e.g., by filtering `undefined` values or iterating carefully to avoid errors).",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "orchestrator/src/utils/textProcessing.mjs",
+      "github_diff_position": 5,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `splitIntoSentences` function uses a hardcoded list of abbreviations. While it covers common titles, it might not be exhaustive for all potential abbreviations (e.g., \"Fig.\", \"No.\", \"Ave.\", \"St.\", \"Co.\", \"Inc.\", \"Ltd.\", \"Vol.\", \"Chap.\", \"p.\", \"pp.\", \"vs.\"). This could lead to incorrect sentence segmentation in texts containing such abbreviations, potentially affecting the quality of TTS output.\n\nConsider expanding this list to include more common abbreviations or, for more robust solutions, explore using a dedicated NLP library for sentence tokenization if the current approach proves insufficient for diverse text inputs.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/handlers/tts.mjs",
+      "github_diff_position": 42,
+      "comment_text_md": "**My Confidence: High**\n\nThe `optimizeTextForJson` function was previously `async` in this file, and its call was `await`ed. After moving it to `../../orchestrator/src/utils/textProcessing.mjs`, the `await` keyword has been removed from its call.\n\nIf `optimizeTextForJson` in `textProcessing.mjs` is still an `async` function (even if it doesn't contain `await` internally, it still returns a Promise), then `optimizedText` will receive a Promise instead of the resolved string. This could lead to unexpected behavior or errors downstream when `optimizedText` is used.\n\nPlease verify the signature of `optimizeTextForJson` in `../../orchestrator/src/utils/textProcessing.mjs`.\n\nIf it's still `async`, re-add `await`:\n```javascript\nconst optimizedText = await optimizeTextForJson(text);\n```\n\nAlternatively, if the function is truly synchronous and doesn't need to return a Promise, its declaration in `textProcessing.mjs` should be changed to `export function optimizeTextForJson(text)` (removing the `async` keyword).",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/transformers/stream.mjs",
+      "github_diff_position": 4,
+      "comment_text_md": "**My Confidence: High**\n\nThe change from `line =+ STREAM_DELIMITER;` to `line += STREAM_DELIMITER;` correctly fixes a typo. The original code would have assigned `STREAM_DELIMITER` to `line` instead of appending/adding it, which would lead to incorrect stream formatting.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/orchestrator/index.test.mjs",
+      "github_diff_position": 68,
+      "comment_text_md": "**My Confidence: High**\n\nThe test `should return 500 if RouterCounter fails to select a worker` (lines 68-84) has a potentially fragile setup for the `env` object.\n\nCurrently, you redefine `env` to include `BACKEND_SERVICE_0`. If the orchestrator's logic for identifying backend services iterates through `env` properties (e.g., `Object.values(env).filter(v => v && v.fetch)`) or checks for `BACKEND_SERVICE_X` keys, then `BACKEND_SERVICE_0` would be detected as a valid service. In this case, `999 % 1 = 0`, meaning `mockBackendService1` (assigned to `BACKEND_SERVICE_0`) would be selected, and the test would not result in the expected 'Failed to select target worker for routing.' error.\n\nTo reliably test the scenario where no worker can be selected, ensure that the `backendServices` array within the orchestrator's `fetch` handler is truly empty or that the calculated `targetWorkerIndex` is guaranteed to be out of bounds. A simpler approach might be to just set `env.BACKEND_SERVICE_1 = undefined; env.BACKEND_SERVICE_2 = undefined;` and rely on the orchestrator's internal logic to find no available services, assuming it only looks for `BACKEND_SERVICE_1`, `BACKEND_SERVICE_2`, etc. If it discovers services dynamically, you might need to mock the discovery mechanism to return an empty list.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/orchestrator/index.test.mjs",
+      "github_diff_position": 98,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe test `should call handleTtsRequest for /api/tts path` (lines 98-125) uses `jest.spyOn(Worker, 'fetch').mockImplementationOnce(...)` to completely replace the `Worker.fetch` function. While this mock returns the desired response, it doesn't actually test the *original* `Worker.fetch`'s internal routing logic that *delegates* to `handleTtsRequest`.\n\nThis test effectively verifies its own mock rather than the orchestrator's actual routing. If `handleTtsRequest` were an exported function or a method on a class instance, you could `jest.spyOn` it directly to assert that it was called, without replacing the entire `fetch` handler. Given the current structure, this is a limitation, but it's worth noting that the test doesn't fully cover the internal routing mechanism of the `Worker.fetch` function itself.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/orchestrator/utils/textProcessing.test.mjs",
+      "github_diff_position": 69,
+      "comment_text_md": "**My Confidence: Medium**\n\nConsider adding a test case for abbreviations that contain multiple periods, such as \"U.S.A.\" or \"Ph.D.\". These should typically not cause a sentence split.\n\nExample:\n```javascript\ntest('should handle multi-period abbreviations like \"U.S.A.\" without splitting', () => {\n  const text = 'U.S.A. is a country. It is big.';\n  expect(splitIntoSentences(text)).toEqual(['U.S.A. is a country.', 'It is big.']);\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/orchestrator/utils/textProcessing.test.mjs",
+      "github_diff_position": 69,
+      "comment_text_md": "**My Confidence: Medium**\n\nIt would also be beneficial to add a test case for sentences containing or ending with ellipses (`...`). An ellipsis should generally be treated as part of the sentence, not as a sentence terminator.\n\nExample:\n```javascript\ntest('should handle ellipses without splitting', () => {\n  const text = 'He paused... and then spoke. What happened...?';\n  expect(splitIntoSentences(text)).toEqual(['He paused... and then spoke.', 'What happened...?']);\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/tts/index.test.mjs",
+      "github_diff_position": 597,
+      "comment_text_md": "**My Confidence: High**\n\nThe test `should process audio chunks and play them` has a fundamental issue with how it interacts with the mocked `AudioContext`.\n\nCurrently, `window.AudioContext` is defined as a `class MockAudioContext`. The line `window.AudioContext.mockImplementation(() => mockAudioContextInstance);` is incorrect because `window.AudioContext` is a class constructor, not a Jest mock function that can have `mockImplementation` called on it directly.\n\nAs a result, the `audioContext` instance created within the script (inside `eventSource.onopen`) is a *different* instance than `mockAudioContextInstance` created in the test. Therefore, assertions like `expect(mockAudioContextInstance.decodeAudioData).toHaveBeenCalled()` will always fail because the script's `audioContext` instance is the one actually being used.\n\nTo correctly test this, you should make `MockAudioContext` itself a Jest mock function constructor, which allows you to inspect its instances. For example:\n\n```javascript\n// In your global mocks:\nconst MockAudioContext = jest.fn(function() {\n  this.decodeAudioData = jest.fn(buffer => Promise.resolve(new MockAudioBuffer(1, 44100, 44100)));\n  this.createBuffer = jest.fn((channels, length, sampleRate) => new MockAudioBuffer(channels, length, sampleRate));\n  this.createBufferSource = jest.fn(() => new MockAudioBufferSourceNode());\n  this.destination = {};\n  this.currentTime = 0;\n  this.baseLatency = 0;\n});\nObject.defineProperty(window, 'AudioContext', { value: MockAudioContext });\n\n// In your test:\nit('should process audio chunks and play them', async () => {\n  // ... setup ...\n  dispatchClick(speakButton);\n  mockEventSourceInstance._simulateOpen(); // This triggers new AudioContext()\n\n  // Get the actual AudioContext instance created by the script\n  const scriptAudioContext = MockAudioContext.mock.instances[0];\n  expect(scriptAudioContext).toBeDefined();\n\n  // Simulate first audio chunk\n  mockEventSourceInstance._simulateMessage({ audioChunk: btoa('raw_audio_data_1'), index: 0, mimeType: 'audio/opus' });\n  await Promise.resolve();\n\n  expect(scriptAudioContext.decodeAudioData).toHaveBeenCalled();\n  expect(scriptAudioContext.createBufferSource).toHaveBeenCalledTimes(1);\n\n  const firstSourceNode = scriptAudioContext.createBufferSource.mock.results[0].value;\n  expect(firstSourceNode).toBeInstanceOf(MockAudioBufferSourceNode);\n  expect(firstSourceNode.start).toHaveBeenCalled();\n\n  // ... continue with second chunk and onended ...\n  mockEventSourceInstance._simulateMessage({ audioChunk: btoa('raw_audio_data_2'), index: 1, mimeType: 'audio/opus' });\n  await Promise.resolve();\n\n  firstSourceNode.onended();\n  await Promise.resolve();\n\n  expect(scriptAudioContext.createBufferSource).toHaveBeenCalledTimes(2);\n  const secondSourceNode = scriptAudioContext.createBufferSource.mock.results[1].value;\n  expect(secondSourceNode.start).toHaveBeenCalled();\n});\n```\n\nThis approach ensures you are asserting on the actual `AudioContext` instance and its methods that the application code is interacting with.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "tts/index.html",
+      "github_diff_position": 259,
+      "comment_text_md": "**My Confidence: High**\n\nThe `ORCHESTRATOR_WORKER_URL` is defined as a module-scoped constant. However, the condition `if (!window.ORCHESTRATOR_WORKER_URL)` attempts to check for a global variable on the `window` object. This condition will always evaluate to `true` because the constant is not attached to `window`, effectively preventing any TTS requests from being made.\n\nTo fix this, remove the `window.` prefix from the check:\n\n```javascript\n// Before:\nif (!window.ORCHESTRATOR_WORKER_URL) {\n  showToast('Error: Orchestrator URL not configured.', 'error');\n  // ...\n}\n\n// After:\nif (!ORCHESTRATOR_WORKER_URL) { // Or remove this check if the URL is always hardcoded and valid\n  showToast('Error: Orchestrator URL not configured.', 'error');\n  // ...\n}\n```\n\nIf the intent is for `ORCHESTRATOR_WORKER_URL` to be dynamically configurable (e.g., via a global variable set by the environment), then the `const` declaration should be adjusted, or the value should be fetched from `window` if available, e.g., `const ORCHESTRATOR_WORKER_URL = window.ORCHESTRATOR_WORKER_URL || 'http://localhost:8787';`.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 40,
+      "comment_text_md": "**My Confidence: High**\n\nThe `text` parameter is sent directly in the URL query string. For longer texts, this can exceed typical URL length limits (e.g., 2048 characters for many browsers/servers), leading to request failures. Consider sending the `text` in the request body (e.g., using a POST request) instead of a GET request with query parameters.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 69,
+      "comment_text_md": "**My Confidence: High**\n\nThe logic for mapping `data.text` (the current sentence) to the `words` array for highlighting and progress tracking is fragile. It assumes a perfect match between the client-side word splitting (`text.split`) and the sentences returned by the TTS service. If the TTS service performs any text normalization, punctuation handling, or returns sentences that don't perfectly align with the client's word segmentation, the highlighting and progress bar will be inaccurate or break. A more robust approach would be for the TTS service to return word-level timing information (e.g., `start_time`, `end_time`, `word_text`, `word_index_in_original_text`) along with the audio chunks. This would allow for precise highlighting and progress tracking independent of client-side text splitting. If word-level timing is not feasible, ensure the client-side word splitting and server-side sentence segmentation are perfectly synchronized and documented.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "style/clarity"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 84,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe condition to trigger `playNextChunk` (`lastPlayedIndex < index`) ensures chunks are played in order. However, if a chunk with `index` is missing (e.g., due to network loss or out-of-order delivery where `index-1` arrived, but `index` is delayed/lost), the playback will stall indefinitely, even if subsequent chunks (`index+1`, `index+2`) have arrived and are in `audioQueue`. Consider adding a timeout mechanism or a strategy to skip missing chunks after a certain delay to prevent complete stalling. For example, if `audioQueue` contains `index+N` but `index` is expected, after `X` seconds, play `index+N` and log a warning about the missing chunk. Alternatively, if the `index` refers to sentence index, and the service guarantees sequential delivery of sentences, then this might be less of an issue, but network unreliability can still cause problems.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "performance"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 3,
+      "comment_text_md": "**My Confidence: High**\n\nThe constants `SENTENCE_FETCH_TIMEOUT_MS` and `FIRST_SENTENCE_TIMEOUT_MS` are declared but not used anywhere in the provided code. They can be removed or implemented if they are intended for future functionality.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "performance"
+    }
+  ]
+}
