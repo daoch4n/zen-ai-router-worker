@@ -268,7 +268,7 @@
         2,
         5
       ],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -276,7 +276,7 @@
           "description": "Construct the complete URL for the Google Generative AI API call, including base URL, endpoint path, and any necessary query parameters (e.g., API key).",
           "dependencies": [],
           "details": "Assemble the API endpoint URL, ensuring correct protocol, domain, path, and query string for the specific Generative AI service.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -286,7 +286,7 @@
             1
           ],
           "details": "Initiate the network request to the Google Generative AI API, sending the required input data in the request body.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -296,7 +296,7 @@
             2
           ],
           "details": "Check the `Response.ok` property and catch potential `fetch` errors to manage unsuccessful API interactions gracefully.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 4,
@@ -306,7 +306,7 @@
             3
           ],
           "details": "Convert the raw response stream into a JavaScript object using `response.json()` after confirming a successful API call.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 5,
@@ -316,7 +316,7 @@
             4
           ],
           "details": "Access specific properties within the JSON response structure to retrieve the generated audio content and its format information.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 6,
@@ -326,7 +326,7 @@
             5
           ],
           "details": "Use string manipulation or regular expressions to parse the `mimeType` string and isolate the numerical sample rate value.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

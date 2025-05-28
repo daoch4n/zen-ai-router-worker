@@ -3,18 +3,45 @@
  * Validates request parsing, parameter validation, and error handling.
  */
 
-import { describe, it, expect, beforeEach } from '@jest/globals';
+import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { handleTTS } from '../../src/handlers/tts.mjs';
+
+// Mock the fetch function
+global.fetch = jest.fn();
 
 describe('TTS Handler', () => {
   let mockApiKey;
 
   beforeEach(() => {
     mockApiKey = 'test-api-key-123';
+    fetch.mockClear();
   });
 
   describe('Request Parsing and Validation', () => {
     it('should successfully parse valid request with all required parameters', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'dGVzdC1hdWRpby1kYXRh', // base64 encoded "test-audio-data"
+                    mimeType: 'audio/L16;rate=24000'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
       const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -28,7 +55,7 @@ describe('TTS Handler', () => {
       const result = await response.json();
 
       expect(response.status).toBe(200);
-      expect(result.message).toBe('TTS request body constructed successfully');
+      expect(result.message).toBe('TTS audio generated successfully');
       expect(result.parameters).toEqual({
         voiceName: 'en-US-Standard-A',
         secondVoiceName: null,
@@ -36,31 +63,51 @@ describe('TTS Handler', () => {
         model: 'gemini-2.0-flash-exp'
       });
 
-      // Verify Google API request body structure
-      expect(result.googleApiRequestBody).toEqual({
-        contents: [
-          {
-            parts: [
-              {
-                text: 'Hello, world!'
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          responseModalities: ["AUDIO"],
-          speechConfig: {
-            voiceConfig: {
-              prebuiltVoiceConfig: {
-                voiceName: 'en-US-Standard-A'
-              }
-            }
-          }
-        }
+      // Verify audio data extraction
+      expect(result.audioData).toEqual({
+        mimeType: 'audio/L16;rate=24000',
+        sampleRate: 24000,
+        base64AudioLength: 20 // Length of 'dGVzdC1hdWRpby1kYXRh'
       });
+
+      // Verify the fetch call was made correctly
+      expect(fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'x-goog-api-key': mockApiKey
+          }),
+          body: expect.stringContaining('"text":"Hello, world!"')
+        })
+      );
     });
 
     it('should successfully parse request with optional secondVoiceName', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'bXVsdGktc3BlYWtlci1hdWRpbw==', // base64 encoded "multi-speaker-audio"
+                    mimeType: 'audio/L16;rate=22050'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
       const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A&secondVoiceName=en-US-Standard-B', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -74,34 +121,28 @@ describe('TTS Handler', () => {
       const result = await response.json();
 
       expect(response.status).toBe(200);
+      expect(result.message).toBe('TTS audio generated successfully');
       expect(result.parameters.secondVoiceName).toBe('en-US-Standard-B');
 
-      // Verify multi-speaker configuration in Google API request body
-      expect(result.googleApiRequestBody.generationConfig.speechConfig).toEqual({
-        multiSpeakerVoiceConfig: {
-          speakerVoiceConfigs: [
-            {
-              speaker: "Speaker 1",
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: 'en-US-Standard-A'
-                }
-              }
-            },
-            {
-              speaker: "Speaker 2",
-              voiceConfig: {
-                prebuiltVoiceConfig: {
-                  voiceName: 'en-US-Standard-B'
-                }
-              }
-            }
-          ]
-        }
+      // Verify audio data extraction
+      expect(result.audioData).toEqual({
+        mimeType: 'audio/L16;rate=22050',
+        sampleRate: 22050,
+        base64AudioLength: 28 // Length of 'bXVsdGktc3BlYWtlci1hdWRpbw=='
       });
 
-      // Ensure voiceConfig is not present in multi-speaker mode
-      expect(result.googleApiRequestBody.generationConfig.speechConfig.voiceConfig).toBeUndefined();
+      // Verify the fetch call was made with multi-speaker configuration
+      expect(fetch).toHaveBeenCalledWith(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-exp:generateContent',
+        expect.objectContaining({
+          method: 'POST',
+          headers: expect.objectContaining({
+            'Content-Type': 'application/json',
+            'x-goog-api-key': mockApiKey
+          }),
+          body: expect.stringContaining('"multiSpeakerVoiceConfig"')
+        })
+      );
     });
 
     it('should return 400 when voiceName is missing', async () => {
@@ -196,6 +237,29 @@ describe('TTS Handler', () => {
     });
 
     it('should trim whitespace from parameters', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'dHJpbW1lZC1hdWRpbw==', // base64 encoded "trimmed-audio"
+                    mimeType: 'audio/L16;rate=16000'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
       const request = new Request('https://example.com/tts?voiceName=%20en-US-Standard-A%20&secondVoiceName=%20en-US-Standard-B%20', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -209,12 +273,110 @@ describe('TTS Handler', () => {
       const result = await response.json();
 
       expect(response.status).toBe(200);
+      expect(result.message).toBe('TTS audio generated successfully');
       expect(result.parameters).toEqual({
         voiceName: 'en-US-Standard-A',
         secondVoiceName: 'en-US-Standard-B',
         text: 'Hello, world!',
         model: 'gemini-2.0-flash-exp'
       });
+
+      // Verify audio data extraction
+      expect(result.audioData).toEqual({
+        mimeType: 'audio/L16;rate=16000',
+        sampleRate: 16000,
+        base64AudioLength: 20 // Length of 'dHJpbW1lZC1hdWRpbw=='
+      });
+    });
+
+    it('should handle Google API errors gracefully', async () => {
+      // Mock Google API error response
+      const errorResponse = {
+        error: {
+          code: 400,
+          message: "Invalid voice name"
+        }
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify(errorResponse))
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=invalid-voice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Google API error: Invalid voice name');
+    });
+
+    it('should handle network errors', async () => {
+      // Mock network error
+      fetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe('Network error: Unable to connect to Google API');
+    });
+
+    it('should parse sample rate from different mimeType formats', async () => {
+      // Mock Google API response with different mimeType format
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'dGVzdC1hdWRpby1kYXRh',
+                    mimeType: 'audio/wav; codecs=pcm; rate=44100'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+      const result = await response.json();
+
+      expect(response.status).toBe(200);
+      expect(result.audioData.sampleRate).toBe(44100);
+      expect(result.audioData.mimeType).toBe('audio/wav; codecs=pcm; rate=44100');
     });
   });
 });

@@ -4,6 +4,8 @@
  */
 import { fixCors } from '../utils/cors.mjs';
 import { errorHandler, HttpError } from '../utils/error.mjs';
+import { makeHeaders } from '../utils/auth.mjs';
+import { BASE_URL, API_VERSION } from '../constants/index.mjs';
 
 /**
  * Constructs the request body for Google Generative AI TTS API.
@@ -66,6 +68,113 @@ function constructGoogleTTSRequestBody({ text, voiceName, secondVoiceName }) {
   }
 
   return requestBody;
+}
+
+/**
+ * Parses sample rate from mimeType string.
+ * Extracts the numerical sample rate value from formats like:
+ * - "audio/L16;rate=24000"
+ * - "audio/wav; codecs=pcm; rate=44100"
+ *
+ * @param {string} mimeType - MIME type string containing rate information
+ * @returns {number} Sample rate in Hz, defaults to 24000 if parsing fails
+ */
+function parseSampleRate(mimeType) {
+  if (!mimeType || typeof mimeType !== 'string') {
+    return 24000; // Default sample rate
+  }
+
+  // Look for rate=XXXXX pattern in the mimeType string
+  const rateMatch = mimeType.match(/rate=(\d+)/i);
+  if (rateMatch && rateMatch[1]) {
+    const rate = parseInt(rateMatch[1], 10);
+    return isNaN(rate) ? 24000 : rate;
+  }
+
+  return 24000; // Default sample rate if no rate found
+}
+
+/**
+ * Makes a request to Google's Generative AI API for text-to-speech generation.
+ * Handles the complete API interaction including error handling and response parsing.
+ *
+ * @param {string} model - The Gemini model to use for TTS generation
+ * @param {Object} requestBody - The constructed request body for Google API
+ * @param {string} apiKey - Google API key for authentication
+ * @returns {Promise<Object>} Object containing base64 audio data, mimeType, and sampleRate
+ * @throws {HttpError} When API call fails or response is invalid
+ */
+async function callGoogleTTSAPI(model, requestBody, apiKey) {
+  // Construct the full Google API endpoint URL
+  const url = `${BASE_URL}/${API_VERSION}/models/${model}:generateContent`;
+
+  try {
+    // Make the fetch request to Google's API
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: makeHeaders(apiKey, { 'Content-Type': 'application/json' }),
+      body: JSON.stringify(requestBody)
+    });
+
+    // Handle non-200 responses
+    if (!response.ok) {
+      const errorText = await response.text();
+      let errorMessage = `Google API error: ${response.status} ${response.statusText}`;
+
+      try {
+        const errorData = JSON.parse(errorText);
+        if (errorData.error && errorData.error.message) {
+          errorMessage = `Google API error: ${errorData.error.message}`;
+        }
+      } catch (parseError) {
+        // If we can't parse the error response, use the status text
+      }
+
+      throw new HttpError(errorMessage, response.status >= 500 ? 502 : 400);
+    }
+
+    // Parse the successful JSON response
+    const responseData = await response.json();
+
+    // Navigate the response structure to extract audio data
+    // Expected structure: candidates[0].content.parts[0].inlineData
+    if (!responseData.candidates || !Array.isArray(responseData.candidates) || responseData.candidates.length === 0) {
+      throw new HttpError('Invalid response structure: no candidates found', 502);
+    }
+
+    const candidate = responseData.candidates[0];
+    if (!candidate.content || !candidate.content.parts || !Array.isArray(candidate.content.parts) || candidate.content.parts.length === 0) {
+      throw new HttpError('Invalid response structure: no content parts found', 502);
+    }
+
+    const part = candidate.content.parts[0];
+    if (!part.inlineData || !part.inlineData.data || !part.inlineData.mimeType) {
+      throw new HttpError('Invalid response structure: no inline data found', 502);
+    }
+
+    const { data: base64Audio, mimeType } = part.inlineData;
+    const sampleRate = parseSampleRate(mimeType);
+
+    return {
+      base64Audio,
+      mimeType,
+      sampleRate
+    };
+
+  } catch (error) {
+    // Re-throw HttpErrors as-is
+    if (error instanceof HttpError) {
+      throw error;
+    }
+
+    // Handle network errors and other fetch failures
+    if (error.name === 'TypeError' && error.message.includes('fetch')) {
+      throw new HttpError('Network error: Unable to connect to Google API', 502);
+    }
+
+    // Handle other unexpected errors
+    throw new HttpError(`Unexpected error during API call: ${error.message}`, 500);
+  }
 }
 
 /**
@@ -137,19 +246,28 @@ export async function handleTTS(request, apiKey) {
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
 
-    // TODO: Implement Google Generative AI API call
-    // TODO: Implement audio processing and WAV file generation
+    // Call Google Generative AI API to generate audio
+    const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
+      model.trim(),
+      googleApiRequestBody,
+      apiKey
+    );
 
-    // For now, return success with constructed request body for testing
+    // TODO: Implement audio processing and WAV file generation
+    // For now, return the extracted audio data for testing
     return new Response(JSON.stringify({
-      message: 'TTS request body constructed successfully',
+      message: 'TTS audio generated successfully',
       parameters: {
         voiceName: voiceName.trim(),
         secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null,
         text: text.trim(),
         model: model.trim()
       },
-      googleApiRequestBody
+      audioData: {
+        mimeType,
+        sampleRate,
+        base64AudioLength: base64Audio.length
+      }
     }), fixCors({
       status: 200,
       headers: {
