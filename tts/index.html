@@ -83,6 +83,27 @@
             align-items: center;
             justify-content: center;
         }
+.sentence-container {
+            margin-top: 15px;
+            padding: 10px;
+            border: 1px solid #eee;
+            border-radius: 4px;
+            text-align: left; /* Align sentences to the left */
+            line-height: 1.8; /* For better readability of sentences */
+            max-height: 150px; /* Optional: if text is very long */
+            overflow-y: auto;  /* Optional: if text is very long */
+        }
+        .sentence-container span.sentence-segment { /* Class for individual sentence spans */
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+            padding: 2px 4px;
+            margin-right: 4px; /* Space after each sentence */
+            border-radius: 3px;
+            display: inline; /* Keep sentences flowing like text */
+        }
+        .sentence-container span.sentence-segment.playing {
+            background-color: #007bff; /* Highlight color */
+            color: white;
+        }
     </style>
 </head>
 <body>
@@ -123,7 +144,7 @@
         </select>
         <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
         <button id="speakButton">Speak</button>
-        <a id="downloadButton" download="audio.opus" style="display: none;">
+        <div id="sentenceDisplayContainer" class="sentence-container"></div> <a id="downloadButton" download="audio.opus" style="display: none;">
             <button>Download Opus</button>
         </a>
         <div id="loadingIndicator" style="display: none;">
@@ -160,103 +181,72 @@
             const downloadButtonLink = document.getElementById('downloadButton');
             const speakButton = document.getElementById('speakButton');
             const loadingIndicator = document.getElementById('loadingIndicator');
+            
+            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
+            sentenceDisplayContainer.innerHTML = ''; 
+            let sentenceSpanElements = []; 
 
             messageDiv.textContent = '';
-            downloadButtonLink.style.display = 'none'; // Hide download button until audio is ready
-            downloadButtonLink.href = ''; // Clear previous download link
+            downloadButtonLink.style.display = 'none';
+            downloadButtonLink.href = '';
 
-            speakButton.disabled = true; // Disable button
-            loadingIndicator.style.display = 'block'; // Show loading indicator
+            speakButton.disabled = true;
+            loadingIndicator.style.display = 'flex'; 
 
             if (!text || !apiKey) {
                 messageDiv.textContent = 'Please enter text and your API Key.';
-                speakButton.disabled = false; // Re-enable button
-                loadingIndicator.style.display = 'none'; // Hide loading indicator
+                speakButton.disabled = false;
+                loadingIndicator.style.display = 'none';
+                return;
+            }
+             if (!window.ORCHESTRATOR_WORKER_URL) {
+                messageDiv.textContent = 'Error: Orchestrator worker URL is not configured.';
+                speakButton.disabled = false;
+                loadingIndicator.style.display = 'none';
                 return;
             }
 
-            // Save API key to local storage
             localStorage.setItem('apiKey', apiKey);
 
+            let audioContext; 
+            let mediaRecorder; 
+
             try {
-                // Fetch PCM for playback (prioritized)
-                // Function to split text into sentences
                 const splitIntoSentences = (text) => {
-                    // This regex splits by periods, question marks, exclamation marks, optionally followed by quotes or parentheses,
-                    // and then whitespace. It tries to keep ellipses and common abbreviations together.
                     return text.match(/[^.!?]+[.!?]*|[\w\s,"]+(?=\.\.\.)|\b(?:Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|etc|e\.g|i\.e)\.|\d+\.\d+|\S+/g)
-                               .filter(sentence => sentence.trim().length > 0);
+                               ?.filter(sentence => sentence.trim().length > 0) || [];
                 };
 
                 const sentences = splitIntoSentences(text);
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const sampleRate = 24000;
-                const numChannels = 1;
-                let totalFrameCount = 0;
-                let allPcmBytes = [];
 
-                // Fetch PCM for each sentence in parallel
-                const fetchPromises = sentences.map(async (sentence) => {
-                    const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiKey}`
-                        },
-                        body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                if (sentences.length > 0) {
+                    sentences.forEach((sentenceText, index) => {
+                        const span = document.createElement('span');
+                        span.textContent = sentenceText; 
+                        span.id = `sentence-tts-${index}`; 
+                        span.className = 'sentence-segment'; 
+                        sentenceDisplayContainer.appendChild(span);
+                        sentenceDisplayContainer.appendChild(document.createTextNode(" ")); 
+                        sentenceSpanElements.push(span);
                     });
-
-                    if (!pcmResponse.ok) {
-                        const errorText = await pcmResponse.text();
-                        throw new Error(`HTTP error! status: ${pcmResponse.status}, message: ${errorText}`);
-                    }
-
-                    const pcmData = await pcmResponse.json();
-                    const pcmAudioContentBase64 = pcmData.audioContentBase64;
-
-                    if (!pcmAudioContentBase64) {
-                        throw new Error(`No PCM audio content received for sentence: "${sentence}"`);
-                    }
-
-                    const pcmBinaryString = atob(pcmAudioContentBase64);
-                    const pcmLen = pcmBinaryString.length;
-                    const pcmBytes = new Uint8Array(pcmLen);
-                    for (let i = 0; i < pcmLen; i++) {
-                        pcmBytes[i] = pcmBinaryString.charCodeAt(i);
-                    }
-                    totalFrameCount += pcmBytes.byteLength / (2 * numChannels);
-                    return pcmBytes;
-                });
-
-                const results = await Promise.all(fetchPromises);
-
-                // Concatenate all PCM bytes
-                const concatenatedPcmBytes = new Uint8Array(totalFrameCount * 2 * numChannels); // 2 bytes per sample (L16)
-                let offset = 0;
-                results.forEach(pcmBytes => {
-                    concatenatedPcmBytes.set(pcmBytes, offset);
-                    offset += pcmBytes.length;
-                });
-
-                // Web Audio API for Raw PCM Playback and MediaRecorder setup
-                const audioBuffer = audioContext.createBuffer(numChannels, totalFrameCount, sampleRate);
-                const nowBuffering = audioBuffer.getChannelData(0);
-
-                const dataView = new DataView(concatenatedPcmBytes.buffer);
-                for (let i = 0; i < totalFrameCount; i++) {
-                    let int16Sample = dataView.getInt16(i * 2, true); // true for little-endian
-                    nowBuffering[i] = int16Sample / 32768.0; // Normalize to -1 to 1 range
+                } else {
+                    messageDiv.textContent = 'No text to synthesize.';
+                    speakButton.disabled = false;
+                    loadingIndicator.style.display = 'none';
+                    return;
                 }
 
-                const source = audioContext.createBufferSource();
-                source.buffer = audioBuffer;
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const sampleRate = 24000; 
+                const numChannels = 1;    
 
                 const dest = audioContext.createMediaStreamDestination();
-                source.connect(dest);
-                source.connect(audioContext.destination);
+                const speakerPlaybackNode = audioContext.createGain(); 
+                speakerPlaybackNode.gain.value = 1; 
+                speakerPlaybackNode.connect(audioContext.destination);
 
                 let recordedChunks = [];
-                const mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/ogg; codecs=opus' });
+                mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/ogg; codecs=opus' });
 
                 mediaRecorder.ondataavailable = event => {
                     if (event.data.size > 0) {
@@ -268,29 +258,163 @@
                     const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
                     const opusUrl = URL.createObjectURL(opusBlob);
                     downloadButtonLink.href = opusUrl;
-                    downloadButtonLink.style.display = 'block';
+                    downloadButtonLink.style.display = 'block'; 
                     recordedChunks = [];
+                    if (audioContext && audioContext.state !== 'closed') {
+                        audioContext.close().catch(e => console.error("Error closing AudioContext (onstop):", e));
+                    }
                 };
 
                 mediaRecorder.onerror = (event) => {
                     console.error('MediaRecorder error:', event.error);
                     messageDiv.textContent = `Error recording audio: ${event.error.name}`;
                     downloadButtonLink.style.display = 'none';
+                    if (audioContext && audioContext.state !== 'closed') {
+                        audioContext.close().catch(e => console.error("Error closing AudioContext (onerror):", e));
+                    }
+                };
+                
+                mediaRecorder.start();
+
+                let scheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
+
+                // --- OPTIMIZATION: Limit parallel requests ---
+                const MAX_CONCURRENT_REQUESTS = 4;
+                let activeRequests = 0;
+                const resultsInOrder = new Array(sentences.length);
+
+                // Function to fetch a single sentence
+                const fetchSentence = async (sentence, index) => {
+                    try {
+                        const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                        });
+                        if (!pcmResponse.ok) {
+                            const errorText = await pcmResponse.text();
+                            console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${pcmResponse.status}, message: ${errorText}`);
+                            return { error: `Failed to fetch sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+                        }
+                        const pcmData = await pcmResponse.json();
+                        const pcmAudioContentBase64 = pcmData.audioContentBase64;
+                        if (!pcmAudioContentBase64) {
+                             console.error(`No PCM audio content received for sentence ${index + 1} ("${sentence.trim()}")`);
+                            return { error: `No audio for sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+                        }
+                        const pcmBinaryString = atob(pcmAudioContentBase64);
+                        const pcmLen = pcmBinaryString.length;
+                        const pcmBytes = new Uint8Array(pcmLen);
+                        for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
+                        return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
+                    } catch (e) {
+                        console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
+                        return { error: `Exception for sentence ${index + 1}: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+                    }
                 };
 
-                source.start();
-                mediaRecorder.start();
-                
-                source.onended = () => {
-                    mediaRecorder.stop(); 
+                // Concurrency management
+                let currentIndex = 0;
+                const processNext = async () => {
+                    if (currentIndex >= sentences.length) {
+                        if (activeRequests === 0) playAudioInOrder(); // All done
+                        return;
+                    }
+                    const taskIndex = currentIndex++;
+                    activeRequests++;
+                    resultsInOrder[taskIndex] = await fetchSentence(sentences[taskIndex], taskIndex);
+                    activeRequests--;
+                    processNext();
                 };
+
+                for (let i = 0; i < Math.min(MAX_CONCURRENT_REQUESTS, sentences.length); i++) {
+                    processNext();
+                }
+
+                // Function to play audio in the correct order once all fetches (or a batch) are done
+                const playAudioInOrder = async () => {
+                    let hasSuccessfullyProcessedAnySentence = false;
+                    for (let i = 0; i < sentences.length; i++) {
+                        const result = resultsInOrder[i];
+
+                        if (!result || result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
+                            messageDiv.textContent += `\nSkipping sentence ("${result ? result.sentenceText : sentences[i]}") due to error: ${result ? (result.error || 'No audio data') : 'Fetch error'}.`;
+                            continue;
+                        }
+                        
+                        hasSuccessfullyProcessedAnySentence = true;
+                        const { pcmBytes, originalIndex } = result; 
+                        const frameCount = pcmBytes.byteLength / (2 * numChannels);
+                        const sentenceAudioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
+                        const nowBuffering = sentenceAudioBuffer.getChannelData(0);
+                        const dataView = new DataView(pcmBytes.buffer);
+                        for (let j = 0; j < frameCount; j++) {
+                            let int16Sample = dataView.getInt16(j * 2, true);
+                            nowBuffering[j] = int16Sample / 32768.0;
+                        }
+
+                        const source = audioContext.createBufferSource();
+                        source.buffer = sentenceAudioBuffer;
+
+                        const sentenceSpan = sentenceSpanElements[originalIndex]; 
+                        if (sentenceSpan) {
+                            const sourceScheduledStartTime = scheduleTime;
+                            const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
+
+                            setTimeout(() => {
+                                sentenceSpanElements.forEach(sp => sp.classList.remove('playing')); 
+                                sentenceSpan.classList.add('playing');
+                            }, startHighlightDelay);
+
+                            source.onended = () => {
+                                sentenceSpan.classList.remove('playing');
+                            };
+                        }
+
+                        source.connect(dest);
+                        source.connect(speakerPlaybackNode);
+
+                        if (audioContext.currentTime > scheduleTime) {
+                            scheduleTime = audioContext.currentTime;
+                        }
+                        
+                        source.start(scheduleTime);
+                        scheduleTime += sentenceAudioBuffer.duration; 
+                    }
+
+                    if (!hasSuccessfullyProcessedAnySentence && sentences.length > 0) {
+                        messageDiv.textContent = 'No sentences could be processed successfully.';
+                         if (mediaRecorder.state === "recording") {
+                            mediaRecorder.stop(); 
+                        }
+                        return; 
+                    }
+                    
+                    const timeToWaitMs = (scheduleTime - audioContext.currentTime) * 1000 + 200; 
+
+                    setTimeout(() => {
+                        if (mediaRecorder && mediaRecorder.state === "recording") {
+                            mediaRecorder.stop();
+                        }
+                    }, Math.max(0, timeToWaitMs)); 
+                };
+
 
             } catch (error) {
                 console.error('Error:', error);
                 messageDiv.textContent = `Failed to generate speech: ${error.message}`;
+                if (mediaRecorder && mediaRecorder.state === "recording") {
+                    mediaRecorder.stop(); 
+                }
+                if (audioContext && audioContext.state !== 'closed') {
+                   audioContext.close().catch(e => console.error("Error closing AudioContext (catch):", e));
+                }
             } finally {
-                speakButton.disabled = false; // Re-enable button
-                loadingIndicator.style.display = 'none'; // Hide loading indicator
+                speakButton.disabled = false;
+                loadingIndicator.style.display = 'none';
             }
         });
     </script>
