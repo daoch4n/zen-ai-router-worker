@@ -223,6 +223,28 @@
 
     /* Darker text for yellow */
     /* --- END MODIFICATION: Toast Notification Styles --- */
+
+    /* New styles for highlighting */
+    .text-display-area {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+      text-align: left;
+      line-height: 1.6;
+      font-size: 1.1em;
+      color: #333;
+      display: none; /* Hidden by default, shown when text is entered */
+    }
+
+    .highlighted-word {
+      background-color: #a8d9ff; /* Light blue background for highlighting */
+      border-radius: 3px;
+      padding: 2px 4px;
+      margin: 0 -4px; /* Adjust margin to prevent gap between words */
+      transition: background-color 0.2s ease;
+    }
   </style>
 </head>
 
@@ -276,17 +298,26 @@
     </div>
     <div id="message" class="message"></div>
     <div id="toastContainer" class="toast-container"></div>
+    <!-- New section for displaying text and highlighting -->
+    <div id="textDisplayArea" class="text-display-area"></div>
   </div>
 
-  <script>
-    window.ORCHESTRATOR_WORKER_URL = ''; // Ensure this is configured
-    const SENTENCE_FETCH_TIMEOUT_MS = 15000;
-    const FIRST_SENTENCE_TIMEOUT_MS = 20000;
+  <script type="module">
+    import { setupTTSClient } from './ttsClient.mjs';
+
+    // This should be configured at deployment, e.g., by a build process or environment variable
+    // For local testing, you might hardcode it or use a simple config mechanism.
+    const ORCHESTRATOR_WORKER_URL = 'http://localhost:8787'; // Example URL
+
+    const { connectToEventSource, showToast } = setupTTSClient(ORCHESTRATOR_WORKER_URL);
 
     document.addEventListener('DOMContentLoaded', () => {
       const apiKeyInput = document.getElementById('apiKeyInput');
       const settingsCog = document.getElementById('settingsCog');
       const storedApiKey = localStorage.getItem('apiKey');
+      const textInput = document.getElementById('textInput');
+      const textDisplayArea = document.getElementById('textDisplayArea');
+
 
       if (storedApiKey) {
         apiKeyInput.value = storedApiKey;
@@ -330,265 +361,54 @@
       document.getElementById('voiceIdInput').addEventListener('change', (event) => {
         localStorage.setItem('voiceId', event.target.value);
       });
-    });
 
-    function showToast(message, type = 'info', duration = 4000) {
-      const toastContainer = document.getElementById('toastContainer');
-      const messageDiv = document.getElementById('message'); // Fallback
+      document.getElementById('speakButton').addEventListener('click', async () => {
+        const text = textInput.value;
+        const voiceId = document.getElementById('voiceIdInput').value;
+        const apiKey = document.getElementById('apiKeyInput').value;
+        const messageDiv = document.getElementById('message');
+        const downloadButtonLink = document.getElementById('downloadButton');
+        const speakButton = document.getElementById('speakButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
 
-      if (!toastContainer) {
-        if (messageDiv) {
-          messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
-          messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
+        messageDiv.textContent = '';
+        downloadButtonLink.style.display = 'none';
+        downloadButtonLink.href = '';
+        speakButton.disabled = true;
+        loadingIndicator.style.display = 'flex';
+        textDisplayArea.style.display = 'none'; // Hide text display initially
+
+        if (!text || !apiKey) {
+          showToast('Please enter text and API Key.', 'error');
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          return;
         }
-        console.warn("Toast container not found. Using fallback message div.");
-        return;
-      }
-
-      const toast = document.createElement('div');
-      toast.className = `toast toast-${type}`;
-      toast.textContent = message;
-      toastContainer.appendChild(toast);
-
-      setTimeout(() => toast.classList.add('show'), 10);
-
-      setTimeout(() => {
-        toast.classList.remove('show');
-        toast.addEventListener('transitionend', () => toast.remove(), { once: true });
-      }, duration);
-    }
-
-    document.getElementById('speakButton').addEventListener('click', async () => {
-      const text = document.getElementById('textInput').value;
-      const voiceId = document.getElementById('voiceIdInput').value;
-      const apiKey = document.getElementById('apiKeyInput').value;
-      const messageDiv = document.getElementById('message');
-      const downloadButtonLink = document.getElementById('downloadButton');
-      const speakButton = document.getElementById('speakButton');
-      const loadingIndicator = document.getElementById('loadingIndicator');
-
-      messageDiv.textContent = '';
-      downloadButtonLink.style.display = 'none';
-      downloadButtonLink.href = '';
-      speakButton.disabled = true;
-      loadingIndicator.style.display = 'flex';
-
-      if (!text || !apiKey) {
-        showToast('Please enter text and API Key.', 'error');
-        speakButton.disabled = false;
-        loadingIndicator.style.display = 'none';
-        return;
-      }
-      if (!window.ORCHESTRATOR_WORKER_URL) {
-        showToast('Error: Orchestrator URL not configured.', 'error');
-        speakButton.disabled = false;
-        loadingIndicator.style.display = 'none';
-        return;
-      }
-
-      localStorage.setItem('apiKey', apiKey);
-
-      try {
-        showToast("TTS request sent to orchestrator. Awaiting stream...", 'info');
-
-        let audioContext;
-        let audioQueue = [];
-        let currentSource = null;
-        let playStartTime = 0;
-        let lastPlayedIndex = -1;
-        let cumulativeAudioDuration = 0;
-        let connectionErrorOccurred = false;
-        let fullAudioBuffers = []; // Array to store all decoded audio buffers for reconstruction
-
-        const connectToEventSource = () => {
-          const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}`;
-          const eventSource = new EventSource(sseUrl, {
-            headers: {
-              'Authorization': `Bearer ${apiKey}`
-            }
-          });
-
-          eventSource.onopen = () => {
-            console.log('SSE connection opened.');
-            showToast('SSE stream connected.', 'success');
-            // Ensure audioContext is initialized only after user gesture (e.g., button click)
-            if (!audioContext) {
-              audioContext = new (window.AudioContext || window.webkitAudioContext)();
-            }
-          };
-
-          eventSource.onmessage = async (event) => {
-            const data = JSON.parse(event.data);
-            if (data.error) {
-              console.error('SSE Error:', data.error);
-              showToast(`Stream Error: ${data.error.message || 'Unknown error'}`, 'error');
-              connectionErrorOccurred = true;
-              eventSource.close();
-              return;
-            }
-
-            const audioChunk = data.audioChunk;
-            const index = data.index;
-            const mimeType = data.mimeType;
-
-            if (audioChunk && audioContext) {
-              try {
-                const audioData = Uint8Array.from(atob(audioChunk), c => c.charCodeAt(0));
-                const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
-
-                fullAudioBuffers.push({ buffer: audioBuffer, index: index }); // Store for reconstruction
-
-                audioQueue.push({ buffer: audioBuffer, index: index });
-                audioQueue.sort((a, b) => a.index - b.index); // Ensure correct order
-
-                if (!currentSource || (audioContext.currentTime >= cumulativeAudioDuration + audioContext.baseLatency && lastPlayedIndex < index)) {
-                  playNextChunk();
-                }
-
-              } catch (e) {
-                console.error('Error decoding audio data:', e);
-                showToast(`Audio Error: ${e.message}`, 'error');
-              }
-            }
-          };
-
-          eventSource.addEventListener('end', async () => {
-            console.log('SSE stream ended.');
-            showToast('Audio stream completed.', 'success');
-            eventSource.close();
-            
-            // Reconstruct full audio and enable download
-            if (fullAudioBuffers.length > 0 && audioContext) {
-              // Sort by index to ensure correct order
-              fullAudioBuffers.sort((a, b) => a.index - b.index);
-
-              const totalLength = fullAudioBuffers.reduce((sum, chunk) => sum + chunk.buffer.length, 0);
-              const outputBuffer = audioContext.createBuffer(
-                fullAudioBuffers[0].buffer.numberOfChannels,
-                totalLength,
-                fullAudioBuffers[0].buffer.sampleRate
-              );
-
-              let offset = 0;
-              for (const chunk of fullAudioBuffers) {
-                for (let i = 0; i < chunk.buffer.numberOfChannels; i++) {
-                  outputBuffer.copyToChannel(chunk.buffer.getChannelData(i), i, offset);
-                }
-                offset += chunk.buffer.length;
-              }
-
-              // Encode to WAV
-              const wavBlob = bufferToWave(outputBuffer, outputBuffer.length);
-              downloadButtonLink.href = URL.createObjectURL(wavBlob);
-              downloadButtonLink.style.display = 'block'; // Show download button
-            }
-
-            speakButton.disabled = false;
-            loadingIndicator.style.display = 'none';
-          });
-
-          eventSource.onerror = (error) => {
-            console.error('SSE Error:', error);
-            if (!connectionErrorOccurred) { // Avoid showing multiple error toasts for the same connection issue
-              showToast('SSE connection error. Please try again.', 'error');
-              connectionErrorOccurred = true;
-            }
-            eventSource.close();
-            speakButton.disabled = false;
-            loadingIndicator.style.display = 'none';
-          };
-        };
-
-        const playNextChunk = () => {
-          if (audioQueue.length > 0) {
-            const { buffer, index } = audioQueue.shift();
-
-            const source = audioContext.createBufferSource();
-            source.buffer = buffer;
-            source.connect(audioContext.destination);
-
-            let scheduledTime = cumulativeAudioDuration;
-            if (scheduledTime < audioContext.currentTime) {
-              scheduledTime = audioContext.currentTime; // Play immediately if behind
-            }
-
-            source.start(scheduledTime);
-            currentSource = source;
-            lastPlayedIndex = index;
-            cumulativeAudioDuration += buffer.duration;
-
-            source.onended = () => {
-              if (audioQueue.length > 0) {
-                playNextChunk();
-              } else {
-                currentSource = null; // No more chunks in queue
-              }
-            };
-          }
-        };
-
-        // Function to convert AudioBuffer to WAV Blob (from https://stackoverflow.com/questions/21350862/how-to-save-audiobuffer-to-wav-file)
-        function bufferToWave(abuffer, len) {
-          var numOfChan = abuffer.numberOfChannels,
-              length = len * numOfChan * 2 + 44,
-              buffer = new ArrayBuffer(length),
-              view = new DataView(buffer),
-              channels = [], i, sample,
-              offset = 0,
-              pos = 0;
-
-          // write WAV header
-          setUint32(0x46464952); // "RIFF"
-          setUint32(length - 8); // file length - 8
-          setUint32(0x45564157); // "WAVE"
-
-          setUint32(0x20746d66); // "fmt " chunk
-          setUint32(16); // length = 16
-          setUint16(1); // PCM (uncompressed)
-          setUint16(numOfChan);
-          setUint32(abuffer.sampleRate);
-          setUint32(abuffer.sampleRate * numOfChan * 2); // avg. bytes/sec
-          setUint16(numOfChan * 2); // block-align
-          setUint16(16); // 16-bit (each sample uses 2 bytes)
-
-          setUint32(0x61746164); // "data" chunk
-          setUint32(length - pos - 4); // chunk length
-
-          // write interleaved 16-bit samples
-          for (i = 0; i < abuffer.numberOfChannels; i++)
-            channels.push(abuffer.getChannelData(i));
-
-          while (pos < length) {
-            for (i = 0; i < numOfChan; i++) { // interleave channels
-              sample = Math.max(-1, Math.min(1, channels[i][offset])); // clamp
-              sample = (0.5 + sample < 0 ? sample * 32768 : sample * 32767) | 0; // scale to 16-bit signed int
-              view.setInt16(pos, sample, true); // write 16-bit sample
-              pos += 2;
-            }
-            offset++ // next source sample
-          }
-
-          return new Blob([buffer], { type: 'audio/wav' });
-
-          function setUint16(data) {
-            view.setUint16(pos, data, true);
-            pos += 2;
-          }
-
-          function setUint32(data) {
-            view.setUint32(pos, data, true);
-            pos += 4;
-          }
+        if (!window.ORCHESTRATOR_WORKER_URL) {
+          showToast('Error: Orchestrator URL not configured.', 'error');
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          return;
         }
 
-        connectToEventSource();
-      } catch (error) {
-        console.error('TTS Request Error:', error);
-        showToast(`Error: ${error.message}`, 'error');
-      } finally {
-        speakButton.disabled = false;
-        loadingIndicator.style.display = 'none';
-      }
+        localStorage.setItem('apiKey', apiKey);
+
+        // Prepare text for highlighting
+        textDisplayArea.innerHTML = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
+            return word.match(/\b(\w+)\b/) ? `<span data-word-index="${index}">${word}</span>` : word;
+        }).join('');
+        textDisplayArea.style.display = 'block'; // Show text display
+
+        try {
+          await connectToEventSource(text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, textDisplayArea);
+        } catch (error) {
+          console.error('TTS Request Error:', error);
+          showToast(`Error: ${error.message}`, 'error');
+        } finally {
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+        }
+      });
     });
   </script>
 </body>
