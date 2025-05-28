@@ -169,7 +169,7 @@
         .toast.toast-info { background-color: #17a2b8; }
         .toast.toast-success { background-color: #28a745; }
         .toast.toast-error { background-color: #dc3545; }
-        .toast.toast-warning { background-color: #ffc107; color: #212529; } /* Darker text for yellow */
+        .toast.toast-warning { background-color: #ffc107; color: #212549; } /* Darker text for yellow */
         /* --- END MODIFICATION: Toast Notification Styles --- */
 
         .sentence-container {
@@ -426,11 +426,13 @@
 
             localStorage.setItem('apiKey', apiKey);
             let audioContext; 
+            let audioDestinationNode; // For connecting sources before MediaRecorder if needed
             let mediaRecorder; 
+
             try {
                 const splitIntoSentences = (text) => {
                     return text.match(/[^.!?]+[.!?]*|[\w\s,"]+(?=\.\.\.)|\b(?:Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|etc|e\.g|i\.e)\.|\d+\.\d+|\S+/g)
-                               ?.filter(sentence => sentence.trim().length > 0) || [];
+                                ?.filter(sentence => sentence.trim().length > 0) || [];
                 };
 
                 const sentences = splitIntoSentences(text);
@@ -467,14 +469,15 @@
                 audioContext = new (window.AudioContext || window.webkitAudioContext)();
                 const sampleRate = 24000; 
                 const numChannels = 1;    
-
-                const dest = audioContext.createMediaStreamDestination();
+                
+                audioDestinationNode = audioContext.createMediaStreamDestination();
                 const speakerPlaybackNode = audioContext.createGain(); 
                 speakerPlaybackNode.gain.value = 1; 
-                speakerPlaybackNode.connect(audioContext.destination);
+                speakerPlaybackNode.connect(audioContext.destination); // For live playback
+                speakerPlaybackNode.connect(audioDestinationNode); // For recording
 
                 let recordedChunks = [];
-                mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/ogg; codecs=opus' });
+                mediaRecorder = new MediaRecorder(audioDestinationNode.stream, { mimeType: 'audio/ogg; codecs=opus' });
 
                 mediaRecorder.ondataavailable = event => {
                     if (event.data.size > 0) {
@@ -489,9 +492,9 @@
                     downloadButtonLink.style.display = 'block'; 
                     recordedChunks = [];
                     if (audioContext && audioContext.state !== 'closed') {
-                        audioContext.close().catch(e => console.error("Error closing AudioContext (onstop):", e));
+                         // audioContext.close().catch(e => console.error("AudioContext close error:", e)); // Don't close immediately, let it run
                     }
-                    if (recordedChunks.length > 0 || opusBlob.size > 0) { // Check if blob has content
+                    if (opusBlob.size > 0) { 
                         showToast("Speech generation complete.", 'success');
                     }
                 };
@@ -501,17 +504,21 @@
                     showToast(`Error recording audio: ${event.error.name}`, 'error');
                     downloadButtonLink.style.display = 'none';
                     if (audioContext && audioContext.state !== 'closed') {
-                        audioContext.close().catch(e => console.error("Error closing AudioContext (onerror):", e));
+                       // audioContext.close().catch(e => console.error("AudioContext close error:", e)); // Don't close immediately
                     }
                 };
                 
                 mediaRecorder.start();
 
-                let scheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
+                let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
+                let currentSentencePlayIndex = 0;
+                let allSentencesProcessedForPlayback = false;
+                const FIRST_SENTENCE_TIMEOUT_MS = 8000; // 8 seconds timeout for the first sentence
+                let firstSentenceTimeoutId = null;
 
                 const MAX_CONCURRENT_REQUESTS = 4;
-                let activeRequests = 0; // Ensure this is reset for each speakButton click
-                const resultsInOrder = new Array(sentences.length);
+                let activeFetchCount = 0; 
+                const resultsInOrder = new Array(sentences.length).fill(null);
 
                 const fetchSentence = async (sentence, index) => {
                     const spanElement = sentenceSpanElements[index];
@@ -552,121 +559,163 @@
                     }
                 };
 
-                let currentIndex = 0;
-                const processNext = async () => {
-                    if (currentIndex >= sentences.length) {
-                        if (activeRequests === 0) {
-                            sentenceSpanElements.forEach(span => {
-                                if (span.classList.contains('cipher-fetching')) { 
-                                    stopSentenceCipher(span);
+                function tryPlayNextReadySentence() {
+                    if (currentSentencePlayIndex >= sentences.length) {
+                        if (!mediaRecorder.state === "inactive") {
+                             // All played or skipped, ensure recorder stops after a short delay for the last audio chunk
+                            setTimeout(() => {
+                                if (mediaRecorder && mediaRecorder.state === "recording") {
+                                    mediaRecorder.stop();
                                 }
-                            });
-                            playAudioInOrder(); 
+                            }, 500); // Adjust delay as needed
                         }
+                        allSentencesProcessedForPlayback = true;
                         return;
                     }
-                    const taskIndex = currentIndex++;
-                    activeRequests++;
-                    resultsInOrder[taskIndex] = await fetchSentence(sentences[taskIndex], taskIndex);
-                    activeRequests--;
-                    processNext();
-                };
 
-                for (let i = 0; i < Math.min(MAX_CONCURRENT_REQUESTS, sentences.length); i++) {
-                    processNext();
-                }
+                    const result = resultsInOrder[currentSentencePlayIndex];
 
-                const playAudioInOrder = async () => {
-                    let hasSuccessfullyProcessedAnySentence = false;
-                    let errorMessages = [];
+                    if (result) { // Data (or error) for this sentence is available
+                        if (currentSentencePlayIndex === 0 && firstSentenceTimeoutId) {
+                            clearTimeout(firstSentenceTimeoutId); // First sentence data arrived
+                            firstSentenceTimeoutId = null;
+                        }
 
-                    for (let i = 0; i < sentences.length; i++) {
-                        const result = resultsInOrder[i];
-
-                        if (!result || result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
-                            errorMessages.push(`Skipping sentence ("${result ? result.sentenceText : sentences[i]}") due to error: ${result ? (result.error || 'No audio data') : 'Fetch error'}.`);
-                            const errorSpan = sentenceSpanElements[i];
-                            if(errorSpan) errorSpan.style.textDecoration = 'line-through wavy red'; // Mark errored sentences
-                            continue;
+                        const sentenceSpan = sentenceSpanElements[currentSentencePlayIndex];
+                        if (result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
+                            showToast(`Skipping: ${result.sentenceText.substring(0,20)}... (Error: ${result.error || 'No audio data'})`, 'warning', 2000);
+                            if(sentenceSpan) sentenceSpan.style.textDecoration = 'line-through wavy red';
+                            currentSentencePlayIndex++;
+                            tryPlayNextReadySentence(); // Immediately try next
+                            return;
                         }
                         
-                        hasSuccessfullyProcessedAnySentence = true;
-                        const { pcmBytes, originalIndex } = result; 
+                        const { pcmBytes, originalIndex } = result;
                         const frameCount = pcmBytes.byteLength / (2 * numChannels);
                         const sentenceAudioBuffer = audioContext.createBuffer(numChannels, frameCount, sampleRate);
                         const nowBuffering = sentenceAudioBuffer.getChannelData(0);
                         const dataView = new DataView(pcmBytes.buffer);
                         for (let j = 0; j < frameCount; j++) {
-                            let int16Sample = dataView.getInt16(j * 2, true);
-                            nowBuffering[j] = int16Sample / 32768.0;
+                            nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0;
                         }
 
                         const source = audioContext.createBufferSource();
                         source.buffer = sentenceAudioBuffer;
 
-                        const sentenceSpan = sentenceSpanElements[originalIndex]; 
                         if (sentenceSpan) {
-                            const sourceScheduledStartTime = scheduleTime;
+                            const sourceScheduledStartTime = globalScheduleTime;
                             const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
-
                             setTimeout(() => {
-                                sentenceSpanElements.forEach(sp => sp.classList.remove('playing')); 
+                                sentenceSpanElements.forEach(sp => sp.classList.remove('playing'));
                                 sentenceSpan.classList.add('playing');
                             }, startHighlightDelay);
 
                             source.onended = () => {
                                 sentenceSpan.classList.remove('playing');
-                                sentenceSpan.style.transform = ''; 
+                                sentenceSpan.style.transform = '';
                                 sentenceSpan.style.boxShadow = '';
+                                currentSentencePlayIndex++;
+                                tryPlayNextReadySentence(); // Play next sentence
+                            };
+                        } else { // Should not happen if sentenceSpanElements is populated correctly
+                             source.onended = () => {
+                                currentSentencePlayIndex++;
+                                tryPlayNextReadySentence();
                             };
                         }
-
-                        source.connect(dest);
-                        source.connect(speakerPlaybackNode);
-
-                        if (audioContext.currentTime > scheduleTime) {
-                            scheduleTime = audioContext.currentTime;
-                        }
                         
-                        source.start(scheduleTime);
-                        scheduleTime += sentenceAudioBuffer.duration; 
-                    }
+                        source.connect(speakerPlaybackNode); // Already connected to dest for recorder
 
-                    if (errorMessages.length > 0) {
-                        if (errorMessages.length === 1) {
-                            showToast(errorMessages[0], 'warning', 5000);
-                        } else {
-                            showToast(`${errorMessages.length} sentences had errors. Check console for details.`, 'warning', 5000);
-                            errorMessages.forEach(errMsg => console.warn(errMsg));
+                        if (audioContext.currentTime > globalScheduleTime) {
+                            globalScheduleTime = audioContext.currentTime;
+                        }
+                        source.start(globalScheduleTime);
+                        globalScheduleTime += sentenceAudioBuffer.duration;
+                    } else {
+                        // Data for currentSentencePlayIndex not yet available.
+                        // If it's the first sentence and timeout hasn't passed, we wait.
+                        // Otherwise, this function will be called again when data arrives.
+                        if (currentSentencePlayIndex === 0 && !firstSentenceTimeoutId && !resultsInOrder[0]) {
+                           // This case means timeout already fired or first sentence processed.
+                           // If timeout fired and we are here, it implies an error, handled by timeout.
                         }
                     }
+                }
 
-                    if (!hasSuccessfullyProcessedAnySentence && sentences.length > 0) {
-                        showToast('No sentences could be processed successfully.', 'error');
-                         if (mediaRecorder.state === "recording") {
-                            mediaRecorder.stop(); 
-                        }
-                        return; 
+                // Start fetching and processing sentences
+                let fetchQueueIndex = 0;
+                async function launchNextFetch() {
+                    if (fetchQueueIndex >= sentences.length || activeFetchCount >= MAX_CONCURRENT_REQUESTS) {
+                        return;
                     }
-                    
-                    const timeToWaitMs = (scheduleTime - audioContext.currentTime) * 1000 + 200; 
+                    const currentIndexToFetch = fetchQueueIndex++;
+                    activeFetchCount++;
 
-                    setTimeout(() => {
-                        if (mediaRecorder && mediaRecorder.state === "recording") {
-                            mediaRecorder.stop();
+                    fetchSentence(sentences[currentIndexToFetch], currentIndexToFetch).then(result => {
+                        resultsInOrder[currentIndexToFetch] = result;
+                        if (currentIndexToFetch === 0 && firstSentenceTimeoutId && (!result || result.error)) {
+                            // First sentence failed before timeout, let timeout handler deal with it or try next
+                        } else if (currentIndexToFetch === 0 && firstSentenceTimeoutId) {
+                             clearTimeout(firstSentenceTimeoutId);
+                             firstSentenceTimeoutId = null;
                         }
-                    }, Math.max(0, timeToWaitMs)); 
-                };
+                        tryPlayNextReadySentence(); // Attempt to play if it's the current one needed
+                    }).catch(error => { // Should ideally be caught within fetchSentence
+                        resultsInOrder[currentIndexToFetch] = { error: error.message || "Fetch failed", pcmBytes: null, sentenceText: sentences[currentIndexToFetch], originalIndex: currentIndexToFetch };
+                        if (currentIndexToFetch === 0 && firstSentenceTimeoutId) {
+                            clearTimeout(firstSentenceTimeoutId);
+                            firstSentenceTimeoutId = null;
+                            showToast(`Failed to load first sentence: ${error.message}`, 'error');
+                            // Potentially stop media recorder or try to play next
+                        }
+                        tryPlayNextReadySentence();
+                    }).finally(() => {
+                        activeFetchCount--;
+                        if (!allSentencesProcessedForPlayback) {
+                           launchNextFetch(); // Launch another fetch if queue has items and capacity
+                        }
+                         if (fetchQueueIndex >= sentences.length && activeFetchCount === 0 && !allSentencesProcessedForPlayback) {
+                            // All fetches initiated and completed or failed.
+                            // Ensure playback attempts to finish any pending ready sentences.
+                            tryPlayNextReadySentence(); 
+                            // Final check to stop recorder if nothing more to play
+                            setTimeout(() => {
+                                if (currentSentencePlayIndex >= sentences.length && mediaRecorder && mediaRecorder.state === "recording") {
+                                    mediaRecorder.stop();
+                                }
+                            }, (globalScheduleTime - audioContext.currentTime + 0.5) * 1000);
+                        }
+                    });
+                }
 
-            } catch (error) {
-                console.error('Error:', error);
+                // Setup timeout for the first sentence
+                firstSentenceTimeoutId = setTimeout(() => {
+                    if (!resultsInOrder[0] || (resultsInOrder[0] && resultsInOrder[0].error)) { // If first sentence data hasn't arrived or is an error
+                        showToast("Timeout: First audio segment took too long to load.", 'error');
+                        firstSentenceTimeoutId = null; // Mark as timed out
+                        // If nothing has started playing, stop the recorder.
+                        if (currentSentencePlayIndex === 0 && mediaRecorder.state === "recording") {
+                           // To prevent empty recording
+                           // mediaRecorder.stop(); // Or let it run if subsequent sentences might still play
+                        }
+                        // Attempt to play the next available sentence if first one timed out
+                        currentSentencePlayIndex++; 
+                        tryPlayNextReadySentence();
+                    }
+                }, FIRST_SENTENCE_TIMEOUT_MS);
+
+                // Initial fetch calls
+                for (let i = 0; i < Math.min(MAX_CONCURRENT_REQUESTS, sentences.length); i++) {
+                    launchNextFetch();
+                }
+                // Initial attempt to play (especially for sentence 0)
+                // tryPlayNextReadySentence will be called as data arrives
+
+            } catch (error) { // Catch setup errors
+                console.error('General Error:', error);
                 showToast(`Error: ${error.message}`, 'error');
-                if (mediaRecorder && mediaRecorder.state === "recording") {
-                    mediaRecorder.stop(); 
-                }
-                if (audioContext && audioContext.state !== 'closed') {
-                   audioContext.close().catch(e => console.error("Error closing AudioContext (catch):", e));
-                }
+                if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+                if (audioContext && audioContext.state !== 'closed') audioContext.close().catch(e => console.error("AudioContext close error:", e));
             } finally {
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
