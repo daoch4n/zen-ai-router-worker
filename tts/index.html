@@ -141,6 +141,15 @@
             if (storedApiKey) {
                 document.getElementById('apiKeyInput').value = storedApiKey;
             }
+
+            const storedVoiceId = localStorage.getItem('voiceId');
+            if (storedVoiceId) {
+                document.getElementById('voiceIdInput').value = storedVoiceId;
+            }
+        });
+
+        document.getElementById('voiceIdInput').addEventListener('change', (event) => {
+            localStorage.setItem('voiceId', event.target.value);
         });
 
         document.getElementById('speakButton').addEventListener('click', async () => {
