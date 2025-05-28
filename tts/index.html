@@ -83,26 +83,46 @@
             align-items: center;
             justify-content: center;
         }
-.sentence-container {
+        .sentence-container {
             margin-top: 15px;
             padding: 10px;
             border: 1px solid #eee;
             border-radius: 4px;
-            text-align: left; /* Align sentences to the left */
-            line-height: 1.8; /* For better readability of sentences */
-            max-height: 150px; /* Optional: if text is very long */
-            overflow-y: auto;  /* Optional: if text is very long */
+            text-align: left; 
+            line-height: 1.8; 
+            max-height: 150px; 
+            overflow-y: auto;  
         }
-        .sentence-container span.sentence-segment { /* Class for individual sentence spans */
-            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out;
+        .sentence-container span.sentence-segment {
+            /* MODIFICATION: Base transition for multiple properties */
+            transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
             padding: 2px 4px;
-            margin-right: 4px; /* Space after each sentence */
+            margin-right: 4px; 
             border-radius: 3px;
-            display: inline; /* Keep sentences flowing like text */
+            display: inline; 
+            opacity: 0; /* MODIFICATION: Start transparent for fade-in */
+            border-right: 2px solid transparent; /* MODIFICATION: For temporary split visual */
         }
+        /* MODIFICATION: Class for initial visual split emphasis */
+        .sentence-segment.initial-split-visual {
+            border-right-color: #007bff;
+            margin-right: 6px; /* Slightly more margin when border is visible */
+            padding-right: 6px;
+        }
+
         .sentence-container span.sentence-segment.playing {
-            background-color: #007bff; /* Highlight color */
+            background-color: #007bff; 
             color: white;
+            /* MODIFICATION: Enhanced playing state */
+            transform: scale(1.03);
+            box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
+        }
+
+        /* MODIFICATION: Keyframes for fade-in */
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+            }
         }
     </style>
 </head>
@@ -156,7 +176,6 @@
     <script>
         window.ORCHESTRATOR_WORKER_URL = ''; // Placeholder for dynamic injection
 
-        // Load API key from local storage on page load
         document.addEventListener('DOMContentLoaded', () => {
             const storedApiKey = localStorage.getItem('apiKey');
             if (storedApiKey) {
@@ -225,10 +244,25 @@
                         span.textContent = sentenceText; 
                         span.id = `sentence-tts-${index}`; 
                         span.className = 'sentence-segment'; 
+                        // MODIFICATION: Add class for initial split visual and apply animation delay
+                        span.classList.add('initial-split-visual');
+                        span.style.animation = `fadeIn 0.5s ease-out forwards`;
+                        span.style.animationDelay = `${0.5 + index * 0.15}s`; // Delay fade-in after initial split visual
+
                         sentenceDisplayContainer.appendChild(span);
                         sentenceDisplayContainer.appendChild(document.createTextNode(" ")); 
                         sentenceSpanElements.push(span);
                     });
+
+                    // MODIFICATION: Briefly show visual splits, then remove the class to normalize appearance
+                    setTimeout(() => {
+                        sentenceSpanElements.forEach(span => {
+                            span.classList.remove('initial-split-visual');
+                            // Ensure opacity is set for the animation to take effect if it hasn't started
+                            // The animation itself will handle making it visible
+                        });
+                    }, 500); // Show emphasized splits for 0.5 seconds, then start fade-in
+
                 } else {
                     messageDiv.textContent = 'No text to synthesize.';
                     speakButton.disabled = false;
@@ -278,12 +312,10 @@
 
                 let scheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
 
-                // --- OPTIMIZATION: Limit parallel requests ---
                 const MAX_CONCURRENT_REQUESTS = 4;
                 let activeRequests = 0;
                 const resultsInOrder = new Array(sentences.length);
 
-                // Function to fetch a single sentence
                 const fetchSentence = async (sentence, index) => {
                     try {
                         const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
@@ -316,11 +348,10 @@
                     }
                 };
 
-                // Concurrency management
                 let currentIndex = 0;
                 const processNext = async () => {
                     if (currentIndex >= sentences.length) {
-                        if (activeRequests === 0) playAudioInOrder(); // All done
+                        if (activeRequests === 0) playAudioInOrder(); 
                         return;
                     }
                     const taskIndex = currentIndex++;
@@ -334,7 +365,6 @@
                     processNext();
                 }
 
-                // Function to play audio in the correct order once all fetches (or a batch) are done
                 const playAudioInOrder = async () => {
                     let hasSuccessfullyProcessedAnySentence = false;
                     for (let i = 0; i < sentences.length; i++) {
@@ -371,6 +401,9 @@
 
                             source.onended = () => {
                                 sentenceSpan.classList.remove('playing');
+                                // MODIFICATION: Reset transform and box-shadow after playing
+                                sentenceSpan.style.transform = ''; 
+                                sentenceSpan.style.boxShadow = '';
                             };
                         }
 
