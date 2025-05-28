@@ -103,7 +103,7 @@
         1,
         2
       ],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -111,7 +111,7 @@
           "description": "Implement logic to safely extract 'voiceName' and 'secondVoiceName' from the incoming request's URL query parameters. This includes handling cases where these parameters might be missing or malformed.",
           "dependencies": [],
           "details": "Focus on robust extraction and initial type coercion if necessary.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -119,7 +119,7 @@
           "description": "Implement logic to parse the incoming request's JSON body and extract the 'text' and 'model' fields. Ensure proper error handling for invalid JSON format or missing body.",
           "dependencies": [],
           "details": "Utilize appropriate middleware or parsing functions for JSON body processing.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -130,7 +130,7 @@
             2
           ],
           "details": "This step focuses solely on verifying the existence of the required data, not its content or format.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 4,
@@ -140,7 +140,7 @@
             3
           ],
           "details": "This step goes beyond presence checks to ensure data integrity and adherence to business rules.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 5,
@@ -151,7 +151,7 @@
             4
           ],
           "details": "Ensure the 'errorHandler' receives structured error information to generate consistent error responses.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

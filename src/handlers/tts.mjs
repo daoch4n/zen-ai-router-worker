@@ -16,37 +16,77 @@ import { errorHandler, HttpError } from '../utils/error.mjs';
  */
 export async function handleTTS(request, apiKey) {
   try {
-    // Initial placeholder implementation
-    // This will be expanded in subsequent tasks to include:
-    // - Request body and query parameter parsing
-    // - Google Generative AI API integration
-    // - Audio processing and WAV file generation
-
     // Verify apiKey is provided (should be handled by worker, but defensive check)
     if (!apiKey) {
       throw new HttpError("API key is required", 401);
     }
 
-    return new Response('TTS endpoint hit', fixCors({
-      status: 200,
-      headers: {
-        'Content-Type': 'text/plain'
-      }
-    }));
-  } catch (err) {
-    // Handle TTS-specific errors with consistent JSON error response format
-    console.error(err);
+    // Parse query parameters for voice configuration
+    const url = new URL(request.url);
+    const voiceName = url.searchParams.get('voiceName');
+    const secondVoiceName = url.searchParams.get('secondVoiceName');
+
+    // Parse JSON request body for text and model
+    let requestBody;
+    try {
+      requestBody = await request.json();
+    } catch (jsonError) {
+      throw new HttpError("Invalid JSON in request body", 400);
+    }
+
+    const { text, model } = requestBody;
+
+    // Validate required fields
+    if (!voiceName) {
+      throw new HttpError("voiceName query parameter is required", 400);
+    }
+
+    if (!text) {
+      throw new HttpError("text field is required in request body", 400);
+    }
+
+    if (!model) {
+      throw new HttpError("model field is required in request body", 400);
+    }
+
+    // Additional validation for non-empty strings
+    if (typeof text !== 'string' || text.trim().length === 0) {
+      throw new HttpError("text must be a non-empty string", 400);
+    }
+
+    if (typeof model !== 'string' || model.trim().length === 0) {
+      throw new HttpError("model must be a non-empty string", 400);
+    }
+
+    if (typeof voiceName !== 'string' || voiceName.trim().length === 0) {
+      throw new HttpError("voiceName must be a non-empty string", 400);
+    }
+
+    // Validate secondVoiceName if provided
+    if (secondVoiceName !== null && (typeof secondVoiceName !== 'string' || secondVoiceName.trim().length === 0)) {
+      throw new HttpError("secondVoiceName must be a non-empty string if provided", 400);
+    }
+
+    // TODO: Implement Google Generative AI API integration
+    // TODO: Implement audio processing and WAV file generation
+
+    // For now, return success with parsed parameters for testing
     return new Response(JSON.stringify({
-      error: {
-        message: err.message,
-        type: err.name || 'Error',
-        code: err.status || 500
+      message: 'TTS request parsed successfully',
+      parameters: {
+        voiceName: voiceName.trim(),
+        secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null,
+        text: text.trim(),
+        model: model.trim()
       }
     }), fixCors({
-      status: err.status ?? 500,
+      status: 200,
       headers: {
         'Content-Type': 'application/json'
       }
     }));
+  } catch (err) {
+    // Use centralized error handler for consistent error responses
+    return errorHandler(err, fixCors);
   }
 }
