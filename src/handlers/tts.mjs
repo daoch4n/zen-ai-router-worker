@@ -5,6 +5,7 @@
 import { fixCors } from '../utils/cors.mjs';
 import { errorHandler, HttpError } from '../utils/error.mjs';
 import { makeHeaders } from '../utils/auth.mjs';
+import { decodeBase64Audio, generateWavHeader } from '../utils/audio.mjs';
 import { BASE_URL, API_VERSION } from '../constants/index.mjs';
 
 /**
@@ -253,25 +254,25 @@ export async function handleTTS(request, apiKey) {
       apiKey
     );
 
-    // TODO: Implement audio processing and WAV file generation
-    // For now, return the extracted audio data for testing
-    return new Response(JSON.stringify({
-      message: 'TTS audio generated successfully',
-      parameters: {
-        voiceName: voiceName.trim(),
-        secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null,
-        text: text.trim(),
-        model: model.trim()
-      },
-      audioData: {
-        mimeType,
-        sampleRate,
-        base64AudioLength: base64Audio.length
-      }
-    }), fixCors({
+    // Decode base64 audio data to binary PCM data
+    const pcmAudioData = decodeBase64Audio(base64Audio);
+
+    // Calculate the length of PCM data for WAV header
+    const dataLength = pcmAudioData.length;
+
+    // Generate WAV header with parsed sample rate, mono channel, 16 bits per sample
+    const wavHeader = generateWavHeader(dataLength, sampleRate, 1, 16);
+
+    // Concatenate WAV header and PCM audio data
+    const wavFileData = new Uint8Array(wavHeader.length + pcmAudioData.length);
+    wavFileData.set(wavHeader, 0);
+    wavFileData.set(pcmAudioData, wavHeader.length);
+
+    // Return the complete WAV file as binary response
+    return new Response(wavFileData, fixCors({
       status: 200,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'audio/wav'
       }
     }));
   } catch (err) {

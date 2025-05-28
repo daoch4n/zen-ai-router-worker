@@ -52,23 +52,26 @@ describe('TTS Handler', () => {
       });
 
       const response = await handleTTS(request, mockApiKey);
-      const result = await response.json();
+      const wavData = await response.arrayBuffer();
 
       expect(response.status).toBe(200);
-      expect(result.message).toBe('TTS audio generated successfully');
-      expect(result.parameters).toEqual({
-        voiceName: 'en-US-Standard-A',
-        secondVoiceName: null,
-        text: 'Hello, world!',
-        model: 'gemini-2.0-flash-exp'
-      });
+      expect(response.headers.get('Content-Type')).toBe('audio/wav');
 
-      // Verify audio data extraction
-      expect(result.audioData).toEqual({
-        mimeType: 'audio/L16;rate=24000',
-        sampleRate: 24000,
-        base64AudioLength: 20 // Length of 'dGVzdC1hdWRpby1kYXRh'
-      });
+      // Verify WAV file structure
+      const wavBytes = new Uint8Array(wavData);
+      expect(wavBytes.length).toBeGreaterThan(44); // Should have header + audio data
+
+      // Check WAV header signature (RIFF)
+      expect(wavBytes[0]).toBe(0x52); // 'R'
+      expect(wavBytes[1]).toBe(0x49); // 'I'
+      expect(wavBytes[2]).toBe(0x46); // 'F'
+      expect(wavBytes[3]).toBe(0x46); // 'F'
+
+      // Check WAVE format signature
+      expect(wavBytes[8]).toBe(0x57);  // 'W'
+      expect(wavBytes[9]).toBe(0x41);  // 'A'
+      expect(wavBytes[10]).toBe(0x56); // 'V'
+      expect(wavBytes[11]).toBe(0x45); // 'E'
 
       // Verify the fetch call was made correctly
       expect(fetch).toHaveBeenCalledWith(
@@ -118,18 +121,20 @@ describe('TTS Handler', () => {
       });
 
       const response = await handleTTS(request, mockApiKey);
-      const result = await response.json();
+      const wavData = await response.arrayBuffer();
 
       expect(response.status).toBe(200);
-      expect(result.message).toBe('TTS audio generated successfully');
-      expect(result.parameters.secondVoiceName).toBe('en-US-Standard-B');
+      expect(response.headers.get('Content-Type')).toBe('audio/wav');
 
-      // Verify audio data extraction
-      expect(result.audioData).toEqual({
-        mimeType: 'audio/L16;rate=22050',
-        sampleRate: 22050,
-        base64AudioLength: 28 // Length of 'bXVsdGktc3BlYWtlci1hdWRpbw=='
-      });
+      // Verify WAV file structure
+      const wavBytes = new Uint8Array(wavData);
+      expect(wavBytes.length).toBeGreaterThan(44); // Should have header + audio data
+
+      // Check WAV header signature (RIFF)
+      expect(wavBytes[0]).toBe(0x52); // 'R'
+      expect(wavBytes[1]).toBe(0x49); // 'I'
+      expect(wavBytes[2]).toBe(0x46); // 'F'
+      expect(wavBytes[3]).toBe(0x46); // 'F'
 
       // Verify the fetch call was made with multi-speaker configuration
       expect(fetch).toHaveBeenCalledWith(
@@ -270,23 +275,20 @@ describe('TTS Handler', () => {
       });
 
       const response = await handleTTS(request, mockApiKey);
-      const result = await response.json();
+      const wavData = await response.arrayBuffer();
 
       expect(response.status).toBe(200);
-      expect(result.message).toBe('TTS audio generated successfully');
-      expect(result.parameters).toEqual({
-        voiceName: 'en-US-Standard-A',
-        secondVoiceName: 'en-US-Standard-B',
-        text: 'Hello, world!',
-        model: 'gemini-2.0-flash-exp'
-      });
+      expect(response.headers.get('Content-Type')).toBe('audio/wav');
 
-      // Verify audio data extraction
-      expect(result.audioData).toEqual({
-        mimeType: 'audio/L16;rate=16000',
-        sampleRate: 16000,
-        base64AudioLength: 20 // Length of 'dHJpbW1lZC1hdWRpbw=='
-      });
+      // Verify WAV file structure
+      const wavBytes = new Uint8Array(wavData);
+      expect(wavBytes.length).toBeGreaterThan(44); // Should have header + audio data
+
+      // Check WAV header signature (RIFF)
+      expect(wavBytes[0]).toBe(0x52); // 'R'
+      expect(wavBytes[1]).toBe(0x49); // 'I'
+      expect(wavBytes[2]).toBe(0x46); // 'F'
+      expect(wavBytes[3]).toBe(0x46); // 'F'
     });
 
     it('should handle Google API errors gracefully', async () => {
@@ -372,11 +374,18 @@ describe('TTS Handler', () => {
       });
 
       const response = await handleTTS(request, mockApiKey);
-      const result = await response.json();
+      const wavData = await response.arrayBuffer();
 
       expect(response.status).toBe(200);
-      expect(result.audioData.sampleRate).toBe(44100);
-      expect(result.audioData.mimeType).toBe('audio/wav; codecs=pcm; rate=44100');
+      expect(response.headers.get('Content-Type')).toBe('audio/wav');
+
+      // Verify WAV file structure
+      const wavBytes = new Uint8Array(wavData);
+      expect(wavBytes.length).toBeGreaterThan(44); // Should have header + audio data
+
+      // Check sample rate in WAV header (bytes 24-27, little-endian)
+      const sampleRate = wavBytes[24] | (wavBytes[25] << 8) | (wavBytes[26] << 16) | (wavBytes[27] << 24);
+      expect(sampleRate).toBe(44100);
     });
   });
 });

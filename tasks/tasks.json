@@ -341,7 +341,7 @@
         4,
         6
       ],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -349,7 +349,7 @@
           "description": "Decode the base64 encoded audio string into a `Uint8Array` representing the raw PCM audio data using the `decodeBase64Audio` utility function.",
           "dependencies": [],
           "details": "This step converts the text-based base64 representation into binary audio data, which is the foundation for the WAV file.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -359,7 +359,7 @@
             1
           ],
           "details": "The `dataLength` will be used to specify the size of the audio data chunk within the WAV header.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -369,7 +369,7 @@
             2
           ],
           "details": "The WAV header provides crucial metadata about the audio stream, enabling players to correctly interpret the PCM data.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 4,
@@ -380,7 +380,7 @@
             3
           ],
           "details": "This step physically joins the header and the audio data, forming the complete binary structure of the WAV file.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 5,
@@ -390,7 +390,7 @@
             4
           ],
           "details": "This finalizes the HTTP response, making the assembled WAV file available to the client.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },
