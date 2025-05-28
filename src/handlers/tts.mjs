@@ -63,9 +63,9 @@ export function convertToWavFormat(pcmData, sampleRate, channels, bitsPerSample)
 
 import { errorHandler } from '../utils/error.mjs';
 
-export async function handleTTS(request) {
+export async function handleTTS(requestBody, apiKey) {
   try {
-    const { text, voiceId } = await request.json();
+    const { text, voiceId } = requestBody;
 
     if (!text || !voiceId) {
       throw new Error('Missing required parameters: text or voiceId');
@@ -73,33 +73,52 @@ export async function handleTTS(request) {
 
     const optimizedText = await optimizeTextForJson(text);
 
-    const payload = {
-      model: 'tts-1',
-      input: optimizedText,
-      voice: voiceId,
-      response_format: 'pcm',
-      speed: 1.0,
+    const model = 'gemini-2.5-flash-preview-tts'; // As per tts.ps1
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+
+    const speechConfig = {
+      voiceConfig: {
+        prebuiltVoiceConfig: {
+          voiceName: voiceId,
+        },
+      },
     };
 
-    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+    const payload = {
+      contents: [
+        {
+          parts: [
+            {
+              text: optimizedText,
+            },
+          ],
+        },
+      ],
+      generationConfig: {
+        responseModalities: ['AUDIO'],
+        speechConfig: speechConfig,
+      },
+    };
+
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+        'Content-Type': 'application/json; charset=utf-8',
       },
       body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
       const errorData = await response.json();
-      throw new Error(`OpenAI TTS API error: ${response.status} - ${errorData.error.message}`);
+      throw new Error(`Google Generative AI TTS API error: ${response.status} - ${errorData.error.message}`);
     }
 
     const data = await response.json();
-    const audioContentBase64 = data.audioContent;
+    const audioContentBase64 = data.candidates[0]?.content?.parts[0]?.inlineData?.data;
+    const mimeType = data.candidates[0]?.content?.parts[0]?.inlineData?.mimeType;
 
     if (!audioContentBase64) {
-      throw new Error('No audio content received from OpenAI TTS API');
+      throw new Error('No audio content received from Google Generative AI TTS API');
     }
 
     // Decode base64 to Uint8Array
@@ -107,7 +126,9 @@ export async function handleTTS(request) {
     const pcmData = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
 
     // Convert PCM data to WAV format
-    const wavData = convertToWavFormat(pcmData, 24000, 1, 16); // 1 channel (mono), 16 bits per sample (LINEAR16)
+    // The sample rate is hardcoded to 24000 in tts.ps1 for PCM conversion if not extracted from mimeType.
+    // Assuming 1 channel (mono) and 16 bits per sample (LINEAR16) as per tts.ps1 default.
+    const wavData = convertToWavFormat(pcmData, 24000, 1, 16);
 
     return new Response(wavData, {
       headers: {
