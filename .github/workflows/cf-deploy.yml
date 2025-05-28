@@ -73,13 +73,12 @@ jobs:
             echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
             exit 1
           fi
-          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
           if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
             echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
-            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            echo "The string content will not be displayed." >&2
             exit 1
           fi
           
@@ -229,13 +228,12 @@ jobs:
             echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
             exit 1
           fi
-          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
           if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
             echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
-            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            echo "The string content will not be displayed." >&2
             exit 1
           fi
           
@@ -361,13 +359,12 @@ jobs:
             echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
             exit 1
           fi
-          echo "Retrieved API_KEYS_JSON_STRING for parsing (first 100 chars): $(printf "%.100s\n" "$API_KEYS_JSON_STRING")"
 
           # Read the JSON array string output back into a bash array using jq
           # This ensures keys with spaces or special characters are handled correctly.
           if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
             echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
-            echo "Received string: $API_KEYS_JSON_STRING" >&2
+            echo "The string content will not be displayed." >&2
             exit 1
           fi
           
