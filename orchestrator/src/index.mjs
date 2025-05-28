@@ -69,138 +69,214 @@ async function handleTtsRequest(request, env, backendServices, numSrcWorkers) {
     return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
   }
 
-  const optimizedText = optimizeTextForJson(text);
-  const sentences = splitIntoSentences(optimizedText);
-  console.log(`Orchestrator: Text optimized and split into ${sentences.length} sentences.`);
+const url = new URL(request.url);
+let jobId = url.searchParams.get('jobId'); // Check for jobId in URL
 
-  const MAX_CONCURRENT_SENTENCE_FETCHES = 5; // Define a reasonable concurrency limit
-  const MAX_RETRIES = 3;
-  const RETRY_INITIAL_DELAY_MS = 1000; // 1 second
-  let activeFetches = 0;
-  let fetchQueue = [];
-  const sentenceFetchPromises = sentences.map((sentence, index) => {
+if (!jobId) {
+    // Generate a new jobId if not provided
+    jobId = crypto.randomUUID();
+    console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
+} else {
+    console.log(`Orchestrator: Resuming TTS Job ID: ${jobId}`);
+}
+
+const ttsStateId = env.TTS_STATE_DO.idFromName(jobId);
+const ttsStateStub = env.TTS_STATE_DO.get(ttsStateId);
+
+let jobCurrentSentenceIndex = 0; // Use a distinct variable name to avoid conflict
+let jobAudioChunks = []; // Use a distinct variable name to avoid conflict
+let jobAlreadyInitialised = false;
+
+try {
+    const stateResponse = await ttsStateStub.fetch(new Request("https://dummy-url/get-state"));
+    if (stateResponse.ok) {
+        const state = await stateResponse.json();
+        if (state && state.initialised) {
+            jobCurrentSentenceIndex = state.currentSentenceIndex;
+            jobAudioChunks = state.audioChunks;
+            jobAlreadyInitialised = true;
+            console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}.`);
+        }
+    }
+} catch (error) {
+    console.warn(`Orchestrator: Could not retrieve state for job ${jobId}. Assuming new job or state corrupted. Error: ${error.message}`);
+}
+
+if (!jobAlreadyInitialised) {
+    try {
+        const initResponse = await ttsStateStub.fetch(new Request("https://dummy-url/initialize", {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, voiceId })
+        }));
+        if (!initResponse.ok) {
+            console.error(`Orchestrator: Failed to initialize Durable Object for job ${jobId}: ${await initResponse.text()}`);
+            return new Response("Failed to initialize TTS job state.", { status: 500 });
+        }
+        console.log(`Orchestrator: Durable Object initialized for job ${jobId}.`);
+    } catch (error) {
+        console.error(`Orchestrator: Error initializing Durable Object for job ${jobId}: ${error.message}`);
+        return new Response("Error initializing TTS job state.", { status: 500 });
+    }
+}
+
+const optimizedText = optimizeTextForJson(text);
+let sentences = splitIntoSentences(optimizedText);
+console.log(`Orchestrator: Text optimized and split into ${sentences.length} sentences.`);
+
+// Adjust sentences and audioChunks if resuming
+if (jobCurrentSentenceIndex > 0 && jobCurrentSentenceIndex < sentences.length) {
+    console.log(`Orchestrator: Resuming from sentence index ${jobCurrentSentenceIndex}`);
+    // Prepend already synthesized audio chunks to the stream
+    for (let i = 0; i < jobCurrentSentenceIndex; i++) {
+        if (jobAudioChunks[i]) {
+            sendSseMessage({ audioChunk: jobAudioChunks[i], index: i, mimeType: "audio/opus" });
+        }
+    }
+    sentences = sentences.slice(jobCurrentSentenceIndex);
+}
+
+const MAX_CONCURRENT_SENTENCE_FETCHES = 5; // Define a reasonable concurrency limit
+const MAX_RETRIES = 3;
+const RETRY_INITIAL_DELAY_MS = 1000; // 1 second
+let activeFetches = 0;
+let fetchQueue = [];
+const sentenceFetchPromises = sentences.map((sentence, index) => {
+    // Adjust index for original sentence position
+    const originalIndex = index + jobCurrentSentenceIndex;
     return new Promise((resolve, reject) => {
-      fetchQueue.push({ sentence, index, resolve, reject });
+        fetchQueue.push({ sentence, index: originalIndex, resolve, reject });
     });
-  });
+});
 
-  const { readable, writable } = new TransformStream();
-  const writer = writable.getWriter();
-  const encoder = new TextEncoder();
+const { readable, writable } = new TransformStream();
+const writer = writable.getWriter();
+const encoder = new TextEncoder();
 
-  const sendSseMessage = (data, event = 'message') => {
+// Update sendSseMessage to include jobId
+const sendSseMessage = (data, event = 'message') => {
     let message = `event: ${event}\n`;
     message += `id: ${data.index}\n`; // Add id field
-    message += `data: ${JSON.stringify(data)}\n\n`;
+    message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`; // Include jobId in data
     writer.write(encoder.encode(message));
-  };
+};
 
-  const outstandingPromises = new Set();
+const outstandingPromises = new Set();
 
-  const processQueue = async () => {
+const processQueue = async () => {
     while (fetchQueue.length > 0 && activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES) {
-      const { sentence, index, resolve, reject } = fetchQueue.shift();
-      activeFetches++;
+        const { sentence, index, resolve, reject } = fetchQueue.shift();
+        activeFetches++;
 
-      const currentPromise = (async () => {
-        const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
-        const stub = env.ROUTER_COUNTER.get(id);
-        const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
-        const currentCounter = parseInt(await currentCounterResponse.text());
+        const currentPromise = (async () => {
+            const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
+            const stub = env.ROUTER_COUNTER.get(id);
+            const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
+            const currentCounter = parseInt(await currentCounterResponse.text());
 
-        const targetWorkerIndex = currentCounter % numSrcWorkers;
-        const targetService = backendServices[targetWorkerIndex];
+            const targetWorkerIndex = currentCounter % numSrcWorkers;
+            const targetService = backendServices[targetWorkerIndex];
 
-        if (!targetService) {
-          const errMsg = "Failed to select target worker.";
-          console.error(`Orchestrator: ${errMsg} for sentence ${index}.`);
-          sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${errMsg}`, audioContentBase64: null }, 'error');
-          return { index, error: errMsg, audioContentBase64: null };
-        }
+            if (!targetService) {
+                const errMsg = "Failed to select target worker.";
+                console.error(`Orchestrator: ${errMsg} for sentence ${index}.`);
+                sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${errMsg}`, audioContentBase64: null }, 'error');
+                return { index, error: errMsg, audioContentBase64: null };
+            }
 
-        let attempts = 0;
-        let delay = RETRY_INITIAL_DELAY_MS;
+            let attempts = 0;
+            let delay = RETRY_INITIAL_DELAY_MS;
 
-        while (attempts <= MAX_RETRIES) {
-          try {
-            const response = await targetService.fetch(new Request(request.url, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-              },
-              body: JSON.stringify({ text: sentence.trim(), voiceId }),
-            }));
+            while (attempts <= MAX_RETRIES) {
+                try {
+                    const response = await targetService.fetch(new Request(request.url, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${apiKey}`
+                        },
+                        body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                    }));
 
-            if (!response.ok) {
-              let errorData;
-              let rawErrorMessage = `HTTP error Status ${response.status}`;
-              try {
-                errorData = await response.json();
-                rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
-              } catch (e) {
-                rawErrorMessage = await response.text() || rawErrorMessage;
-              }
+                    if (!response.ok) {
+                        let errorData;
+                        let rawErrorMessage = `HTTP error Status ${response.status}`;
+                        try {
+                            errorData = await response.json();
+                            rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
+                        } catch (e) {
+                            rawErrorMessage = await response.text() || rawErrorMessage;
+                        }
 
-              // Retry on server errors (5xx) or specific transient errors (e.g., 429 for rate limiting)
-              if (response.status >= 500 || response.status === 429) {
-                console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
-                attempts++;
-                if (attempts <= MAX_RETRIES) {
-                  await new Promise(res => setTimeout(res, delay));
-                  delay *= 2; // Exponential backoff
-                  continue; // Go to next attempt
+                        // Retry on server errors (5xx) or specific transient errors (e.g., 429 for rate limiting)
+                        if (response.status >= 500 || response.status === 429) {
+                            console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
+                            attempts++;
+                            if (attempts <= MAX_RETRIES) {
+                                await new Promise(res => setTimeout(res, delay));
+                                delay *= 2; // Exponential backoff
+                                continue; // Go to next attempt
+                            }
+                        }
+                        // If not retried or max retries reached, signal error and return
+                        const finalErrMsg = `Backend Error: ${rawErrorMessage}`;
+                        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
+                        sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
+                        return { index, error: finalErrMsg, audioContentBase64: null };
+                    } else {
+                        const data = await response.json();
+                        const audioChunk = data.audioContentBase64;
+                        sendSseMessage({ audioChunk, index, mimeType: "audio/opus" });
+
+                        // Update Durable Object state with progress
+                        await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ sentenceIndex: index, audioChunkBase64: audioChunk })
+                        }));
+                        return { index, audioContentBase64: audioChunk, error: null };
+                    }
+                } catch (e) {
+                    // Catch network errors, timeouts, etc.
+                    console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
+                    attempts++;
+                    if (attempts <= MAX_RETRIES) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2; // Exponential backoff
+                        continue; // Go to next attempt
+                    }
+                    // If not retried or max retries reached, signal error and return
+                    const finalErrMsg = `Fetch Exception: ${e.message}`;
+                    console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
+                    sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
+                    return { index, error: finalErrMsg, audioContentBase64: null };
                 }
-              }
-              // If not retried or max retries reached, signal error and return
-              const finalErrMsg = `Backend Error: ${rawErrorMessage}`;
-              console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
-              sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
-              return { index, error: finalErrMsg, audioContentBase64: null };
-            } else {
-              const data = await response.json();
-              const audioChunk = data.audioContentBase64;
-              sendSseMessage({ audioChunk, index, mimeType: "audio/opus" });
-              return { index, audioContentBase64: audioChunk, error: null };
             }
-          } catch (e) {
-            // Catch network errors, timeouts, etc.
-            console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
-            attempts++;
-            if (attempts <= MAX_RETRIES) {
-              await new Promise(res => setTimeout(res, delay));
-              delay *= 2; // Exponential backoff
-              continue; // Go to next attempt
-            }
-            // If not retried or max retries reached, signal error and return
-            const finalErrMsg = `Fetch Exception: ${e.message}`;
-            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
+            // This line should ideally not be reached if MAX_RETRIES logic is correct
+            // but as a failsafe, ensure an error is sent if all retries somehow fail without explicit return.
+            const finalErrMsg = `All retry attempts failed.`;
+            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
             sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
             return { index, error: finalErrMsg, audioContentBase64: null };
-          }
-        }
-        // This line should ideally not be reached if MAX_RETRIES logic is correct
-        // but as a failsafe, ensure an error is sent if all retries somehow fail without explicit return.
-        const finalErrMsg = `All retry attempts failed.`;
-        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
-        sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
-        return { index, error: finalErrMsg, audioContentBase64: null };
-      })();
-      outstandingPromises.add(currentPromise);
-      currentPromise.then(resolve, reject); // Resolve/reject the original promise
-      // Initial call to processQueue needs to be outside the loop that populates sentenceFetchPromises
-      // It is handled by the initial processQueue call after setting up sentenceFetchPromises
+        })();
+        outstandingPromises.add(currentPromise);
+        currentPromise.then(resolve, reject); // Resolve/reject the original promise
+        activeFetches--; // Decrement active fetches when promise settles
+        processQueue(); // Try to process more from the queue
     }
-  };
+};
 
-  // Ensure all promises are settled before closing the stream
-  Promise.allSettled(sentenceFetchPromises).then(() => {
+// Start processing the queue after initial setup
+processQueue();
+
+// Ensure all promises are settled before closing the stream
+Promise.allSettled(sentenceFetchPromises).then(() => {
     writer.write(encoder.encode('event: end\ndata: \n\n'));
     writer.close();
-  });
+});
 
-  return new Response(readable, {
+return new Response(readable, {
     headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
     status: 200
-  });
+});
 }
