@@ -215,6 +215,12 @@
                     recordedChunks = []; // Clear chunks for next recording
                 };
 
+                mediaRecorder.onerror = (event) => {
+                    console.error('MediaRecorder error:', event.error);
+                    messageDiv.textContent = `Error recording audio: ${event.error.name}`;
+                    downloadButtonLink.style.display = 'none'; // Hide download button on error
+                };
+
                 source.start(); // Start playback
                 mediaRecorder.start(); // Start recording
 
