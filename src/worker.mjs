@@ -95,10 +95,10 @@ async function fetch(request, env) {
         }
         const requestBody = await request.json();
         const apiKeyTTS = getRandomApiKey(request, env); // Ensure getRandomApiKey is correctly used
-        const ttsResponse = await handleTTS(requestBody, apiKeyTTS)
-          .catch(errHandler); // Ensure errHandler is correctly defined and imported
-        console.log(`TTS response status: ${ttsResponse.status}`);
-        return ttsResponse;
+        const ttsResponse = await handleTTS(requestBody, apiKeyTTS);
+        const fixedTtsResponse = new Response(ttsResponse.body, fixCors(ttsResponse));
+        console.log(`TTS response status: ${fixedTtsResponse.status}`);
+        return fixedTtsResponse;
 
       default:
         throw new HttpError("404 Not Found", 404);
