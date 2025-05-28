@@ -50,14 +50,15 @@
             border-radius: 4px;
             cursor: pointer;
             font-size: 16px;
-            margin-top: 10px; /* Added margin for spacing */
+            margin-top: 10px; 
         }
         button:hover {
             background-color: #0056b3;
         }
         .message {
             margin-top: 10px;
-            color: red;
+            color: red; /* Default to red, can be changed by JS */
+            font-weight: bold;
         }
         
         .spinner {
@@ -69,7 +70,7 @@
             animation: spin 1s linear infinite;
             display: inline-block;
             vertical-align: middle;
-            margin-right: 8px;
+            /* MODIFICATION: Spinner will be the only content in loadingIndicator, so no margin needed here */
         }
 
         @keyframes spin {
@@ -82,7 +83,9 @@
             display: flex;
             align-items: center;
             justify-content: center;
+            height: 30px; /* Give it some height even without text */
         }
+       
         .sentence-container {
             margin-top: 15px;
             padding: 10px;
@@ -94,31 +97,35 @@
             overflow-y: auto;  
         }
         .sentence-container span.sentence-segment {
-            /* MODIFICATION: Base transition for multiple properties */
             transition: background-color 0.2s ease-in-out, color 0.2s ease-in-out, transform 0.2s ease-out, box-shadow 0.2s ease-out, opacity 0.5s ease-out;
             padding: 2px 4px;
             margin-right: 4px; 
             border-radius: 3px;
             display: inline; 
-            opacity: 0; /* MODIFICATION: Start transparent for fade-in */
-            border-right: 2px solid transparent; /* MODIFICATION: For temporary split visual */
+            opacity: 0; 
+            border-right: 2px solid transparent; 
         }
-        /* MODIFICATION: Class for initial visual split emphasis */
         .sentence-segment.initial-split-visual {
             border-right-color: #007bff;
-            margin-right: 6px; /* Slightly more margin when border is visible */
+            margin-right: 6px; 
             padding-right: 6px;
         }
 
         .sentence-container span.sentence-segment.playing {
             background-color: #007bff; 
             color: white;
-            /* MODIFICATION: Enhanced playing state */
             transform: scale(1.03);
             box-shadow: 0 0 10px rgba(0, 123, 255, 0.5);
         }
+        
+        /* MODIFICATION: CSS for cipher effect on sentences */
+        .sentence-segment.cipher-fetching {
+            font-family: 'Courier New', Courier, monospace;
+            color: #aaa; /* Make scrambled text less prominent */
+            opacity: 1 !important; /* Override fade-in opacity while scrambling */
+        }
 
-        /* MODIFICATION: Keyframes for fade-in */
+
         @keyframes fadeIn {
             to {
                 opacity: 1;
@@ -164,24 +171,24 @@
         </select>
         <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
         <button id="speakButton">Speak</button>
-        <div id="sentenceDisplayContainer" class="sentence-container"></div> <a id="downloadButton" download="audio.opus" style="display: none;">
+        <div id="sentenceDisplayContainer" class="sentence-container"></div> 
+        <a id="downloadButton" download="audio.opus" style="display: none;">
             <button>Download Opus</button>
         </a>
         <div id="loadingIndicator" style="display: none;">
-            <div class="spinner"></div> Processing...
+            <div class="spinner"></div>
         </div>
         <div id="message" class="message"></div>
     </div>
 
     <script>
-        window.ORCHESTRATOR_WORKER_URL = ''; // Placeholder for dynamic injection
+        window.ORCHESTRATOR_WORKER_URL = ''; 
 
         document.addEventListener('DOMContentLoaded', () => {
             const storedApiKey = localStorage.getItem('apiKey');
             if (storedApiKey) {
                 document.getElementById('apiKeyInput').value = storedApiKey;
             }
-
             const storedVoiceId = localStorage.getItem('voiceId');
             if (storedVoiceId) {
                 document.getElementById('voiceIdInput').value = storedVoiceId;
@@ -191,6 +198,36 @@
         document.getElementById('voiceIdInput').addEventListener('change', (event) => {
             localStorage.setItem('voiceId', event.target.value);
         });
+        // --- MODIFICATION: Cipher Animation Logic for Sentences ---
+        const sentenceCipherIntervals = new Map();
+        const cipherChars = "!<>-_=[]{}|/\\+*^?#@$%&0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+        function startSentenceCipher(spanElement) {
+            // Ensure original text is stored if not already
+            if (!spanElement.hasAttribute('data-original-text')) {
+                spanElement.setAttribute('data-original-text', spanElement.textContent);
+            }
+            const originalText = spanElement.getAttribute('data-original-text') || spanElement.textContent;
+            spanElement.classList.add('cipher-fetching'); // Apply styling
+            
+            const intervalId = setInterval(() => {
+                spanElement.textContent = Array.from({ length: originalText.length })
+                    .map(() => cipherChars[Math.floor(Math.random() * cipherChars.length)])
+                    .join("");
+            }, 100); // Scramble speed
+            sentenceCipherIntervals.set(spanElement.id, intervalId);
+        }
+
+        function stopSentenceCipher(spanElement) {
+            const intervalId = sentenceCipherIntervals.get(spanElement.id);
+            if (intervalId) {
+                clearInterval(intervalId);
+                sentenceCipherIntervals.delete(spanElement.id);
+            }
+            spanElement.textContent = spanElement.getAttribute('data-original-text') || spanElement.textContent; // Restore original
+            spanElement.classList.remove('cipher-fetching');
+        }
+        // --- END MODIFICATION ---
 
         document.getElementById('speakButton').addEventListener('click', async () => {
             const text = document.getElementById('textInput').value;
@@ -201,11 +238,11 @@
             const speakButton = document.getElementById('speakButton');
             const loadingIndicator = document.getElementById('loadingIndicator');
             
-            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
+            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer'); // Keep this
             sentenceDisplayContainer.innerHTML = ''; 
             let sentenceSpanElements = []; 
 
-            messageDiv.textContent = '';
+            messageDiv.textContent = ""; // Clear previous messages
             downloadButtonLink.style.display = 'none';
             downloadButtonLink.href = '';
 
@@ -213,23 +250,25 @@
             loadingIndicator.style.display = 'flex'; 
 
             if (!text || !apiKey) {
+                // MODIFICATION: Reverted from speakUIMessage
                 messageDiv.textContent = 'Please enter text and your API Key.';
+                messageDiv.style.color = 'red';
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
             }
              if (!window.ORCHESTRATOR_WORKER_URL) {
+                // MODIFICATION: Reverted from speakUIMessage
                 messageDiv.textContent = 'Error: Orchestrator worker URL is not configured.';
+                messageDiv.style.color = 'red';
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
             }
 
             localStorage.setItem('apiKey', apiKey);
-
             let audioContext; 
             let mediaRecorder; 
-
             try {
                 const splitIntoSentences = (text) => {
                     return text.match(/[^.!?]+[.!?]*|[\w\s,"]+(?=\.\.\.)|\b(?:Mr|Mrs|Ms|Dr|Prof|Capt|Lt|Col|Gen|Rev|Fr|Sr|Jr|etc|e\.g|i\.e)\.|\d+\.\d+|\S+/g)
@@ -242,29 +281,28 @@
                     sentences.forEach((sentenceText, index) => {
                         const span = document.createElement('span');
                         span.textContent = sentenceText; 
+                        span.setAttribute('data-original-text', sentenceText); // Store original text for cipher
                         span.id = `sentence-tts-${index}`; 
                         span.className = 'sentence-segment'; 
-                        // MODIFICATION: Add class for initial split visual and apply animation delay
                         span.classList.add('initial-split-visual');
                         span.style.animation = `fadeIn 0.5s ease-out forwards`;
-                        span.style.animationDelay = `${0.5 + index * 0.15}s`; // Delay fade-in after initial split visual
+                        span.style.animationDelay = `${0.5 + index * 0.15}s`; 
 
                         sentenceDisplayContainer.appendChild(span);
                         sentenceDisplayContainer.appendChild(document.createTextNode(" ")); 
                         sentenceSpanElements.push(span);
                     });
 
-                    // MODIFICATION: Briefly show visual splits, then remove the class to normalize appearance
                     setTimeout(() => {
                         sentenceSpanElements.forEach(span => {
                             span.classList.remove('initial-split-visual');
-                            // Ensure opacity is set for the animation to take effect if it hasn't started
-                            // The animation itself will handle making it visible
                         });
-                    }, 500); // Show emphasized splits for 0.5 seconds, then start fade-in
+                    }, 500); 
 
                 } else {
+                    // MODIFICATION: Reverted from speakUIMessage
                     messageDiv.textContent = 'No text to synthesize.';
+                    messageDiv.style.color = 'initial'; // Or your default/info color
                     speakButton.disabled = false;
                     loadingIndicator.style.display = 'none';
                     return;
@@ -297,11 +335,16 @@
                     if (audioContext && audioContext.state !== 'closed') {
                         audioContext.close().catch(e => console.error("Error closing AudioContext (onstop):", e));
                     }
+                    // MODIFICATION: Reverted from speakUIMessage
+                    messageDiv.textContent = "Speech generation complete.";
+                    messageDiv.style.color = '#28a745'; // Success color
                 };
 
                 mediaRecorder.onerror = (event) => {
                     console.error('MediaRecorder error:', event.error);
+                    // MODIFICATION: Reverted from speakUIMessage
                     messageDiv.textContent = `Error recording audio: ${event.error.name}`;
+                    messageDiv.style.color = 'red';
                     downloadButtonLink.style.display = 'none';
                     if (audioContext && audioContext.state !== 'closed') {
                         audioContext.close().catch(e => console.error("Error closing AudioContext (onerror):", e));
@@ -317,6 +360,10 @@
                 const resultsInOrder = new Array(sentences.length);
 
                 const fetchSentence = async (sentence, index) => {
+                    const spanElement = sentenceSpanElements[index];
+                    if (spanElement) { // Start cipher for this sentence
+                        startSentenceCipher(spanElement);
+                    }
                     try {
                         const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
                             method: 'POST',
@@ -326,6 +373,8 @@
                             },
                             body: JSON.stringify({ text: sentence.trim(), voiceId }),
                         });
+                        if (spanElement) stopSentenceCipher(spanElement); // Stop cipher after fetch attempt
+
                         if (!pcmResponse.ok) {
                             const errorText = await pcmResponse.text();
                             console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${pcmResponse.status}, message: ${errorText}`);
@@ -343,6 +392,7 @@
                         for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
                         return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
                     } catch (e) {
+                        if (spanElement) stopSentenceCipher(spanElement); // Stop cipher on exception
                         console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
                         return { error: `Exception for sentence ${index + 1}: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
                     }
@@ -351,7 +401,15 @@
                 let currentIndex = 0;
                 const processNext = async () => {
                     if (currentIndex >= sentences.length) {
-                        if (activeRequests === 0) playAudioInOrder(); 
+                        if (activeRequests === 0) {
+                            // Ensure all ciphers are stopped before playing
+                            sentenceSpanElements.forEach(span => {
+                                if (span.classList.contains('cipher-fetching')) { // Check if it was ever started
+                                    stopSentenceCipher(span);
+                                }
+                            });
+                            playAudioInOrder(); 
+                        }
                         return;
                     }
                     const taskIndex = currentIndex++;
@@ -367,11 +425,16 @@
 
                 const playAudioInOrder = async () => {
                     let hasSuccessfullyProcessedAnySentence = false;
+                    let errorMessages = [];
+
                     for (let i = 0; i < sentences.length; i++) {
                         const result = resultsInOrder[i];
 
                         if (!result || result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
-                            messageDiv.textContent += `\nSkipping sentence ("${result ? result.sentenceText : sentences[i]}") due to error: ${result ? (result.error || 'No audio data') : 'Fetch error'}.`;
+                            // Collect error messages instead of speaking immediately
+                            errorMessages.push(`Skipping sentence ("${result ? result.sentenceText : sentences[i]}") due to error: ${result ? (result.error || 'No audio data') : 'Fetch error'}.`);
+                            const errorSpan = sentenceSpanElements[i];
+                            if(errorSpan) errorSpan.style.textDecoration = 'line-through wavy red'; // Mark errored sentences
                             continue;
                         }
                         
@@ -401,7 +464,6 @@
 
                             source.onended = () => {
                                 sentenceSpan.classList.remove('playing');
-                                // MODIFICATION: Reset transform and box-shadow after playing
                                 sentenceSpan.style.transform = ''; 
                                 sentenceSpan.style.boxShadow = '';
                             };
@@ -418,8 +480,16 @@
                         scheduleTime += sentenceAudioBuffer.duration; 
                     }
 
+                    if (errorMessages.length > 0) {
+                         // MODIFICATION: Reverted from speakUIMessage
+                        messageDiv.textContent = errorMessages.join(" \n");
+                        messageDiv.style.color = 'red';
+                    }
+
                     if (!hasSuccessfullyProcessedAnySentence && sentences.length > 0) {
+                        // MODIFICATION: Reverted from speakUIMessage
                         messageDiv.textContent = 'No sentences could be processed successfully.';
+                        messageDiv.style.color = 'red';
                          if (mediaRecorder.state === "recording") {
                             mediaRecorder.stop(); 
                         }
@@ -435,10 +505,11 @@
                     }, Math.max(0, timeToWaitMs)); 
                 };
 
-
             } catch (error) {
                 console.error('Error:', error);
+                // MODIFICATION: Reverted from speakUIMessage
                 messageDiv.textContent = `Failed to generate speech: ${error.message}`;
+                messageDiv.style.color = 'red';
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop(); 
                 }
