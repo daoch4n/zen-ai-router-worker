@@ -516,7 +516,7 @@
         8,
         9
       ],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -524,7 +524,7 @@
           "description": "Outline the purpose of the `POST /tts` endpoint, its base URL, and specify any required authentication mechanisms (e.g., API keys, tokens) and their placement (e.g., `Authorization` header).",
           "dependencies": [],
           "details": "This subtask focuses on setting up the foundational documentation for the endpoint, including its general function and how users authenticate to access it.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -534,7 +534,7 @@
             1
           ],
           "details": "This subtask delves into the specifics of the request structure, ensuring all input parameters are clearly defined for developers.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -544,7 +544,7 @@
             2
           ],
           "details": "This subtask provides practical, runnable examples that developers can use to quickly understand and interact with the endpoint.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 4,
@@ -554,7 +554,7 @@
             3
           ],
           "details": "This subtask focuses on the strategic planning of integration tests, ensuring broad coverage of functionality and potential issues.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 5,
@@ -564,7 +564,7 @@
             4
           ],
           "details": "This subtask involves the practical execution of the test plan and the systematic recording of outcomes to ensure the endpoint's reliability.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     }
