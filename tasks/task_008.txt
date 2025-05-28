@@ -1,6 +1,6 @@
 # Task ID: 8
 # Title: Implement Robust Error Handling and Input Validation
-# Status: pending
+# Status: done
 # Dependencies: 2, 3, 6
 # Priority: medium
 # Description: Refine error handling to cover more specific scenarios, such as invalid model names, Google API specific errors (e.g., content policy, voice not found), and ensure consistent JSON error responses. Add more robust input validation.
@@ -16,31 +16,31 @@
 3. Simulate a Google API timeout or network error to ensure graceful degradation.
 
 # Subtasks:
-## 1. Map Google API Error Codes to User-Friendly Responses [pending]
+## 1. Map Google API Error Codes to User-Friendly Responses [done]
 ### Dependencies: None
 ### Description: Identify common Google API error codes and messages encountered during text-to-speech operations and define corresponding user-friendly worker responses to be returned to the client.
 ### Details:
 This involves researching Google Cloud Text-to-Speech API error documentation, identifying frequent errors (e.g., invalid API key, quota exceeded, unsupported voice), and crafting clear, actionable messages for the end-user.
 
-## 2. Implement `voiceName` Input Validation [pending]
+## 2. Implement `voiceName` Input Validation [done]
 ### Dependencies: None
 ### Description: Add specific validation logic for the `voiceName` parameter to ensure it adheres to expected formats and supported values before processing by the Google API. Return a user-friendly error if validation fails.
 ### Details:
 Validation should check for null/empty values, data type, and potentially against a predefined list of supported voice names or a pattern for valid voice identifiers.
 
-## 3. Implement `text` Length Input Validation [pending]
+## 3. Implement `text` Length Input Validation [done]
 ### Dependencies: None
 ### Description: Add specific validation logic for the `text` parameter to enforce minimum and maximum length constraints as per Google API specifications or application requirements. Return a user-friendly error if validation fails.
 ### Details:
 Validation should check for null/empty values and ensure the text length is within acceptable bounds (e.g., 1 to 5000 characters for Google Cloud Text-to-Speech).
 
-## 4. Review Existing `try-catch` Blocks [pending]
+## 4. Review Existing `try-catch` Blocks [done]
 ### Dependencies: None
 ### Description: Conduct a comprehensive review of all existing `try-catch` blocks throughout the codebase to identify their current error handling mechanisms and ensure they are correctly placed and cover potential failure points.
 ### Details:
 This involves auditing code sections that interact with external services, perform critical operations, or handle user input, noting down how errors are currently caught and processed.
 
-## 5. Ensure Consistent `errorHandler` Utilization [pending]
+## 5. Ensure Consistent `errorHandler` Utilization [done]
 ### Dependencies: 8.4
 ### Description: Refactor or update `try-catch` blocks identified in the review to consistently utilize the centralized `errorHandler` function, ensuring all errors are processed and reported uniformly.
 ### Details:

@@ -4,6 +4,7 @@
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
+import { processGoogleApiError } from '../utils/error.mjs';
 import { BASE_URL, API_VERSION } from '../constants/index.mjs';
 
 /**
@@ -31,6 +32,9 @@ export async function handleModels(apiKey) {
         owned_by: "",
       })),
     }, null, "  ");
+  } else {
+    // Handle API errors with enhanced error processing
+    throw await processGoogleApiError(response);
   }
 
   return new Response(body, fixCors(response));

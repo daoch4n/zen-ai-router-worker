@@ -2,6 +2,7 @@
  * Error handling utilities for HTTP request processing.
  * Provides custom error types and centralized error response handling.
  */
+import { GOOGLE_API_ERROR_MAP, GOOGLE_API_ERROR_PATTERNS } from '../constants/index.mjs';
 
 /**
  * Custom HTTP error class that extends the standard Error with HTTP status codes.
@@ -18,6 +19,131 @@ export class HttpError extends Error {
     super(message);
     this.name = this.constructor.name;
     this.status = status;
+  }
+}
+
+/**
+ * Maps Google API error responses to user-friendly messages.
+ * Analyzes error status codes and message content to provide better UX.
+ *
+ * @param {number} status - HTTP status code from Google API
+ * @param {string} errorMessage - Original error message from Google API
+ * @returns {string} User-friendly error message
+ */
+export function mapGoogleApiError(status, errorMessage) {
+  // First, try to match error message patterns (more specific)
+  const lowerMessage = errorMessage.toLowerCase();
+  for (const [pattern, friendlyMessage] of Object.entries(GOOGLE_API_ERROR_PATTERNS)) {
+    if (lowerMessage.includes(pattern.toLowerCase())) {
+      return friendlyMessage;
+    }
+  }
+
+  // Then, try to map by status code (more generic)
+  if (GOOGLE_API_ERROR_MAP[status]) {
+    return GOOGLE_API_ERROR_MAP[status];
+  }
+
+  // Fallback to original message with generic prefix
+  return `API error: ${errorMessage}`;
+}
+
+/**
+ * Processes Google API error responses and creates appropriate HttpError instances.
+ * Handles both JSON error responses and plain text responses.
+ *
+ * @param {Response} response - Failed response from Google API
+ * @returns {Promise<HttpError>} HttpError with user-friendly message and appropriate status
+ */
+export async function processGoogleApiError(response) {
+  const status = response.status;
+  let errorMessage = `Google API error: ${status} ${response.statusText}`;
+
+  try {
+    // Try to parse JSON error response
+    const errorText = await response.text();
+    const errorData = JSON.parse(errorText);
+
+    if (errorData.error && errorData.error.message) {
+      errorMessage = errorData.error.message;
+    } else if (errorData.message) {
+      errorMessage = errorData.message;
+    }
+  } catch (parseError) {
+    // If we can't parse the error response, use the status text
+    // This is expected for non-JSON error responses
+  }
+
+  // Map to user-friendly message
+  const friendlyMessage = mapGoogleApiError(status, errorMessage);
+
+  // Determine appropriate status code for client response
+  const clientStatus = status >= 500 ? 502 : status;
+
+  return new HttpError(friendlyMessage, clientStatus);
+}
+
+/**
+ * Validates text input for byte length constraints.
+ * Important for APIs that have byte-based limits (like Google TTS).
+ *
+ * @param {string} text - Text to validate
+ * @param {number} maxBytes - Maximum allowed bytes
+ * @param {number} minLength - Minimum character length
+ * @returns {void}
+ * @throws {HttpError} When text exceeds limits
+ */
+export function validateTextLength(text, maxBytes, minLength = 1) {
+  if (!text || typeof text !== 'string') {
+    throw new HttpError("Text must be a non-empty string", 400);
+  }
+
+  const trimmedText = text.trim();
+
+  if (trimmedText.length < minLength) {
+    throw new HttpError(`Text must be at least ${minLength} character${minLength > 1 ? 's' : ''} long`, 400);
+  }
+
+  // Check byte length (important for multi-byte characters)
+  const byteLength = new TextEncoder().encode(trimmedText).length;
+  if (byteLength > maxBytes) {
+    throw new HttpError(
+      `Text is too long (${byteLength} bytes). Maximum allowed is ${maxBytes} bytes. ` +
+      `Consider shortening your text or splitting it into multiple requests.`,
+      400
+    );
+  }
+}
+
+/**
+ * Validates voice name format against known patterns.
+ * Provides early validation before sending to Google API.
+ *
+ * @param {string} voiceName - Voice name to validate
+ * @param {Object} patterns - Voice name patterns to check against
+ * @returns {void}
+ * @throws {HttpError} When voice name format is invalid
+ */
+export function validateVoiceName(voiceName, patterns) {
+  if (!voiceName || typeof voiceName !== 'string') {
+    throw new HttpError("Voice name must be a non-empty string", 400);
+  }
+
+  const trimmedVoice = voiceName.trim();
+
+  if (trimmedVoice.length === 0) {
+    throw new HttpError("Voice name cannot be empty", 400);
+  }
+
+  // Check against known patterns
+  const isValidFormat = Object.values(patterns).some(pattern => pattern.test(trimmedVoice));
+
+  if (!isValidFormat) {
+    throw new HttpError(
+      `Invalid voice name format: "${trimmedVoice}". ` +
+      `Expected formats: language-region-type-variant (e.g., en-US-Standard-A) or Gemini voice names (e.g., Puck, Charon).`,
+      400
+    );
   }
 }
 

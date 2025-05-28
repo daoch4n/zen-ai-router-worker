@@ -4,6 +4,7 @@
  */
 import { makeHeaders } from '../utils/auth.mjs';
 import { fixCors } from '../utils/cors.mjs';
+import { processGoogleApiError } from '../utils/error.mjs';
 import { generateId, parseModelName, getBudgetFromLevel } from '../utils/helpers.mjs';
 import { transformRequest } from '../transformers/request.mjs';
 import { processCompletionsResponse } from '../transformers/response.mjs';
@@ -117,6 +118,13 @@ export async function handleCompletions(req, apiKey) {
       }
       body = processCompletionsResponse(body, model, id, mode);
     }
+  } else {
+    // Handle API errors with enhanced error processing for non-streaming requests
+    if (!req.stream) {
+      throw await processGoogleApiError(response);
+    }
+    // For streaming requests, pass through the error response as-is
+    // This maintains compatibility with streaming error handling
   }
   return new Response(body, fixCors(response));
 }

@@ -3,10 +3,21 @@
  * Processes TTS requests and integrates with Google's Generative AI TTS API.
  */
 import { fixCors } from '../utils/cors.mjs';
-import { errorHandler, HttpError } from '../utils/error.mjs';
+import {
+  errorHandler,
+  HttpError,
+  processGoogleApiError,
+  validateTextLength,
+  validateVoiceName
+} from '../utils/error.mjs';
 import { makeHeaders } from '../utils/auth.mjs';
 import { decodeBase64Audio, generateWavHeader } from '../utils/audio.mjs';
-import { BASE_URL, API_VERSION } from '../constants/index.mjs';
+import {
+  BASE_URL,
+  API_VERSION,
+  TTS_LIMITS,
+  VOICE_NAME_PATTERNS
+} from '../constants/index.mjs';
 
 /**
  * Constructs the request body for Google Generative AI TTS API.
@@ -117,21 +128,9 @@ async function callGoogleTTSAPI(model, requestBody, apiKey) {
       body: JSON.stringify(requestBody)
     });
 
-    // Handle non-200 responses
+    // Handle non-200 responses using enhanced error processing
     if (!response.ok) {
-      const errorText = await response.text();
-      let errorMessage = `Google API error: ${response.status} ${response.statusText}`;
-
-      try {
-        const errorData = JSON.parse(errorText);
-        if (errorData.error && errorData.error.message) {
-          errorMessage = `Google API error: ${errorData.error.message}`;
-        }
-      } catch (parseError) {
-        // If we can't parse the error response, use the status text
-      }
-
-      throw new HttpError(errorMessage, response.status >= 500 ? 502 : 400);
+      throw await processGoogleApiError(response);
     }
 
     // Parse the successful JSON response
@@ -222,22 +221,22 @@ export async function handleTTS(request, apiKey) {
       throw new HttpError("model field is required in request body", 400);
     }
 
-    // Additional validation for non-empty strings
-    if (typeof text !== 'string' || text.trim().length === 0) {
-      throw new HttpError("text must be a non-empty string", 400);
-    }
+    // Enhanced validation using new validation functions
 
+    // Validate text length and format (includes byte-length checking)
+    validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
+
+    // Validate model format
     if (typeof model !== 'string' || model.trim().length === 0) {
       throw new HttpError("model must be a non-empty string", 400);
     }
 
-    if (typeof voiceName !== 'string' || voiceName.trim().length === 0) {
-      throw new HttpError("voiceName must be a non-empty string", 400);
-    }
+    // Validate voice name format using pattern matching
+    validateVoiceName(voiceName, VOICE_NAME_PATTERNS);
 
     // Validate secondVoiceName if provided
-    if (secondVoiceName !== null && (typeof secondVoiceName !== 'string' || secondVoiceName.trim().length === 0)) {
-      throw new HttpError("secondVoiceName must be a non-empty string if provided", 400);
+    if (secondVoiceName !== null) {
+      validateVoiceName(secondVoiceName, VOICE_NAME_PATTERNS);
     }
 
     // Construct Google Generative AI TTS request body

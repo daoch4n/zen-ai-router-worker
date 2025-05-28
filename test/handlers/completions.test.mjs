@@ -262,10 +262,8 @@ describe('Completions Handler', () => {
         stream: false
       };
 
-      const response = await handleCompletions(req, "test-api-key");
-
-      expect(response.ok).toBe(false);
-      expect(response.status).toBe(400);
+      // With enhanced error handling, non-streaming requests now throw HttpError instead of returning Response
+      await expect(handleCompletions(req, "test-api-key")).rejects.toThrow('Invalid request format or parameters.');
     });
 
     it('should handle invalid completion response', async () => {

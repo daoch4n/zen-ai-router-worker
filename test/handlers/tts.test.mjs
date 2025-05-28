@@ -209,7 +209,84 @@ describe('TTS Handler', () => {
       const response = await handleTTS(request, mockApiKey);
 
       expect(response.status).toBe(400);
-      expect(await response.text()).toBe('text must be a non-empty string');
+      expect(await response.text()).toBe('Text must be at least 1 character long');
+    });
+
+    it('should return 400 when text exceeds byte limit', async () => {
+      const longText = 'A'.repeat(6000); // Exceeds 5000 byte limit
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: longText,
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      const responseText = await response.text();
+      expect(responseText).toContain('Text is too long');
+      expect(responseText).toContain('6000 bytes');
+      expect(responseText).toContain('Maximum allowed is 5000 bytes');
+    });
+
+    it('should return 400 for invalid voice name format', async () => {
+      const request = new Request('https://example.com/tts?voiceName=invalid-voice-format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      const responseText = await response.text();
+      expect(responseText).toContain('Invalid voice name format');
+      expect(responseText).toContain('invalid-voice-format');
+    });
+
+    it('should accept valid Gemini voice names', async () => {
+      // Mock Google API response
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: 'dGVzdC1hdWRpby1kYXRh', // base64 encoded "test-audio-data"
+                    mimeType: 'audio/L16;rate=24000'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=Puck', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Content-Type')).toBe('audio/wav');
     });
 
     it('should return 400 when request body is invalid JSON', async () => {
@@ -291,12 +368,12 @@ describe('TTS Handler', () => {
       expect(wavBytes[3]).toBe(0x46); // 'F'
     });
 
-    it('should handle Google API errors gracefully', async () => {
+    it('should handle Google API errors gracefully with enhanced error mapping', async () => {
       // Mock Google API error response
       const errorResponse = {
         error: {
           code: 400,
-          message: "Invalid voice name"
+          message: "Invalid voice name specified"
         }
       };
 
@@ -306,7 +383,8 @@ describe('TTS Handler', () => {
         text: () => Promise.resolve(JSON.stringify(errorResponse))
       });
 
-      const request = new Request('https://example.com/tts?voiceName=invalid-voice', {
+      // Use a valid voice name format so it passes validation and reaches the API
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -318,7 +396,87 @@ describe('TTS Handler', () => {
       const response = await handleTTS(request, mockApiKey);
 
       expect(response.status).toBe(400);
-      expect(await response.text()).toBe('Google API error: Invalid voice name');
+      expect(await response.text()).toBe('The specified voice is not available. Please check the voice name and try again.');
+    });
+
+    it('should handle quota exceeded errors with user-friendly messages', async () => {
+      const errorResponse = {
+        error: {
+          code: 429,
+          message: "Quota exceeded for this project"
+        }
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 429,
+        text: () => Promise.resolve(JSON.stringify(errorResponse))
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(429);
+      expect(await response.text()).toBe('API quota exceeded. Please try again later or contact support.');
+    });
+
+    it('should handle content policy violations with clear messages', async () => {
+      const errorResponse = {
+        error: {
+          code: 400,
+          message: "Content policy violation detected"
+        }
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve(JSON.stringify(errorResponse))
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Inappropriate content here',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe('Content violates usage policies. Please modify your text and try again.');
+    });
+
+    it('should map 5xx errors to 502 status for client', async () => {
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('Service temporarily unavailable')
+      });
+
+      const request = new Request('https://example.com/tts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleTTS(request, mockApiKey);
+
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe('Service overloaded. Please try again later.');
     });
 
     it('should handle network errors', async () => {
