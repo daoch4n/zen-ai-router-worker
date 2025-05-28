@@ -24,10 +24,20 @@ export function decodeBase64Audio(base64String) {
   try {
     // Use atob for base64 decoding in Cloudflare Workers environment
     const binaryString = atob(base64String);
+    const length = binaryString.length;
+    const bytes = new Uint8Array(length);
 
-    // Convert binary string to Uint8Array efficiently
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
+    // Optimized loop with unrolling for better performance
+    let i = 0;
+    for (; i < length - 3; i += 4) {
+      bytes[i] = binaryString.charCodeAt(i);
+      bytes[i + 1] = binaryString.charCodeAt(i + 1);
+      bytes[i + 2] = binaryString.charCodeAt(i + 2);
+      bytes[i + 3] = binaryString.charCodeAt(i + 3);
+    }
+
+    // Handle remaining bytes
+    for (; i < length; i++) {
       bytes[i] = binaryString.charCodeAt(i);
     }
 
