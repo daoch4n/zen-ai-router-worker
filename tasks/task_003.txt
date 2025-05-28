@@ -1,0 +1,51 @@
+# Task ID: 3
+# Title: Parse Request Body and Query Parameters
+# Status: pending
+# Dependencies: 1, 2
+# Priority: high
+# Description: Parse `voiceName` (required) and `secondVoiceName` (optional) from query parameters. Parse `text` (required) and `model` (required) from the JSON request body. Implement basic validation for required fields.
+# Details:
+1. Access `request.url` to parse query parameters for `voiceName` and `secondVoiceName`.
+2. Access `request.json()` to parse the request body for `text` and `model`.
+3. Implement checks:
+    *   `voiceName` must be present.
+    *   `text` must be present and non-empty.
+    *   `model` must be present and non-empty.
+4. If validation fails, use `errorHandler` to return `400 Bad Request` with a descriptive message.
+
+# Test Strategy:
+1. Send requests with missing `voiceName`, `text`, `model`: expect `400 Bad Request` errors.
+2. Send a request with all required fields: verify successful parsing (e.g., by logging the parsed values).
+3. Send a request with `secondVoiceName`: verify it's parsed correctly.
+
+# Subtasks:
+## 1. Extract voiceName and secondVoiceName from Query Parameters [pending]
+### Dependencies: None
+### Description: Implement logic to safely extract 'voiceName' and 'secondVoiceName' from the incoming request's URL query parameters. This includes handling cases where these parameters might be missing or malformed.
+### Details:
+Focus on robust extraction and initial type coercion if necessary.
+
+## 2. Extract text and model from JSON Request Body [pending]
+### Dependencies: None
+### Description: Implement logic to parse the incoming request's JSON body and extract the 'text' and 'model' fields. Ensure proper error handling for invalid JSON format or missing body.
+### Details:
+Utilize appropriate middleware or parsing functions for JSON body processing.
+
+## 3. Implement Presence Validation for Required Fields [pending]
+### Dependencies: 3.1, 3.2
+### Description: After parsing, implement checks to ensure that 'voiceName', 'text', and 'model' are present and not empty. Define these as strictly required fields.
+### Details:
+This step focuses solely on verifying the existence of the required data, not its content or format.
+
+## 4. Implement Detailed Content and Format Validation [pending]
+### Dependencies: 3.3
+### Description: Perform detailed validation on the extracted fields: 'voiceName' (e.g., allowed values), 'secondVoiceName' (if present, validate against allowed values), 'text' (e.g., length constraints, character sets), and 'model' (e.g., allowed values, format).
+### Details:
+This step goes beyond presence checks to ensure data integrity and adherence to business rules.
+
+## 5. Integrate errorHandler for Validation Failures [pending]
+### Dependencies: 3.3, 3.4
+### Description: Implement the mechanism to catch any validation errors (from subtasks 3 and 4) and pass them to the 'errorHandler' function, ensuring appropriate HTTP status codes and error messages are returned to the client.
+### Details:
+Ensure the 'errorHandler' receives structured error information to generate consistent error responses.
+
