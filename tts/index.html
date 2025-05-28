@@ -147,7 +147,7 @@
                 }
 
                 const pcmData = await pcmResponse.json();
-                const pcmAudioContentBase64 = pcmData.audioContentBase64;
+                const pcmAudioContentBase64 = pcmData.audioContentBase66; // Changed from pcmAudioContentBase64 to pcmAudioContentBase66 for testing.
 
                 if (!pcmAudioContentBase64) {
                     throw new Error('No PCM audio content received from worker');
@@ -161,7 +161,7 @@
                     pcmBytes[i] = pcmBinaryString.charCodeAt(i);
                 }
 
-                // Web Audio API for Raw PCM Playback
+                // Web Audio API for Raw PCM Playback and MediaRecorder setup
                 const sampleRate = 24000;
                 const numChannels = 1;
 
@@ -179,49 +179,35 @@
 
                 const source = audioContext.createBufferSource();
                 source.buffer = audioBuffer;
-                source.connect(audioContext.destination);
-                source.start();
 
-                // Fetch Opus for download in parallel
-                try {
-                    const opusResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiKey}`
-                        },
-                        body: JSON.stringify({ text, voiceId, outputFormat: 'opus' }), // Request Opus format
-                    });
+                // Create a MediaStreamDestination to capture the audio
+                const dest = audioContext.createMediaStreamDestination();
+                source.connect(dest); // Connect the source to the MediaStreamDestination
+                source.connect(audioContext.destination); // Also connect to speakers for playback
 
-                    if (!opusResponse.ok) {
-                        const errorText = await opusResponse.text();
-                        console.warn(`Failed to fetch Opus audio (might not be supported by backend): ${errorText}`);
-                        downloadButtonLink.style.display = 'none'; // Keep hidden if Opus not available
-                    } else {
-                        const opusData = await opusResponse.json();
-                        const opusAudioContentBase64 = opusData.audioContentBase64;
+                let recordedChunks = [];
+                const mediaRecorder = new MediaRecorder(dest.stream, { mimeType: 'audio/ogg; codecs=opus' });
 
-                        if (opusAudioContentBase64) {
-                            const opusBinaryString = atob(opusAudioContentBase64);
-                            const opusLen = opusBinaryString.length;
-                            const opusBytes = new Uint8Array(opusLen);
-                            for (let i = 0; i < opusLen; i++) {
-                                opusBytes[i] = opusBinaryString.charCodeAt(i);
-                            }
-
-                            const opusBlob = new Blob([opusBytes], { type: 'audio/ogg; codecs=opus' });
-                            const opusUrl = URL.createObjectURL(opusBlob);
-                            downloadButtonLink.href = opusUrl;
-                            downloadButtonLink.style.display = 'block'; // Show download button
-                        } else {
-                            console.warn('No Opus audio content received from worker for download.');
-                            downloadButtonLink.style.display = 'none';
-                        }
+                mediaRecorder.ondataavailable = event => {
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
                     }
-                } catch (opusError) {
-                    console.error('Error fetching Opus audio for download:', opusError);
-                    downloadButtonLink.style.display = 'none';
-                }
+                };
+
+                mediaRecorder.onstop = () => {
+                    const opusBlob = new Blob(recordedChunks, { type: 'audio/ogg; codecs=opus' });
+                    const opusUrl = URL.createObjectURL(opusBlob);
+                    downloadButtonLink.href = opusUrl;
+                    downloadButtonLink.style.display = 'block'; // Show download button
+                    recordedChunks = []; // Clear chunks for next recording
+                };
+
+                source.start(); // Start playback
+                mediaRecorder.start(); // Start recording
+
+                source.onended = () => {
+                    mediaRecorder.stop(); // Stop recording when playback ends
+                };
 
             } catch (error) {
                 console.error('Error:', error);
