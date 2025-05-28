@@ -1,0 +1,14 @@
+# Task ID: 2
+# Title: Implement Request Parsing and Validation for `/rawtts`
+# Status: pending
+# Dependencies: 1
+# Priority: high
+# Description: Reuse existing logic from `handleTTS` to parse query parameters (`voiceName`, `secondVoiceName`) and JSON body (`text`, `model`) for the `/rawtts` endpoint. Apply existing input validation functions (`validateTextLength`, `validateVoiceName`, etc.).
+# Details:
+Inside `handleRawTTS`, use `request.json()` to parse the request body and `new URL(request.url).searchParams` to extract query parameters. Call existing utility functions like `validateTextLength(text)`, `validateVoiceName(voiceName)`, etc., to ensure input validity. Implement a `try-catch` block to handle parsing errors and validation failures, returning appropriate `HttpError` responses via `errorHandler`.
+
+# Test Strategy:
+Develop unit tests for `handleRawTTS` (mocking external dependencies) to verify:
+- Correct parsing of valid JSON body and query parameters.
+- Proper error handling (e.g., 400 Bad Request) for missing required parameters (`text`, `voiceName`).
+- Proper error handling for invalid input values (e.g., text exceeding length limits, invalid voice names).

@@ -1,0 +1,133 @@
+{
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Create `handleRawTTS` Function Skeleton",
+      "description": "Create the basic asynchronous function `handleRawTTS(request, apiKey)` in `src/handlers/tts.mjs` to serve as the entry point for the new `/rawtts` endpoint logic.",
+      "details": "Define the function signature: `export async function handleRawTTS(request, apiKey) { /* ... */ }` within `src/handlers/tts.mjs`. Initially, the function body can be empty or return a placeholder response.",
+      "testStrategy": "Verify that the file `src/handlers/tts.mjs` exists and contains the exported `handleRawTTS` function signature without syntax errors.",
+      "priority": "high",
+      "dependencies": [],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 2,
+      "title": "Implement Request Parsing and Validation for `/rawtts`",
+      "description": "Reuse existing logic from `handleTTS` to parse query parameters (`voiceName`, `secondVoiceName`) and JSON body (`text`, `model`) for the `/rawtts` endpoint. Apply existing input validation functions (`validateTextLength`, `validateVoiceName`, etc.).",
+      "details": "Inside `handleRawTTS`, use `request.json()` to parse the request body and `new URL(request.url).searchParams` to extract query parameters. Call existing utility functions like `validateTextLength(text)`, `validateVoiceName(voiceName)`, etc., to ensure input validity. Implement a `try-catch` block to handle parsing errors and validation failures, returning appropriate `HttpError` responses via `errorHandler`.",
+      "testStrategy": "Develop unit tests for `handleRawTTS` (mocking external dependencies) to verify:\n- Correct parsing of valid JSON body and query parameters.\n- Proper error handling (e.g., 400 Bad Request) for missing required parameters (`text`, `voiceName`).\n- Proper error handling for invalid input values (e.g., text exceeding length limits, invalid voice names).",
+      "priority": "high",
+      "dependencies": [
+        1
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 3,
+      "title": "Integrate Google TTS API Call in `handleRawTTS`",
+      "description": "Utilize `constructGoogleTTSRequestBody` to prepare the request payload and `callGoogleTTSAPI` to interact with Google's Generative AI TTS service. Extract `base64Audio` and `mimeType` from the Google API response.",
+      "details": "After successful request parsing and validation, call `const googleRequestBody = constructGoogleTTSRequestBody({ text, model, voiceName, secondVoiceName });`. Then, `const googleResponse = await callGoogleTTSAPI(googleRequestBody, apiKey);`. Extract `base64Audio = googleResponse.candidates[0].content.parts[0].inlineData.data;` and `mimeType = googleResponse.candidates[0].content.parts[0].inlineData.mimeType;`. Ensure robust error handling for the API call.",
+      "testStrategy": "Develop unit tests for `handleRawTTS` where `callGoogleTTSAPI` is mocked:\n- Mock a successful Google API response and verify `base64Audio` and `mimeType` are correctly extracted.\n- Mock a Google API error response (e.g., 4xx, 5xx) and verify `errorHandler` is invoked and returns a consistent error response (e.g., 500 Internal Server Error).",
+      "priority": "high",
+      "dependencies": [
+        2
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 4,
+      "title": "Construct Raw Audio Response Body for `/rawtts`",
+      "description": "Set the HTTP response body to the `base64Audio` string received directly from Google's API, without any decoding or WAV conversion.",
+      "details": "Create a new `Response` object with the `base64Audio` string as its body: `new Response(base64Audio, { /* ...headers... */ });`. Explicitly ensure that the `decodeBase64Audio` and `generateWavHeader` functions, used by the `/tts` endpoint, are *not* called for `/rawtts`.",
+      "testStrategy": "Unit test `handleRawTTS` (with mocked Google API) to assert that the returned `Response` object's body is identical to the `base64Audio` string provided by the mock, and that no WAV-related processing occurs.",
+      "priority": "high",
+      "dependencies": [
+        3
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 5,
+      "title": "Set `Content-Type` Header for `/rawtts` Response",
+      "description": "Set the `Content-Type` header of the HTTP response to the `mimeType` string provided by Google's API.",
+      "details": "In the `Response` constructor, set the `Content-Type` header using the extracted `mimeType`: `new Response(base64Audio, { headers: { 'Content-Type': mimeType } });`.",
+      "testStrategy": "Unit test `handleRawTTS` (with mocked Google API) to assert that the `Content-Type` header of the returned `Response` object exactly matches the `mimeType` string provided by the mock.",
+      "priority": "high",
+      "dependencies": [
+        3
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 6,
+      "title": "Implement CORS and Error Handling in `handleRawTTS`",
+      "description": "Apply CORS headers using `fixCors` and implement standard error handling using `errorHandler` for any exceptions during the `/rawtts` request processing.",
+      "details": "Wrap the entire logic within `handleRawTTS` in a `try-catch` block. In the `catch (error)` block, return `errorHandler(error)`. Before returning the final successful `Response` object, pass it through `fixCors(response)` to ensure proper CORS headers are applied.",
+      "testStrategy": "Develop unit tests:\n- Trigger an error within `handleRawTTS` (e.g., by mocking a failed `request.json()` or an unexpected Google API response structure) and verify that `errorHandler` is called and returns a consistent error format.\n- Send a mock `OPTIONS` request to `handleRawTTS` and verify that the `fixCors` function correctly adds the necessary CORS headers (e.g., `Access-Control-Allow-Origin`, `Access-Control-Allow-Methods`).",
+      "priority": "high",
+      "dependencies": [
+        4,
+        5
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 7,
+      "title": "Export `handleRawTTS` from `src/handlers/index.mjs`",
+      "description": "Ensure the newly created `handleRawTTS` function is properly exported from `src/handlers/tts.mjs` and re-exported via `src/handlers/index.mjs` so it can be imported by the main worker.",
+      "details": "Verify that `export async function handleRawTTS(...)` is present in `src/handlers/tts.mjs`. Confirm that `src/handlers/index.mjs` includes `export * from './tts.mjs';` or explicitly `export { handleRawTTS } from './tts.mjs';` to make it accessible to `src/worker.mjs`.",
+      "testStrategy": "Perform a simple import test in a temporary file or a build step to ensure `handleRawTTS` can be successfully imported from `src/handlers/index.mjs` without module resolution errors.",
+      "priority": "medium",
+      "dependencies": [
+        6
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 8,
+      "title": "Update Routing for `/rawtts` in `src/worker.mjs`",
+      "description": "Add a new case to the `switch` statement in the `fetch` function of `src/worker.mjs` to route POST requests for paths ending with `/rawtts` to the `handleRawTTS` handler.",
+      "details": "In `src/worker.mjs`, locate the `fetch` function and its `switch` statement that handles different API paths. Add a new `case` for `/rawtts` that checks `request.method === 'POST'` and calls `return handleRawTTS(request, env.GOOGLE_API_KEY);`.",
+      "testStrategy": "Deploy the Cloudflare Worker to a staging environment. Send a POST request to the `/rawtts` endpoint with valid parameters. Verify that the request is successfully routed to `handleRawTTS` and returns the expected raw audio response. Also, test with incorrect methods (e.g., GET) to ensure it's not routed.",
+      "priority": "high",
+      "dependencies": [
+        7
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 9,
+      "title": "Develop Unit/Integration Tests for `/rawtts` Endpoint",
+      "description": "Create comprehensive unit and integration tests to verify correct request parsing, validation, successful interaction with a mocked Google API, correct response body (raw base64), correct `Content-Type` header, and proper error handling for the `/rawtts` endpoint.",
+      "details": "Write test cases covering:\n- **Success:** Valid `text`, `model`, `voiceName` (and optional `secondVoiceName`) resulting in a 200 OK response with the expected base64 audio string body and `Content-Type` header from a mocked Google API response.\n- **Validation Errors:** Missing/invalid `text`, `model`, `voiceName` leading to 400 Bad Request.\n- **Google API Errors:** Mocking various Google API error responses (e.g., 4xx, 5xx) and verifying appropriate 500 Internal Server Error responses from the proxy.\n- **CORS:** Testing `OPTIONS` requests to ensure correct CORS headers are returned.\n- **No WAV Conversion:** Explicitly assert that the response body is the raw base64 string and not a WAV file.",
+      "testStrategy": "Execute the developed test suite using the chosen testing framework (e.g., Jest, Vitest). All test cases should pass, demonstrating the endpoint's adherence to requirements. Code coverage should be high for the `handleRawTTS` function and its integration points.",
+      "priority": "high",
+      "dependencies": [
+        8
+      ],
+      "status": "pending",
+      "subtasks": []
+    },
+    {
+      "id": 10,
+      "title": "Update API Documentation for `/rawtts` Endpoint",
+      "description": "Clearly document the new `/rawtts` endpoint, specifying its request parameters, the base64 encoded response body, and the `Content-Type` header's meaning. Provide examples for client-side consumption.",
+      "details": "Update the existing API documentation (e.g., OpenAPI specification, Markdown documentation) to include:\n- **Endpoint:** `POST /rawtts`\n- **Request Parameters:** Detail the JSON body (`text`, `model`) and query parameters (`voiceName`, `secondVoiceName`).\n- **Response Body:** Explicitly state that the response body is a plain text base64 encoded audio string.\n- **Response Headers:** Explain that the `Content-Type` header (e.g., `audio/L16;rate=24000`, `audio/ogg; codecs=opus`) indicates the format of the *encoded* audio data.\n- **Client-Side Handling:** Provide clear instructions and code examples (e.g., in JavaScript, Python) on how clients should base64 decode the response body and interpret it using the `Content-Type` header.",
+      "testStrategy": "Conduct a thorough manual review of the updated API documentation. Ensure clarity, accuracy, and completeness. Verify that all key aspects of the `/rawtts` endpoint's behavior, especially the raw base64 response and `Content-Type` header, are unambiguously explained for developers.",
+      "priority": "medium",
+      "dependencies": [
+        9
+      ],
+      "status": "pending",
+      "subtasks": []
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+# Task ID: 9
+# Title: Develop Unit/Integration Tests for `/rawtts` Endpoint
+# Status: pending
+# Dependencies: 8
+# Priority: high
+# Description: Create comprehensive unit and integration tests to verify correct request parsing, validation, successful interaction with a mocked Google API, correct response body (raw base64), correct `Content-Type` header, and proper error handling for the `/rawtts` endpoint.
+# Details:
+Write test cases covering:
+- **Success:** Valid `text`, `model`, `voiceName` (and optional `secondVoiceName`) resulting in a 200 OK response with the expected base64 audio string body and `Content-Type` header from a mocked Google API response.
+- **Validation Errors:** Missing/invalid `text`, `model`, `voiceName` leading to 400 Bad Request.
+- **Google API Errors:** Mocking various Google API error responses (e.g., 4xx, 5xx) and verifying appropriate 500 Internal Server Error responses from the proxy.
+- **CORS:** Testing `OPTIONS` requests to ensure correct CORS headers are returned.
+- **No WAV Conversion:** Explicitly assert that the response body is the raw base64 string and not a WAV file.
+
+# Test Strategy:
+Execute the developed test suite using the chosen testing framework (e.g., Jest, Vitest). All test cases should pass, demonstrating the endpoint's adherence to requirements. Code coverage should be high for the `handleRawTTS` function and its integration points.
