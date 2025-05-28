@@ -5,16 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TTS Frontend</title>
     <style>
+        /* MODIFICATION: Global reset and body styling for fixed header */
         body {
             font-family: Arial, sans-serif;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            min-height: 100vh;
+            /* display: flex; /* Removed for normal flow with fixed header */
+            /* justify-content: center; */
+            /* align-items: center; */
+            /* min-height: 100vh; */
             background-color: #f4f4f4;
             margin: 0;
+            padding-top: 230px; /* MODIFICATION: Add padding to body to offset fixed input bar height */
+                                /* Adjust this value based on the actual height of .top-input-bar */
         }
+        /* MODIFICATION: Style for the fixed input bar */
+        .top-input-bar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            background-color: #ffffff;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+            z-index: 1000;
+            box-sizing: border-box;
+        }
+        .top-input-bar .input-group { /* MODIFICATION: For better layout within the bar */
+            max-width: 500px; /* Match container max-width */
+            margin: 0 auto;   /* Center the group */
+            text-align: center;
+        }
+
         .container {
+            /* MODIFICATION: Container is no longer the main centering/positioning element for inputs */
+            /* position: relative; /* Kept for cog icon positioning */
+            display: flex;
             background-color: #fff;
             padding: 20px;
             border-radius: 8px;
@@ -22,11 +46,11 @@
             width: 90%;
             max-width: 500px;
             text-align: center;
+            margin: 20px auto; /* Centering the content box below the input bar */
+            position: relative; /* For cog positioning inside this specific box if preferred */
         }
         /* MODIFICATION: Relative positioning for cog icon placement */
-        .container {
-            position: relative; /* For absolute positioning of the cog icon */
-        }
+        /* Let's position cog relative to the main container, below the input bar */
         #settingsCog {
             position: absolute;
             top: 15px;
@@ -111,8 +135,9 @@
         /* --- MODIFICATION: Toast Notification Styles --- */
         .toast-container {
             position: fixed;
-            top: 20px;
-            right: 20px;
+            top: 20px; /* MODIFICATION: Adjust if it overlaps with the new input bar, maybe lower or different corner */
+            /* Let's move it down a bit to ensure it doesn't overlap with a potentially tall input bar if window is small */
+            right: 20px; 
             z-index: 1050; /* Ensure it's above other elements */
             display: flex;
             flex-direction: column;
@@ -193,44 +218,49 @@
     </style>
 </head>
 <body>
+    <div class="top-input-bar">
+        <div class="input-group">
+            <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
+            <select id="voiceIdInput">
+                <option value="achernar">achernar</option>
+                <option value="achird">achird</option>
+                <option value="algenib">algenib</option>
+                <option value="algieba">algieba</option>
+                <option value="alnilam">alnilam</option>
+                <option value="aoede">aoede</option>
+                <option value="autonoe">autonoe</option>
+                <option value="callirrhoe">callirrhoe</option>
+                <option value="charon">charon</option>
+                <option value="despina">despina</option>
+                <option value="enceladus">enceladus</option>
+                <option value="erinome">erinome</option>
+                <option value="fenrir">fenrir</option>
+                <option value="gacrux">gacrux</option>
+                <option value="iapetus">iapetus</option>
+                <option value="kore">kore</option>
+                <option value="laomedeia">laomedeia</option>
+                <option value="leda">leda</option>
+                <option value="orus">orus</option>
+                <option value="puck">puck</option>
+                <option value="pulcherrima">pulcherrima</option>
+                <option value="rasalgethi">rasalgethi</option>
+                <option value="sadachbia">sadachbia</option>
+                <option value="sadaltager">sadaltager</option>
+                <option value="schedar">schedar</option>
+                <option value="sulafat">sulafat</option>
+                <option value="umbriel">umbriel</option>
+                <option value="vindemiatrix">vindemiatrix</option>
+                <option value="zephyr">zephyr</option>
+                <option value="zubenelgenubi">zubenelgenubi</option>
+            </select>
+            <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
+            <button id="speakButton">Speak</button>
+        </div>
+    </div>
+
     <div class="container">
         <h1>Text-to-Speech</h1>
         <div id="settingsCog" title="Show/Hide API Key">&#9881;</div> 
-        <textarea id="textInput" placeholder="Enter text here..."></textarea>
-        <select id="voiceIdInput">
-            <option value="achernar">achernar</option>
-            <option value="achird">achird</option>
-            <option value="algenib">algenib</option>
-            <option value="algieba">algieba</option>
-            <option value="alnilam">alnilam</option>
-            <option value="aoede">aoede</option>
-            <option value="autonoe">autonoe</option>
-            <option value="callirrhoe">callirrhoe</option>
-            <option value="charon">charon</option>
-            <option value="despina">despina</option>
-            <option value="enceladus">enceladus</option>
-            <option value="erinome">erinome</option>
-            <option value="fenrir">fenrir</option>
-            <option value="gacrux">gacrux</option>
-            <option value="iapetus">iapetus</option>
-            <option value="kore">kore</option>
-            <option value="laomedeia">laomedeia</option>
-            <option value="leda">leda</option>
-            <option value="orus">orus</option>
-            <option value="puck">puck</option>
-            <option value="pulcherrima">pulcherrima</option>
-            <option value="rasalgethi">rasalgethi</option>
-            <option value="sadachbia">sadachbia</option>
-            <option value="sadaltager">sadaltager</option>
-            <option value="schedar">schedar</option>
-            <option value="sulafat">sulafat</option>
-            <option value="umbriel">umbriel</option>
-            <option value="vindemiatrix">vindemiatrix</option>
-            <option value="zephyr">zephyr</option>
-            <option value="zubenelgenubi">zubenelgenubi</option>
-        </select>
-        <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
-        <button id="speakButton">Speak</button>
         <div id="sentenceDisplayContainer" class="sentence-container"></div> 
         <a id="downloadButton" download="audio.opus" style="display: none;">
             <button>Download Opus</button>
@@ -253,11 +283,11 @@
             if (storedApiKey) {
                 apiKeyInput.value = storedApiKey;
                 apiKeyInput.type = 'password'; // Keep it obscured
-                apiKeyInput.style.display = 'none'; // Hide it
+                apiKeyInput.style.display = 'none'; // Hide it initially
                 settingsCog.style.display = 'inline-block'; // Show the cog
             } else {
                 apiKeyInput.style.display = 'block'; // Ensure it's visible if no key
-                settingsCog.style.display = 'none'; // No need for cog if input is always visible
+                settingsCog.style.display = 'inline-block'; // Still show cog, it will just toggle an empty visible field
             }
 
             const storedVoiceId = localStorage.getItem('voiceId');
@@ -268,7 +298,11 @@
             settingsCog.addEventListener('click', () => {
                 const isHidden = apiKeyInput.style.display === 'none';
                 apiKeyInput.style.display = isHidden ? 'block' : 'none';
-                apiKeyInput.type = isHidden && apiKeyInput.value ? 'text' : 'password'; // Show as text when revealed
+                if (isHidden && apiKeyInput.value) {
+                    apiKeyInput.type = 'text';
+                } else if (!isHidden) {
+                    apiKeyInput.type = 'password';
+                }
             });
         });
 
