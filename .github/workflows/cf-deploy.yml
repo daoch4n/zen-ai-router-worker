@@ -126,6 +126,7 @@ jobs:
               --name "${WORKER_NAME}" \
               --compatibility-date "2024-05-01" \
               --compatibility-flags nodejs_compat \
+              --placement smart \
               ${WORKER_VARS}
           done # This 'done' correctly closes the single main 'for i' loop (workers)
       - name: Generate Orchestrator Wrangler Config (Production)
@@ -270,6 +271,7 @@ jobs:
             --name "${WORKER_NAME}" \
             --compatibility-date "2024-05-01" \
             --compatibility-flags nodejs_compat \
+            --placement smart \
             ${WORKER_VARS}
 
       - name: Comment PR with Preview URL
