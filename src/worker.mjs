@@ -86,7 +86,7 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleTTS(request)
+        return handleTTS(request, apiKey)
           .catch(errHandler);
 
       default:

@@ -1,6 +1,6 @@
 # Task ID: 2
 # Title: Integrate Existing Authentication and Centralized Error Handling
-# Status: pending
+# Status: done
 # Dependencies: 1
 # Priority: high
 # Description: Reuse the existing `getRandomApiKey` utility for Google API key selection and worker access pass validation. Integrate the existing `errorHandler` for consistent error responses.
@@ -15,25 +15,25 @@
 3. Send a valid request (even if it fails later due to missing body) and verify that `getRandomApiKey` is called successfully.
 
 # Subtasks:
-## 1. Integrate getRandomApiKey for Authentication [pending]
+## 1. Integrate getRandomApiKey for Authentication [done]
 ### Dependencies: None
 ### Description: Modify the main handler function to call `getRandomApiKey()` at the beginning of the request processing to obtain an API key for authentication purposes. Ensure the key is properly utilized for subsequent operations requiring authentication.
 ### Details:
 This step involves fetching the API key. The exact usage (e.g., setting a header, passing as a parameter) depends on the API's requirements, but the focus here is on obtaining it.
 
-## 2. Wrap handleTTS Logic with Try-Catch Block [pending]
+## 2. Wrap handleTTS Logic with Try-Catch Block [done]
 ### Dependencies: 2.1
 ### Description: Enclose the core `handleTTS` function call and any related synchronous logic within a `try-catch` block to gracefully handle potential runtime errors during text-to-speech processing.
 ### Details:
 The `try` block should contain the call to `handleTTS` and any immediate preceding or succeeding logic that could throw an exception. The `catch` block will then process these exceptions.
 
-## 3. Utilize errorHandler for Exception Handling [pending]
+## 3. Utilize errorHandler for Exception Handling [done]
 ### Dependencies: 2.2
 ### Description: Inside the `catch` block implemented in the previous step, call the `errorHandler` utility function, passing the caught exception and any relevant request/response objects to ensure consistent error logging and response generation.
 ### Details:
 The `errorHandler` should be invoked with the error object. It's crucial to ensure the `errorHandler` has access to necessary context (e.g., `res` object in an Express-like environment) to send an appropriate error response.
 
-## 4. Ensure Content-Type: application/json for Error Responses [pending]
+## 4. Ensure Content-Type: application/json for Error Responses [done]
 ### Dependencies: 2.3
 ### Description: Verify and enforce that all error responses generated, particularly those handled by the `errorHandler`, consistently set the `Content-Type` header to `application/json` to ensure clients correctly interpret the response body.
 ### Details:
