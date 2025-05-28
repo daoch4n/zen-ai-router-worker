@@ -486,7 +486,7 @@
                 speakerPlaybackNode.gain.value = 1;
                 speakerPlaybackNode.connect(audioContext.destination); // For live playback
                 speakerPlaybackNode.connect(audioDestinationNode); // For recording
-
+                
                 let recordedChunks = [];
                 mediaRecorder = new MediaRecorder(audioDestinationNode.stream, { mimeType: 'audio/ogg; codecs=opus' });
 
@@ -530,13 +530,22 @@
                 const FIRST_SENTENCE_TIMEOUT_MS = 10000; // Increased timeout for first sentence
                 let firstSentenceTimeoutId = null;
 
+                // let activeRequests = 0; // Ensure this is reset for each speakButton click
                 const resultsInOrder = new Array(sentences.length).fill(null);
 
-                const fetchSentence = async (sentence, index) => {
+                // MODIFICATION: Enhanced fetchSentence with retries and overall timeout
+                const SENTENCE_FETCH_TIMEOUT_MS = 15000; // 15 seconds overall timeout for one sentence
+
+                const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
                     const spanElement = sentenceSpanElements[index];
-                    if (spanElement) { // Start cipher for this sentence
+                    if (spanElement && !spanElement.classList.contains('cipher-fetching')) { // Start cipher only if not already started for this attempt
                         startSentenceCipher(spanElement);
                     }
+                    // Note: The actual fetch call to the worker is still a single HTTP request-response.
+                    // The "ack" here is implicit: if the worker successfully processes and returns audio/error,
+                    // that's the 'ack' + 'data'. If it stalls, our client-side timeout will catch it.
+                    // A true backend "ack" before processing would require worker modification.
+                    
                     try {
                         const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
                             method: 'POST',
@@ -546,14 +555,22 @@
                             },
                             body: JSON.stringify({ text: sentence.trim(), voiceId }),
                         });
-                        if (spanElement) stopSentenceCipher(spanElement); // Stop cipher after fetch attempt
 
                         if (!pcmResponse.ok) {
                             const errorText = await pcmResponse.text();
-                            console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${pcmResponse.status}, message: ${errorText}`);
-                            return { error: `Failed to fetch sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+                            const statusInfo = `Status ${pcmResponse.status}`;
+                            console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${statusInfo}, message: ${errorText}`);
+                            if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) {
+                                console.log(`Retrying sentence ${index + 1} (${statusInfo}), ${retriesLeft} retries left...`);
+                                if (spanElement) stopSentenceCipher(spanElement); // Stop cipher before retry delay
+                                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft))); // Delay: 1s, 2s
+                                return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
+                            }
+                            if (spanElement) stopSentenceCipher(spanElement);
+                            return { error: `Fetch failed (${statusInfo})`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
                         }
                         const pcmData = await pcmResponse.json();
+                        if (spanElement) stopSentenceCipher(spanElement); // Stop cipher on success
                         const pcmAudioContentBase64 = pcmData.audioContentBase64;
                         if (!pcmAudioContentBase64) {
                              console.error(`No PCM audio content received for sentence ${index + 1} ("${sentence.trim()}")`);
@@ -564,11 +581,33 @@
                         const pcmBytes = new Uint8Array(pcmLen);
                         for (let i = 0; i < pcmLen; i++) { pcmBytes[i] = pcmBinaryString.charCodeAt(i); }
                         return { pcmBytes, error: null, sentenceText: sentence.trim(), originalIndex: index };
+
                     } catch (e) {
-                        if (spanElement) stopSentenceCipher(spanElement); // Stop cipher on exception
                         console.error(`Exception fetching/decoding sentence ${index + 1} ("${sentence.trim()}"):`, e);
-                        return { error: `Exception for sentence ${index + 1}: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
+                        if (retriesLeft > 0) {
+                            console.log(`Retrying sentence ${index + 1} due to exception, ${retriesLeft} retries left...`);
+                            if (spanElement) stopSentenceCipher(spanElement); // Stop cipher before retry delay
+                            await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
+                            return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
+                        }
+                        if (spanElement) stopSentenceCipher(spanElement);
+                        return { error: `Exception: ${e.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
                     }
+                };
+
+                const fetchSentenceWithTimeout = (sentence, index, initialRetries = 2) => {
+                    return new Promise((resolve, reject) => {
+                        const timeoutId = setTimeout(() => {
+                            const spanElement = sentenceSpanElements[index];
+                            if (spanElement) stopSentenceCipher(spanElement);
+                            resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
+                        }, SENTENCE_FETCH_TIMEOUT_MS);
+
+                        fetchSentenceAttempt(sentence, index, initialRetries)
+                            .then(resolve)
+                            .catch(reject) // Should ideally not happen if fetchSentenceAttempt always resolves
+                            .finally(() => clearTimeout(timeoutId));
+                    });
                 };
 
                 function tryPlayNextReadySentence() {
@@ -657,7 +696,7 @@
 
                 // --- MODIFICATION: Initiate all fetches without concurrency limit ---
                 sentences.forEach((sentence, index) => {
-                    fetchSentence(sentence, index)
+                    fetchSentenceWithTimeout(sentence, index) // Use the new wrapper
                         .then(result => {
                             resultsInOrder[index] = result;
                             if (index === 0 && firstSentenceTimeoutId) { // If first sentence data arrives
@@ -668,8 +707,8 @@
                                    if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
                                 } else {
                                     // First sentence failed, try to play next (timeout will also handle this)
-                                    showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
-                                    if(currentSentencePlayIndex === 0) { // If we were waiting for it
+                                    showToast(`First sentence failed: ${result ? result.error : 'Unknown error'}`, 'error');
+                                    if(currentSentencePlayIndex === 0) { 
                                         currentSentencePlayIndex++;
                                         tryPlayNextReadySentence();
                                     }
@@ -687,7 +726,7 @@
                             resultsInOrder[index] = { error: error.message || "Fetch failed", pcmBytes: null, sentenceText: sentences[index], originalIndex: index };
                             if (index === 0 && firstSentenceTimeoutId) {
                                   clearTimeout(firstSentenceTimeoutId);
-                                  firstSentenceTimeoutId = null;
+                                firstSentenceTimeoutId = null;
                                 showToast(`Failed to load first sentence: ${error.message}`, 'error');
                             }
                             if (currentSentencePlayIndex === index) tryPlayNextReadySentence();
@@ -697,7 +736,8 @@
                 // Setup timeout for the first sentence
                 firstSentenceTimeoutId = setTimeout(() => {
                     if (!resultsInOrder[0] || (resultsInOrder[0] && resultsInOrder[0].error)) { // If first sentence data hasn't arrived or is an error
-                        showToast("Timeout: First audio segment took too long to load.", 'error');
+                        const firstSentenceText = sentences.length > 0 ? sentences[0].substring(0,20) + '...' : "first sentence";
+                        showToast(`Timeout: "${firstSentenceText}" took too long.`, 'error');
                         firstSentenceTimeoutId = null; // Mark as timed out
                         // If nothing has started playing, stop the recorder.
                         if (currentSentencePlayIndex === 0 && mediaRecorder.state === "recording") {
@@ -710,8 +750,7 @@
                     }
                 }, FIRST_SENTENCE_TIMEOUT_MS);
 
-                // Initial attempt to play. tryPlayNextReadySentence will be called by fetchSentence completions.
-                // If the first sentence is already cached by the browser extremely fast, this might catch it.
+                // Initial attempt to play. tryPlayNextReadySentence will be called more definitively by fetchSentence completions.
                 setTimeout(() => tryPlayNextReadySentence(), 50); // Small delay to allow first fetch to potentially resolve
 
             } catch (error) { // Catch setup errors
