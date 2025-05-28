@@ -83,9 +83,52 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            height: 30px; /* Give it some height even without text */
+            height: 30px; 
         }
        
+        /* MODIFICATION: Style for the cipher text */
+        #loadingText {
+            font-family: 'Courier New', Courier, monospace; /* Optional: for a more cipher-like feel */
+            display: inline-block;
+        }
+
+        /* --- MODIFICATION: Toast Notification Styles --- */
+        .toast-container {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1050; /* Ensure it's above other elements */
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .toast {
+            padding: 12px 20px;
+            border-radius: 6px;
+            color: #fff;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+            opacity: 0;
+            transform: translateX(110%); /* Start off-screen to the right */
+            transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+            min-width: 280px;
+            max-width: 350px;
+            word-wrap: break-word;
+        }
+
+        .toast.show {
+            opacity: 1;
+            transform: translateX(0);
+        }
+
+        .toast.toast-info { background-color: #17a2b8; }
+        .toast.toast-success { background-color: #28a745; }
+        .toast.toast-error { background-color: #dc3545; }
+        .toast.toast-warning { background-color: #ffc107; color: #212529; } /* Darker text for yellow */
+        /* --- END MODIFICATION: Toast Notification Styles --- */
+
         .sentence-container {
             margin-top: 15px;
             padding: 10px;
@@ -179,6 +222,7 @@
             <div class="spinner"></div>
         </div>
         <div id="message" class="message"></div>
+        <div id="toastContainer" class="toast-container"></div>
     </div>
 
     <script>
@@ -198,9 +242,38 @@
         document.getElementById('voiceIdInput').addEventListener('change', (event) => {
             localStorage.setItem('voiceId', event.target.value);
         });
+
+        // --- MODIFICATION: Toast Notification Function ---
+        function showToast(message, type = 'info', duration = 4000) {
+            const toastContainer = document.getElementById('toastContainer');
+            // Fallback to messageDiv if toastContainer isn't there for some reason
+            const messageDiv = document.getElementById('message');
+            if (!toastContainer) {
+                if (messageDiv) {
+                    messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
+                    messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
+                }
+                console.warn("Toast container not found. Using fallback message div.");
+                return;
+            }
+
+            const toast = document.createElement('div');
+            toast.className = `toast toast-${type}`;
+            toast.textContent = message;
+
+            toastContainer.appendChild(toast);
+
+            setTimeout(() => toast.classList.add('show'), 10); // Allow element to be in DOM for transition
+
+            setTimeout(() => {
+                toast.classList.remove('show');
+                toast.addEventListener('transitionend', () => toast.remove(), { once: true });
+            }, duration);
+        }
+
         // --- MODIFICATION: Cipher Animation Logic for Sentences ---
         const sentenceCipherIntervals = new Map();
-        const cipherChars = "!<>-_=[]{}|/\\+*^?#@$%&0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+        const cipherChars = "!<>-_=[]{}|/\\+*^?#@$%&0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"; // Updated per user's diff
 
         function startSentenceCipher(spanElement) {
             // Ensure original text is stored if not already
@@ -214,7 +287,7 @@
                 spanElement.textContent = Array.from({ length: originalText.length })
                     .map(() => cipherChars[Math.floor(Math.random() * cipherChars.length)])
                     .join("");
-            }, 100); // Scramble speed
+            }, 80); // Scramble speed updated per user's diff
             sentenceCipherIntervals.set(spanElement.id, intervalId);
         }
 
@@ -233,16 +306,17 @@
             const text = document.getElementById('textInput').value;
             const voiceId = document.getElementById('voiceIdInput').value;
             const apiKey = document.getElementById('apiKeyInput').value;
-            const messageDiv = document.getElementById('message');
+            const messageDiv = document.getElementById('message'); // Used by showToast fallback
             const downloadButtonLink = document.getElementById('downloadButton');
             const speakButton = document.getElementById('speakButton');
             const loadingIndicator = document.getElementById('loadingIndicator');
             
-            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer'); // Keep this
+            const sentenceDisplayContainer = document.getElementById('sentenceDisplayContainer');
             sentenceDisplayContainer.innerHTML = ''; 
             let sentenceSpanElements = []; 
 
-            messageDiv.textContent = ""; // Clear previous messages
+            // Clear previous text messages if any
+            document.getElementById('message').textContent = ''; 
             downloadButtonLink.style.display = 'none';
             downloadButtonLink.href = '';
 
@@ -250,17 +324,13 @@
             loadingIndicator.style.display = 'flex'; 
 
             if (!text || !apiKey) {
-                // MODIFICATION: Reverted from speakUIMessage
-                messageDiv.textContent = 'Please enter text and your API Key.';
-                messageDiv.style.color = 'red';
+                showToast('Please enter text and your API Key.', 'error');
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
             }
              if (!window.ORCHESTRATOR_WORKER_URL) {
-                // MODIFICATION: Reverted from speakUIMessage
-                messageDiv.textContent = 'Error: Orchestrator worker URL is not configured.';
-                messageDiv.style.color = 'red';
+                showToast('Error: Orchestrator worker URL is not configured.', 'error');
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
@@ -300,9 +370,7 @@
                     }, 500); 
 
                 } else {
-                    // MODIFICATION: Reverted from speakUIMessage
-                    messageDiv.textContent = 'No text to synthesize.';
-                    messageDiv.style.color = 'initial'; // Or your default/info color
+                    showToast('No text to synthesize.', 'warning');
                     speakButton.disabled = false;
                     loadingIndicator.style.display = 'none';
                     return;
@@ -335,16 +403,12 @@
                     if (audioContext && audioContext.state !== 'closed') {
                         audioContext.close().catch(e => console.error("Error closing AudioContext (onstop):", e));
                     }
-                    // MODIFICATION: Reverted from speakUIMessage
-                    messageDiv.textContent = "Speech generation complete.";
-                    messageDiv.style.color = '#28a745'; // Success color
+                    showToast("Speech generation complete.", 'success');
                 };
 
                 mediaRecorder.onerror = (event) => {
                     console.error('MediaRecorder error:', event.error);
-                    // MODIFICATION: Reverted from speakUIMessage
-                    messageDiv.textContent = `Error recording audio: ${event.error.name}`;
-                    messageDiv.style.color = 'red';
+                    showToast(`Error recording audio: ${event.error.name}`, 'error');
                     downloadButtonLink.style.display = 'none';
                     if (audioContext && audioContext.state !== 'closed') {
                         audioContext.close().catch(e => console.error("Error closing AudioContext (onerror):", e));
@@ -431,7 +495,6 @@
                         const result = resultsInOrder[i];
 
                         if (!result || result.error || !result.pcmBytes || result.pcmBytes.byteLength === 0) {
-                            // Collect error messages instead of speaking immediately
                             errorMessages.push(`Skipping sentence ("${result ? result.sentenceText : sentences[i]}") due to error: ${result ? (result.error || 'No audio data') : 'Fetch error'}.`);
                             const errorSpan = sentenceSpanElements[i];
                             if(errorSpan) errorSpan.style.textDecoration = 'line-through wavy red'; // Mark errored sentences
@@ -481,15 +544,16 @@
                     }
 
                     if (errorMessages.length > 0) {
-                         // MODIFICATION: Reverted from speakUIMessage
-                        messageDiv.textContent = errorMessages.join(" \n");
-                        messageDiv.style.color = 'red';
+                        if (errorMessages.length === 1) {
+                            showToast(errorMessages[0], 'warning', 5000);
+                        } else {
+                            showToast(`${errorMessages.length} sentences had errors. Check console for details.`, 'warning', 5000);
+                            errorMessages.forEach(errMsg => console.warn(errMsg));
+                        }
                     }
 
                     if (!hasSuccessfullyProcessedAnySentence && sentences.length > 0) {
-                        // MODIFICATION: Reverted from speakUIMessage
-                        messageDiv.textContent = 'No sentences could be processed successfully.';
-                        messageDiv.style.color = 'red';
+                        showToast('No sentences could be processed successfully.', 'error');
                          if (mediaRecorder.state === "recording") {
                             mediaRecorder.stop(); 
                         }
@@ -507,9 +571,7 @@
 
             } catch (error) {
                 console.error('Error:', error);
-                // MODIFICATION: Reverted from speakUIMessage
-                messageDiv.textContent = `Failed to generate speech: ${error.message}`;
-                messageDiv.style.color = 'red';
+                showToast(`Failed to generate speech: ${error.message}`, 'error');
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop(); 
                 }
