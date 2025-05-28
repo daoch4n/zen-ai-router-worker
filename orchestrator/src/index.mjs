@@ -91,10 +91,10 @@ try {
     const stateResponse = await ttsStateStub.fetch(new Request("https://dummy-url/get-state"));
     if (stateResponse.ok) {
         const state = await stateResponse.json();
-        if (state && state.initialised) {
+        if (state && state.initialised) { // Check state.initialised from the DO
             jobCurrentSentenceIndex = state.currentSentenceIndex;
             jobAudioChunks = state.audioChunks;
-            jobAlreadyInitialised = true;
+            jobAlreadyInitialised = state.initialised; // Set based on DO's state
             console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}.`);
         }
     }
@@ -177,87 +177,89 @@ const processQueue = async () => {
             const targetWorkerIndex = currentCounter % numSrcWorkers;
             const targetService = backendServices[targetWorkerIndex];
 
+            let result = { index, audioContentBase64: null, error: null };
+            let finalErrMsg = null;
+
             if (!targetService) {
-                const errMsg = "Failed to select target worker.";
-                console.error(`Orchestrator: ${errMsg} for sentence ${index}.`);
-                sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${errMsg}`, audioContentBase64: null }, 'error');
-                return { index, error: errMsg, audioContentBase64: null };
-            }
+                finalErrMsg = "Failed to select target worker.";
+                console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
+                result.error = finalErrMsg;
+            } else {
+                let attempts = 0;
+                let delay = RETRY_INITIAL_DELAY_MS;
 
-            let attempts = 0;
-            let delay = RETRY_INITIAL_DELAY_MS;
-
-            while (attempts <= MAX_RETRIES) {
-                try {
-                    const response = await targetService.fetch(new Request(request.url, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                            'Authorization': `Bearer ${apiKey}`
-                        },
-                        body: JSON.stringify({ text: sentence.trim(), voiceId }),
-                    }));
-
-                    if (!response.ok) {
-                        let errorData;
-                        let rawErrorMessage = `HTTP error Status ${response.status}`;
-                        try {
-                            errorData = await response.json();
-                            rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
-                        } catch (e) {
-                            rawErrorMessage = await response.text() || rawErrorMessage;
-                        }
-
-                        // Retry on server errors (5xx) or specific transient errors (e.g., 429 for rate limiting)
-                        if (response.status >= 500 || response.status === 429) {
-                            console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
-                            attempts++;
-                            if (attempts <= MAX_RETRIES) {
-                                await new Promise(res => setTimeout(res, delay));
-                                delay *= 2; // Exponential backoff
-                                continue; // Go to next attempt
-                            }
-                        }
-                        // If not retried or max retries reached, signal error and return
-                        const finalErrMsg = `Backend Error: ${rawErrorMessage}`;
-                        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
-                        sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
-                        return { index, error: finalErrMsg, audioContentBase64: null };
-                    } else {
-                        const data = await response.json();
-                        const audioChunk = data.audioContentBase64;
-                        sendSseMessage({ audioChunk, index, mimeType: "audio/opus" });
-
-                        // Update Durable Object state with progress
-                        await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
+                while (attempts <= MAX_RETRIES) {
+                    try {
+                        const response = await targetService.fetch(new Request(request.url, {
                             method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ sentenceIndex: index, audioChunkBase64: audioChunk })
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'Authorization': `Bearer ${apiKey}`
+                            },
+                            body: JSON.stringify({ text: sentence.trim(), voiceId }),
                         }));
-                        return { index, audioContentBase64: audioChunk, error: null };
+
+                        if (!response.ok) {
+                            let errorData;
+                            let rawErrorMessage = `HTTP error Status ${response.status}`;
+                            try {
+                                errorData = await response.json();
+                                rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
+                            } catch (e) {
+                                rawErrorMessage = await response.text() || rawErrorMessage;
+                            }
+
+                            if (response.status >= 500 || response.status === 429) {
+                                console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
+                                attempts++;
+                                if (attempts <= MAX_RETRIES) {
+                                    await new Promise(res => setTimeout(res, delay));
+                                    delay *= 2; // Exponential backoff
+                                    continue; // Go to next attempt
+                                }
+                            }
+                            finalErrMsg = `Backend Error: ${rawErrorMessage}`;
+                            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
+                            result.error = finalErrMsg;
+                        } else {
+                            const data = await response.json();
+                            result.audioContentBase64 = data.audioContentBase64;
+                            result.error = null; // Clear error on success
+                        }
+                        break; // Exit retry loop on success or non-retryable error
+                    } catch (e) {
+                        finalErrMsg = `Fetch Exception: ${e.message}`;
+                        console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
+                        attempts++;
+                        if (attempts <= MAX_RETRIES) {
+                            await new Promise(res => setTimeout(res, delay));
+                            delay *= 2; // Exponential backoff
+                            continue; // Go to next attempt
+                        }
+                        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
+                        result.error = finalErrMsg;
+                        break; // Exit retry loop if max retries reached
                     }
-                } catch (e) {
-                    // Catch network errors, timeouts, etc.
-                    console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
-                    attempts++;
-                    if (attempts <= MAX_RETRIES) {
-                        await new Promise(res => setTimeout(res, delay));
-                        delay *= 2; // Exponential backoff
-                        continue; // Go to next attempt
-                    }
-                    // If not retried or max retries reached, signal error and return
-                    const finalErrMsg = `Fetch Exception: ${e.message}`;
-                    console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
-                    sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
-                    return { index, error: finalErrMsg, audioContentBase64: null };
                 }
             }
-            // This line should ideally not be reached if MAX_RETRIES logic is correct
-            // but as a failsafe, ensure an error is sent if all retries somehow fail without explicit return.
-            const finalErrMsg = `All retry attempts failed.`;
-            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
-            sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${finalErrMsg}`, audioContentBase64: null }, 'error');
-            return { index, error: finalErrMsg, audioContentBase64: null };
+
+            // Always update Durable Object state with progress or error before sending SSE and returning
+            await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    sentenceIndex: index,
+                    audioChunkBase64: result.audioContentBase64,
+                    error: result.error // Pass error status
+                })
+            }));
+
+            if (result.error) {
+                sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${result.error}`, audioContentBase64: null }, 'error');
+            } else {
+                sendSseMessage({ audioChunk: result.audioContentBase64, index, mimeType: "audio/opus" });
+            }
+            return result; // Resolve the promise with the final result
         })();
         outstandingPromises.add(currentPromise);
         currentPromise.then(resolve, reject); // Resolve/reject the original promise
