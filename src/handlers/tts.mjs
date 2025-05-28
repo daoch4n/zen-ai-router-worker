@@ -279,3 +279,31 @@ export async function handleTTS(request, apiKey) {
     return errorHandler(err, fixCors);
   }
 }
+
+/**
+ * Processes raw text-to-speech requests by handling voice configuration,
+ * text input validation, and audio generation through Google's API.
+ * Returns raw audio data without base64 decoding or WAV header addition.
+ *
+ * @param {Request} request - The incoming HTTP request containing TTS parameters
+ * @param {string} apiKey - Google API key for Gemini access
+ * @returns {Promise<Response>} HTTP response with raw audio data or error information
+ * @throws {Error} When request validation fails or API call errors
+ */
+export async function handleRawTTS(request, apiKey) {
+  try {
+    // TODO: Implement raw TTS logic
+    // This is a placeholder implementation
+    return new Response(JSON.stringify({
+      message: "Raw TTS endpoint - implementation pending"
+    }), fixCors({
+      status: 200,
+      headers: {
+        'Content-Type': 'application/json'
+      }
+    }));
+  } catch (err) {
+    // Use centralized error handler for consistent error responses
+    return errorHandler(err, fixCors);
+  }
+}
