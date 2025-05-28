@@ -81,6 +81,17 @@ describe('Cloudflare Worker', () => {
       expect(handleOPTIONS).toHaveBeenCalledTimes(1);
       expect(response.status).toBe(200);
     });
+
+    test('should handle OPTIONS requests for /rawtts endpoint', async () => {
+      mockRequest = new Request('https://api.example.com/v1/rawtts', {
+        method: 'OPTIONS'
+      });
+
+      const response = await worker.fetch(mockRequest, mockEnv);
+
+      expect(handleOPTIONS).toHaveBeenCalledTimes(1);
+      expect(response.status).toBe(200);
+    });
   });
 
   describe('Request Routing', () => {

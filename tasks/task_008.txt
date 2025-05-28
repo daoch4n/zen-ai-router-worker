@@ -1,6 +1,6 @@
 # Task ID: 8
 # Title: Update Routing for `/rawtts` in `src/worker.mjs`
-# Status: in-progress
+# Status: done
 # Dependencies: 7
 # Priority: high
 # Description: Add a new case to the `switch` statement in the `fetch` function of `src/worker.mjs` to route POST requests for paths ending with `/rawtts` to the `handleRawTTS` handler.

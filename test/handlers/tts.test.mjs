@@ -769,5 +769,131 @@ describe('Raw TTS Handler', () => {
       expect(response.status).toBe(400);
       expect(await response.text()).toBe('The specified voice is not available. Please check the voice name and try again.');
     });
+
+    it('should handle 5xx Google API errors and map to 502', async () => {
+      fetch.mockResolvedValueOnce({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('Service temporarily unavailable')
+      });
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe('Service overloaded. Please try again later.');
+    });
+
+    it('should validate text length limits', async () => {
+      const longText = 'A'.repeat(6000); // Exceeds 5000 byte limit
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: longText,
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      const responseText = await response.text();
+      expect(responseText).toContain('Text is too long');
+      expect(responseText).toContain('6000 bytes');
+      expect(responseText).toContain('Maximum allowed is 5000 bytes');
+    });
+
+    it('should validate voice name format', async () => {
+      const request = new Request('https://example.com/rawtts?voiceName=invalid-voice-format', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(400);
+      const responseText = await response.text();
+      expect(responseText).toContain('Invalid voice name format');
+      expect(responseText).toContain('invalid-voice-format');
+    });
+
+    it('should explicitly verify no WAV conversion occurs', async () => {
+      // Mock Google API response with specific base64 data
+      const mockBase64Audio = 'UklGRiQAAABXQVZFZm10IBAAAAABAAEA'; // Sample base64
+      const mockGoogleResponse = {
+        candidates: [
+          {
+            content: {
+              parts: [
+                {
+                  inlineData: {
+                    data: mockBase64Audio,
+                    mimeType: 'audio/L16;rate=16000'
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      };
+
+      fetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockGoogleResponse)
+      });
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+      const responseText = await response.text();
+
+      // Verify response is exactly the base64 string, not binary WAV data
+      expect(responseText).toBe(mockBase64Audio);
+      expect(response.headers.get('Content-Type')).toBe('audio/L16;rate=16000');
+      expect(response.headers.get('Content-Type')).not.toBe('audio/wav');
+
+      // Verify response is text, not binary
+      expect(typeof responseText).toBe('string');
+      expect(responseText.length).toBe(mockBase64Audio.length);
+    });
+
+    it('should handle network errors gracefully', async () => {
+      // Mock network error
+      fetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+
+      const request = new Request('https://example.com/rawtts?voiceName=en-US-Standard-A', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: 'Hello, world!',
+          model: 'gemini-2.0-flash-exp'
+        })
+      });
+
+      const response = await handleRawTTS(request, mockApiKey);
+
+      expect(response.status).toBe(502);
+      expect(await response.text()).toBe('Network error: Unable to connect to Google API');
+    });
   });
 });
