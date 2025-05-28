@@ -486,6 +486,8 @@
       }
 
       localStorage.setItem('apiKey', apiKey); // Store API key on successful attempt initiation
+      apiKeyInput.type = 'password'; // Make it password type
+      apiKeyInput.style.display = 'none'; // Hide it after saving
       let audioContext;
       let audioDestinationNode;
       let mediaRecorder;
