@@ -23,6 +23,22 @@
             max-width: 500px;
             text-align: center;
         }
+        /* MODIFICATION: Relative positioning for cog icon placement */
+        .container {
+            position: relative; /* For absolute positioning of the cog icon */
+        }
+        #settingsCog {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            cursor: pointer;
+            font-size: 20px; /* Adjust size as needed */
+            color: #555;
+            display: none; /* Hidden by default, shown by JS if API key is set */
+        }
+        #settingsCog:hover {
+            color: #007bff;
+        }
         h1 {
             color: #333;
         }
@@ -179,6 +195,7 @@
 <body>
     <div class="container">
         <h1>Text-to-Speech</h1>
+        <div id="settingsCog" title="Show/Hide API Key">&#9881;</div> 
         <textarea id="textInput" placeholder="Enter text here..."></textarea>
         <select id="voiceIdInput">
             <option value="achernar">achernar</option>
@@ -229,14 +246,30 @@
         window.ORCHESTRATOR_WORKER_URL = ''; 
 
         document.addEventListener('DOMContentLoaded', () => {
+            const apiKeyInput = document.getElementById('apiKeyInput');
+            const settingsCog = document.getElementById('settingsCog');
             const storedApiKey = localStorage.getItem('apiKey');
+
             if (storedApiKey) {
-                document.getElementById('apiKeyInput').value = storedApiKey;
+                apiKeyInput.value = storedApiKey;
+                apiKeyInput.type = 'password'; // Keep it obscured
+                apiKeyInput.style.display = 'none'; // Hide it
+                settingsCog.style.display = 'inline-block'; // Show the cog
+            } else {
+                apiKeyInput.style.display = 'block'; // Ensure it's visible if no key
+                settingsCog.style.display = 'none'; // No need for cog if input is always visible
             }
+
             const storedVoiceId = localStorage.getItem('voiceId');
             if (storedVoiceId) {
                 document.getElementById('voiceIdInput').value = storedVoiceId;
             }
+
+            settingsCog.addEventListener('click', () => {
+                const isHidden = apiKeyInput.style.display === 'none';
+                apiKeyInput.style.display = isHidden ? 'block' : 'none';
+                apiKeyInput.type = isHidden && apiKeyInput.value ? 'text' : 'password'; // Show as text when revealed
+            });
         });
 
         document.getElementById('voiceIdInput').addEventListener('change', (event) => {
@@ -324,13 +357,13 @@
             loadingIndicator.style.display = 'flex'; 
 
             if (!text || !apiKey) {
-                showToast('Please enter text and your API Key.', 'error');
+                showToast('Please enter text and API Key.', 'error');
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
             }
              if (!window.ORCHESTRATOR_WORKER_URL) {
-                showToast('Error: Orchestrator worker URL is not configured.', 'error');
+                showToast('Error: Orchestrator URL not configured.', 'error');
                 speakButton.disabled = false;
                 loadingIndicator.style.display = 'none';
                 return;
@@ -403,7 +436,9 @@
                     if (audioContext && audioContext.state !== 'closed') {
                         audioContext.close().catch(e => console.error("Error closing AudioContext (onstop):", e));
                     }
-                    showToast("Speech generation complete.", 'success');
+                    if (recordedChunks.length > 0 || opusBlob.size > 0) { // Check if blob has content
+                        showToast("Speech generation complete.", 'success');
+                    }
                 };
 
                 mediaRecorder.onerror = (event) => {
@@ -420,7 +455,7 @@
                 let scheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0;
 
                 const MAX_CONCURRENT_REQUESTS = 4;
-                let activeRequests = 0;
+                let activeRequests = 0; // Ensure this is reset for each speakButton click
                 const resultsInOrder = new Array(sentences.length);
 
                 const fetchSentence = async (sentence, index) => {
@@ -466,9 +501,8 @@
                 const processNext = async () => {
                     if (currentIndex >= sentences.length) {
                         if (activeRequests === 0) {
-                            // Ensure all ciphers are stopped before playing
                             sentenceSpanElements.forEach(span => {
-                                if (span.classList.contains('cipher-fetching')) { // Check if it was ever started
+                                if (span.classList.contains('cipher-fetching')) { 
                                     stopSentenceCipher(span);
                                 }
                             });
@@ -571,7 +605,7 @@
 
             } catch (error) {
                 console.error('Error:', error);
-                showToast(`Failed to generate speech: ${error.message}`, 'error');
+                showToast(`Error: ${error.message}`, 'error');
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop(); 
                 }
