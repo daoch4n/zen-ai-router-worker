@@ -5,8 +5,9 @@ on:
     branches:
       - main
   pull_request:
-    types: [opened, synchronize, reopened, closed] # Add closed to handle cleanup
-  repository_dispatch:
+    types: [opened, synchronize, reopened]
+  pull_request_target:
+    types: [closed]
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -163,7 +164,7 @@ jobs:
   deploy_preview:
     runs-on: ubuntu-latest
     name: Deploy Preview
-    if: github.event.action != 'closed' # Don't deploy if the PR is closed
+    if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened')
     steps:
       - uses: actions/checkout@v4
       - name: Install Wrangler
@@ -284,7 +285,7 @@ jobs:
   cleanup_preview:
     runs-on: ubuntu-latest
     name: Cleanup Preview Environment
-    if: github.event.action == 'closed' # Run only when PR is closed
+    if: github.event_name == 'pull_request_target' && github.event.action == 'closed'
     steps:
       - uses: actions/checkout@v4 # Add checkout for access to files
       - name: Install Wrangler
