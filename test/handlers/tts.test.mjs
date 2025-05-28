@@ -1,4 +1,18 @@
-import { optimizeTextForJson, newWavHeader, convertToWavFormat } from '../../src/handlers/tts.mjs';
+import { optimizeTextForJson, newWavHeader, convertToWavFormat, handleTTS } from '../../src/handlers/tts.mjs';
+import { errorHandler } from '../../src/utils/error.mjs';
+
+// Mock the errorHandler to prevent actual error handling logic from running during tests
+jest.mock('../../src/utils/error.mjs', () => ({
+  errorHandler: jest.fn((error) => new Response(JSON.stringify({ error: error.message }), { status: 500, headers: { 'Content-Type': 'application/json' } })),
+}));
+
+// Mock global fetch
+const mockFetch = jest.fn();
+global.fetch = mockFetch;
+
+// Mock global atob
+const mockAtob = jest.fn();
+global.atob = mockAtob;
 
 describe('optimizeTextForJson', () => {
   test('should replace specific Unicode characters with ASCII equivalents', async () => {
@@ -165,5 +179,135 @@ describe('convertToWavFormat', () => {
     expect(result.length).toBe(44 + pcmData.length);
     expect(result.slice(0, 44)).toEqual(expectedWavHeader);
     expect(result.slice(44)).toEqual(pcmData);
+  });
+});
+
+describe('handleTTS', () => {
+  const mockRequest = (text, voiceId = 'someVoiceId') => new Request('http://localhost/tts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text, voiceId }),
+  });
+
+  beforeEach(() => {
+    mockFetch.mockClear();
+    mockAtob.mockClear();
+    errorHandler.mockClear();
+  });
+
+  test('should return a 200 response with WAV audio for a successful API call', async () => {
+    const mockAudioContent = 'base64encodedAudio';
+    const mockDecodedAudio = new Uint8Array([1, 2, 3, 4]);
+    const mockWavBlob = new Blob([newWavHeader(mockDecodedAudio.length, 24000, 1, 16), mockDecodedAudio], { type: 'audio/wav' });
+
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ audioContent: mockAudioContent }), { status: 200 }));
+    mockAtob.mockReturnValueOnce(String.fromCharCode(...mockDecodedAudio));
+
+    const request = mockRequest('Hello, world!');
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Content-Type')).toBe('audio/wav');
+    expect(response.headers.get('Content-Disposition')).toBe('inline; filename="speech.wav"');
+
+    const responseBlob = await response.blob();
+    expect(responseBlob.type).toBe('audio/wav');
+    // For Blob comparison, we can compare size and type, or read as ArrayBuffer and compare
+    expect(responseBlob.size).toBe(mockWavBlob.size);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockFetch).toHaveBeenCalledWith(
+      'https://api.openai.com/v1/audio/speech',
+      expect.objectContaining({
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer undefined', // Assuming process.env.OPENAI_API_KEY is undefined in test env
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: 'tts-1',
+          input: 'Hello, world!',
+          voice: 'someVoiceId',
+          response_format: 'pcm',
+          speed: 1.0,
+        }),
+      })
+    );
+    expect(mockAtob).toHaveBeenCalledTimes(1);
+    expect(mockAtob).toHaveBeenCalledWith(mockAudioContent);
+    expect(errorHandler).not.toHaveBeenCalled();
+  });
+
+  test('should return a 400 response if text is missing from the request body', async () => {
+    const request = mockRequest(undefined); // Missing text
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(400);
+    const jsonResponse = await response.json();
+    expect(jsonResponse.error).toBe('Missing text or voiceId in request body');
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(new Error('Missing text or voiceId in request body'), 400);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockAtob).not.toHaveBeenCalled();
+  });
+
+  test('should return a 400 response if voiceId is missing from the request body', async () => {
+    const request = mockRequest('Hello, world!', undefined); // Missing voiceId
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(400);
+    const jsonResponse = await response.json();
+    expect(jsonResponse.error).toBe('Missing text or voiceId in request body');
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(new Error('Missing text or voiceId in request body'), 400);
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockAtob).not.toHaveBeenCalled();
+  });
+
+  test('should handle API errors (e.g., 401, 404, 500) and return a 500 response', async () => {
+    const mockApiErrorResponse = { error: { message: 'API error occurred' } };
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify(mockApiErrorResponse), { status: 401 }));
+
+    const request = mockRequest('Test error handling');
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(500);
+    const jsonResponse = await response.json();
+    expect(jsonResponse.error).toBe('Failed to convert text to speech: API error occurred');
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(new Error('Failed to convert text to speech: API error occurred'), 500);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockAtob).not.toHaveBeenCalled();
+  });
+
+  test('should handle malformed API responses (e.g., missing audioContent)', async () => {
+    mockFetch.mockResolvedValueOnce(new Response(JSON.stringify({ someOtherField: 'value' }), { status: 200 }));
+
+    const request = mockRequest('Test malformed response');
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(500);
+    const jsonResponse = await response.json();
+    expect(jsonResponse.error).toBe('Failed to convert text to speech: Malformed API response');
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(new Error('Failed to convert text to speech: Malformed API response'), 500);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockAtob).not.toHaveBeenCalled();
+  });
+
+  test('should handle network errors during fetch', async () => {
+    const networkError = new TypeError('Failed to fetch');
+    mockFetch.mockRejectedValueOnce(networkError);
+
+    const request = mockRequest('Test network error');
+    const response = await handleTTS(request);
+
+    expect(response.status).toBe(500);
+    const jsonResponse = await response.json();
+    expect(jsonResponse.error).toBe('Failed to convert text to speech: Failed to fetch');
+    expect(errorHandler).toHaveBeenCalledTimes(1);
+    expect(errorHandler).toHaveBeenCalledWith(new Error('Failed to convert text to speech: Failed to fetch'), 500);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(mockAtob).not.toHaveBeenCalled();
   });
 });

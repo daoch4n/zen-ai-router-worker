@@ -60,3 +60,62 @@ export function convertToWavFormat(pcmData, sampleRate, channels, bitsPerSample)
 
   return wavFile;
 }
+
+import { errorHandler } from '../utils/error.mjs';
+
+export async function handleTTS(request) {
+  try {
+    const { text, voiceId } = await request.json();
+
+    if (!text || !voiceId) {
+      throw new Error('Missing required parameters: text or voiceId');
+    }
+
+    const optimizedText = await optimizeTextForJson(text);
+
+    const payload = {
+      model: 'tts-1',
+      input: optimizedText,
+      voice: voiceId,
+      response_format: 'pcm',
+      speed: 1.0,
+    };
+
+    const response = await fetch('https://api.openai.com/v1/audio/speech', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(`OpenAI TTS API error: ${response.status} - ${errorData.error.message}`);
+    }
+
+    const data = await response.json();
+    const audioContentBase64 = data.audioContent;
+
+    if (!audioContentBase64) {
+      throw new Error('No audio content received from OpenAI TTS API');
+    }
+
+    // Decode base64 to Uint8Array
+    const binaryString = atob(audioContentBase64);
+    const pcmData = Uint8Array.from(binaryString, (m) => m.codePointAt(0));
+
+    // Convert PCM data to WAV format
+    const wavData = convertToWavFormat(pcmData, 24000, 1, 16); // 1 channel (mono), 16 bits per sample (LINEAR16)
+
+    return new Response(wavData, {
+      headers: {
+        'Content-Type': 'audio/wav',
+        'Content-Disposition': 'inline; filename="speech.wav"',
+      },
+    });
+  } catch (error) {
+    return errorHandler(error);
+  }
+}

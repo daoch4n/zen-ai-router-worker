@@ -8,7 +8,8 @@
 import {
   handleCompletions,
   handleEmbeddings,
-  handleModels
+  handleModels,
+  handleTTS
 } from './handlers/index.mjs';
 
 import {
@@ -81,12 +82,23 @@ async function fetch(request, env) {
 
       case pathname.endsWith("/models"):
         if (!(request.method === "GET")) {
-          throw new Error("Assertion failed: expected GET request");
+          throw new HttpError("Method Not Allowed", 405);
         }
         const modelsResponse = await handleModels(apiKey)
           .catch(errHandler);
         console.log(`Models response status: ${modelsResponse.status}`);
         return modelsResponse;
+
+      case pathname.endsWith("/tts"):
+        if (!(request.method === "POST")) {
+          throw new HttpError("Method Not Allowed", 405);
+        }
+        const requestBody = await request.json();
+        const apiKeyTTS = getRandomApiKey(request, env); // Ensure getRandomApiKey is correctly used
+        const ttsResponse = await handleTTS(requestBody, apiKeyTTS)
+          .catch(errHandler); // Ensure errHandler is correctly defined and imported
+        console.log(`TTS response status: ${ttsResponse.status}`);
+        return ttsResponse;
 
       default:
         throw new HttpError("404 Not Found", 404);
