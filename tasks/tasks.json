@@ -225,7 +225,7 @@
       "dependencies": [
         3
       ],
-      "status": "pending",
+      "status": "done",
       "subtasks": [
         {
           "id": 1,
@@ -233,7 +233,7 @@
           "description": "Create the base JSON structure for the Google Generative AI TTS request body. Map the parsed `text` input to the `contents` array, ensuring it's formatted as an object with a `text` key.",
           "dependencies": [],
           "details": "This subtask establishes the top-level JSON object and populates the primary content field, which is fundamental for any TTS request.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 2,
@@ -243,7 +243,7 @@
             1
           ],
           "details": "This subtask adds the essential configuration for the TTS generation process, defining the AI model and the primary voice to be used.",
-          "status": "pending"
+          "status": "done"
         },
         {
           "id": 3,
@@ -253,7 +253,7 @@
             2
           ],
           "details": "This subtask handles a specific conditional requirement for the request body, ensuring API compliance for single vs. multi-speaker requests by omitting unnecessary configuration.",
-          "status": "pending"
+          "status": "done"
         }
       ]
     },

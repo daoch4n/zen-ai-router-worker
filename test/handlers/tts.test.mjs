@@ -28,12 +28,35 @@ describe('TTS Handler', () => {
       const result = await response.json();
 
       expect(response.status).toBe(200);
-      expect(result.message).toBe('TTS request parsed successfully');
+      expect(result.message).toBe('TTS request body constructed successfully');
       expect(result.parameters).toEqual({
         voiceName: 'en-US-Standard-A',
         secondVoiceName: null,
         text: 'Hello, world!',
         model: 'gemini-2.0-flash-exp'
+      });
+
+      // Verify Google API request body structure
+      expect(result.googleApiRequestBody).toEqual({
+        contents: [
+          {
+            parts: [
+              {
+                text: 'Hello, world!'
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: {
+                voiceName: 'en-US-Standard-A'
+              }
+            }
+          }
+        }
       });
     });
 
@@ -52,6 +75,33 @@ describe('TTS Handler', () => {
 
       expect(response.status).toBe(200);
       expect(result.parameters.secondVoiceName).toBe('en-US-Standard-B');
+
+      // Verify multi-speaker configuration in Google API request body
+      expect(result.googleApiRequestBody.generationConfig.speechConfig).toEqual({
+        multiSpeakerVoiceConfig: {
+          speakerVoiceConfigs: [
+            {
+              speaker: "Speaker 1",
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: 'en-US-Standard-A'
+                }
+              }
+            },
+            {
+              speaker: "Speaker 2",
+              voiceConfig: {
+                prebuiltVoiceConfig: {
+                  voiceName: 'en-US-Standard-B'
+                }
+              }
+            }
+          ]
+        }
+      });
+
+      // Ensure voiceConfig is not present in multi-speaker mode
+      expect(result.googleApiRequestBody.generationConfig.speechConfig.voiceConfig).toBeUndefined();
     });
 
     it('should return 400 when voiceName is missing', async () => {

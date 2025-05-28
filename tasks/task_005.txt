@@ -1,6 +1,6 @@
 # Task ID: 5
 # Title: Construct Google Generative AI TTS Request Body (Single Speaker)
-# Status: pending
+# Status: done
 # Dependencies: 3
 # Priority: high
 # Description: Implement the logic within `handleTTS` to construct the JSON request body for Google's Generative AI TTS API, supporting single-speaker configuration using the parsed `voiceName`, `text`, and `model`.
@@ -16,19 +16,19 @@
 2. Ensure that if `secondVoiceName` is *not* provided, the `multiSpeakerVoiceConfig` is *not* included.
 
 # Subtasks:
-## 1. Initialize Request Body and Map Text Content [pending]
+## 1. Initialize Request Body and Map Text Content [done]
 ### Dependencies: None
 ### Description: Create the base JSON structure for the Google Generative AI TTS request body. Map the parsed `text` input to the `contents` array, ensuring it's formatted as an object with a `text` key.
 ### Details:
 This subtask establishes the top-level JSON object and populates the primary content field, which is fundamental for any TTS request.
 
-## 2. Map Voice and Model Configurations [pending]
+## 2. Map Voice and Model Configurations [done]
 ### Dependencies: 5.1
 ### Description: Populate the `generationConfig` and `speechConfig` sections of the request body. Map the parsed `model` to `generationConfig.model` and the parsed `voiceName` to `speechConfig.voice.name`.
 ### Details:
 This subtask adds the essential configuration for the TTS generation process, defining the AI model and the primary voice to be used.
 
-## 3. Conditionally Omit Multi-Speaker Configuration [pending]
+## 3. Conditionally Omit Multi-Speaker Configuration [done]
 ### Dependencies: 5.2
 ### Description: Implement logic to conditionally include or omit the `multiSpeakerVoiceConfig` object within `speechConfig`. If `secondVoiceName` is not present in the parsed input, ensure `multiSpeakerVoiceConfig` is entirely absent from the final request body.
 ### Details:
