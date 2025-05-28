@@ -9,7 +9,8 @@ import { jest } from '@jest/globals';
 jest.unstable_mockModule('../src/handlers/index.mjs', () => ({
   handleCompletions: jest.fn(),
   handleEmbeddings: jest.fn(),
-  handleModels: jest.fn()
+  handleModels: jest.fn(),
+  handleTTS: jest.fn()
 }));
 
 // Mock utils
@@ -31,7 +32,7 @@ jest.unstable_mockModule('../src/utils/cors.mjs', () => ({
 }));
 
 // Import modules after mocking
-const { handleCompletions, handleEmbeddings, handleModels } = await import('../src/handlers/index.mjs');
+const { handleCompletions, handleEmbeddings, handleModels, handleTTS } = await import('../src/handlers/index.mjs');
 const { getRandomApiKey, forceSetWorkerLocation, fixCors, errorHandler, HttpError } = await import('../src/utils/index.mjs');
 const { handleOPTIONS } = await import('../src/utils/cors.mjs');
 const worker = (await import('../src/worker.mjs')).default;

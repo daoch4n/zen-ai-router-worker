@@ -1,4 +1,4 @@
-# Gemini OpenAI Compatibility Layer with Thinking Support
+# Gemini OpenAI Compatibility Layer with Thinking Support + Gemini Flash 2.5 TTS
 
 A Cloudflare Worker that provides OpenAI-compatible API access to Google's Gemini models, including advanced thinking capabilities for enhanced reasoning.
 

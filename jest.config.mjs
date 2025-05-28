@@ -5,6 +5,9 @@
 export default {
   // Use ES modules
   preset: null,
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.mjs$': '$1'
+  },
 
   // Test environment
   testEnvironment: 'node',
@@ -19,10 +22,10 @@ export default {
   moduleFileExtensions: ['mjs', 'js', 'json'],
 
   // Transform configuration
-  transform: {
-    '^.+\\.mjs$': 'babel-jest',
-  },
-  transformIgnorePatterns: ["/node_modules/(?!(?:.*\\.mjs$))"],
+  transform: {},
+  transformIgnorePatterns: [
+    'node_modules/(?!(.*\\.mjs$))'
+  ],
 
   // Coverage configuration
   collectCoverage: false,
