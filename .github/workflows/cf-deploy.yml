@@ -132,9 +132,6 @@ jobs:
           CONFIG_CONTENT+="[[durable_objects.bindings]]\n"
           CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
           CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
-          CONFIG_CONTENT+="[[migrations]]\n"
-          CONFIG_CONTENT+="tag = \"v1-orchestrator\"\n" # Unique tag
-          CONFIG_CONTENT+="new_sqlite_classes = [\"RouterCounter\"]\n\n"
 
           for i in $(seq 0 $((NUM_WORKERS - 1))); do
             CONFIG_CONTENT+="[[services]]\n"
