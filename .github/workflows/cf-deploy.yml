@@ -204,8 +204,17 @@ jobs:
 
       - name: Set Orchestrator Worker URL Output
         id: set_orchestrator_url
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
-          echo "ORCHESTRATOR_WORKER_URL=https://zen-ai-router-orchestrator.workers.dev" >> $GITHUB_OUTPUT
+          WORKER_NAME="zen-ai-router-orchestrator"
+          WORKER_INFO=$(wrangler worker get "${WORKER_NAME}" --json)
+          WORKER_FULL_URL=$(echo "${WORKER_INFO}" | jq -r '.routes[0].pattern')
+          # Remove trailing '/*' if present
+          WORKER_BASE_URL=$(echo "${WORKER_FULL_URL}" | sed 's/\/\*$//')
+          echo "ORCHESTRATOR_WORKER_URL=${WORKER_BASE_URL}" >> $GITHUB_OUTPUT
+          echo "Injected URL: ${WORKER_BASE_URL}"
 
       - name: Inject Orchestrator URL into Frontend
         run: |
