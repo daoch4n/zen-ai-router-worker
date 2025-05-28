@@ -23,9 +23,7 @@ export default {
 
   // Transform configuration
   transform: {},
-  transformIgnorePatterns: [
-    'node_modules/(?!(.*\\.mjs$))'
-  ],
+  transformIgnorePatterns: ["/node_modules/"],
 
   // Coverage configuration
   collectCoverage: false,
