@@ -75,7 +75,7 @@ jobs:
             echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
           fi
           echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
-          KEYS_PER_WORKER=8
+          KEYS_PER_WORKER=1
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           ESCAPED_PASS=$(printf "%q" "${PASS}")
           echo "::add-mask::${ESCAPED_PASS}"
@@ -107,7 +107,7 @@ jobs:
         run: |
           echo "Generating orchestrator/wrangler.toml WITH RouterCounter migration..."
           TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
-          KEYS_PER_WORKER=8
+          KEYS_PER_WORKER=1
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
           CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
@@ -156,7 +156,7 @@ jobs:
         run: |
           echo "First orchestrator deployment failed. Generating orchestrator/wrangler.toml WITHOUT RouterCounter new_sqlite_classes migration..."
           TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
-          KEYS_PER_WORKER=8
+          KEYS_PER_WORKER=1
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
           CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
