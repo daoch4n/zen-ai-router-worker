@@ -332,12 +332,22 @@
       <div class="spinner"></div>
     </div>
     <div id="message" class="message"></div>
-    <div id="toastContainer" class="toast-container"></div> </div>
+    <div id="toastContainer" class="toast-container"></div>
+  </div>
 
   <script>
     window.ORCHESTRATOR_WORKER_URL = ''; // Ensure this is configured
-    const SENTENCE_FETCH_TIMEOUT_MS = 15000; // Increased default fetch timeout
-    const FIRST_SENTENCE_TIMEOUT_MS = 20000; // Increased timeout for first sentence
+    const SENTENCE_FETCH_TIMEOUT_MS = 15000;
+    const FIRST_SENTENCE_TIMEOUT_MS = 20000;
+    // MODIFICATION: Control concurrent fetches. Set to 1 for strictly sequential.
+    let currentMaxConcurrentFetches = 2; // Start with a reasonable default
+    const MAX_ALLOWED_CONCURRENCY = 5;
+    const MIN_ALLOWED_CONCURRENCY = 1;
+    let consecutiveSuccessfulFetches = 0;
+    let failureCount = 0;
+    const CONSECUTIVE_SUCCESS_TO_INCREASE = 3; // Number of consecutive successes to increase concurrency
+    const FAILURE_TO_DECREASE = 1; // Number of failures to decrease concurrency
+
 
     document.addEventListener('DOMContentLoaded', () => {
       const apiKeyInput = document.getElementById('apiKeyInput');
@@ -346,12 +356,12 @@
 
       if (storedApiKey) {
         apiKeyInput.value = storedApiKey;
-        apiKeyInput.type = 'password'; // Keep it obscured
-        apiKeyInput.style.display = 'none'; // Hide it initially
-        settingsCog.style.display = 'inline-block'; // Show the cog
+        apiKeyInput.type = 'password';
+        apiKeyInput.style.display = 'none';
+        settingsCog.style.display = 'inline-block';
       } else {
-        apiKeyInput.style.display = 'block'; // Ensure it's visible if no key
-        settingsCog.style.display = 'inline-block'; // Still show cog
+        apiKeyInput.style.display = 'block';
+        settingsCog.style.display = 'inline-block';
       }
 
       const storedVoiceId = localStorage.getItem('voiceId');
@@ -359,12 +369,11 @@
         document.getElementById('voiceIdInput').value = storedVoiceId;
       }
 
-      // --- MODIFICATION: Dynamic Body Padding for Fixed Input Bar ---
       const topInputBar = document.querySelector('.top-input-bar');
       function updateBodyPadding() {
         if (topInputBar) {
           const barHeight = topInputBar.offsetHeight;
-          document.body.style.paddingTop = `${barHeight + 20}px`; // 20px margin
+          document.body.style.paddingTop = `${barHeight + 20}px`;
         }
       }
 
@@ -373,7 +382,6 @@
         window.addEventListener('resize', updateBodyPadding);
         new ResizeObserver(updateBodyPadding).observe(topInputBar);
       }
-      // --- END MODIFICATION ---
 
       settingsCog.addEventListener('click', () => {
         const isHidden = apiKeyInput.style.display === 'none';
@@ -408,7 +416,7 @@
       toast.textContent = message;
       toastContainer.appendChild(toast);
 
-      setTimeout(() => toast.classList.add('show'), 10); // Allow DOM update for transition
+      setTimeout(() => toast.classList.add('show'), 10);
 
       setTimeout(() => {
         toast.classList.remove('show');
@@ -425,11 +433,10 @@
 
     function removeRedactedStyle(spanElement) {
       spanElement.classList.remove('fetching-redacted');
-      const originalText = spanElement.getAttribute('data-original-text');
-      if (originalText && spanElement.textContent !== originalText) {
-        // This might not be needed if CSS handles text visibility purely
-        // spanElement.textContent = originalText;
-      }
+      // const originalText = spanElement.getAttribute('data-original-text');
+      // if (originalText && spanElement.textContent !== originalText) {
+        // CSS handles text visibility, no need to restore textContent manually here
+      // }
     }
 
     function splitIntoSentences(text) {
@@ -472,6 +479,9 @@
       speakButton.disabled = true;
       loadingIndicator.style.display = 'flex';
 
+      // MODIFICATION: Initialize resultsInOrder here
+      let resultsInOrder = [];
+
       if (!text || !apiKey) {
         showToast('Please enter text and API Key.', 'error');
         speakButton.disabled = false;
@@ -485,13 +495,11 @@
         return;
       }
 
-      localStorage.setItem('apiKey', apiKey); // Store API key on successful attempt initiation
-      apiKeyInput.type = 'password'; // Make it password type
-      apiKeyInput.style.display = 'none'; // Hide it after saving
+      localStorage.setItem('apiKey', apiKey);
       let audioContext;
       let audioDestinationNode;
       let mediaRecorder;
-      let recordedChunks = []; // Moved here to be accessible in onstop
+      let recordedChunks = [];
 
       try {
         const sentences = splitIntoSentences(text);
@@ -500,20 +508,20 @@
           sentences.forEach((sentenceText, index) => {
             const span = document.createElement('span');
             span.textContent = sentenceText;
-            span.setAttribute('data-original-text', sentenceText);
+            span.setAttribute('data-original-text', sentenceText); // Store original text for redaction if needed
             span.id = `sentence-tts-${index}`;
             span.className = 'sentence-segment initial-split-visual';
             span.style.animation = `fadeIn 0.5s ease-out forwards`;
             span.style.animationDelay = `${0.5 + index * 0.15}s`;
 
             sentenceDisplayContainer.appendChild(span);
-            sentenceDisplayContainer.appendChild(document.createTextNode(" ")); // Add space between spans
+            sentenceDisplayContainer.appendChild(document.createTextNode(" "));
             sentenceSpanElements.push(span);
           });
 
           setTimeout(() => {
             sentenceSpanElements.forEach(span => span.classList.remove('initial-split-visual'));
-          }, 500 + sentences.length * 150); // Delay removal based on number of sentences
+          }, 500 + sentences.length * 150);
         } else {
           showToast('No text to synthesize.', 'warning');
           speakButton.disabled = false;
@@ -550,38 +558,34 @@
             showToast("No audio was generated to download.", 'warning');
             downloadButtonLink.style.display = 'none';
           }
-          recordedChunks = []; // Clear for next run
-          // audioContext.close().catch(e => console.error("AudioContext close error on mediaRecorder.stop:", e));
+          recordedChunks = [];
         };
 
         mediaRecorder.onerror = (event) => {
           console.error('MediaRecorder error:', event.error);
           showToast(`Error recording audio: ${event.error.name}`, 'error');
           downloadButtonLink.style.display = 'none';
-          // if (audioContext && audioContext.state !== 'closed') {
-          //   audioContext.close().catch(e => console.error("AudioContext close error on mediaRecorder.onerror:", e));
-          // }
         };
 
         mediaRecorder.start();
 
-        let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0.05; // Small initial offset
+        let globalScheduleTime = audioContext.currentTime > 0 ? audioContext.currentTime : 0.05;
         let currentSentencePlayIndex = 0;
         let firstSentenceTimeoutId = null;
-        const resultsInOrder = new Array(sentences.length).fill(null);
+        resultsInOrder = new Array(sentences.length).fill(null); // Initialize properly
 
+        // --- MODIFICATION: Fetching Logic Variables ---
+        let activeFetchesCount = 0;
+        let currentFetchQueueIndex = 0;
+        // --- END MODIFICATION ---
 
         const fetchSentenceAttempt = async (sentence, index, retriesLeft) => {
-          const spanElement = sentenceSpanElements[index];
-          if (spanElement) applyRedactedStyle(spanElement);
-
+          // Redaction is applied before calling fetchSentenceWithTimeout, which calls this.
+          // spanElement is available in the caller (fetchSentenceWithTimeout) for redaction updates.
           try {
             const pcmResponse = await fetch(window.ORCHESTRATOR_WORKER_URL + '/tts', {
               method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-              },
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
               body: JSON.stringify({ text: sentence.trim(), voiceId }),
             });
 
@@ -591,7 +595,7 @@
               console.error(`HTTP error for sentence ${index + 1} ("${sentence.trim()}"): ${statusInfo}, message: ${errorText}`);
               if (retriesLeft > 0 && (pcmResponse.status === 429 || pcmResponse.status >= 500)) {
                 console.log(`Retrying sentence ${index + 1} (${statusInfo}), ${retriesLeft} retries left...`);
-                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft)));
+                await new Promise(resolve => setTimeout(resolve, 1000 * (3 - retriesLeft))); // Basic backoff
                 return fetchSentenceAttempt(sentence, index, retriesLeft - 1);
               }
               return { error: `Fetch failed (${statusInfo})`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index };
@@ -621,25 +625,34 @@
         };
 
         const fetchSentenceWithTimeout = (sentence, index, retries = 2, timeoutDuration = SENTENCE_FETCH_TIMEOUT_MS) => {
-          return new Promise((resolve, reject) => { // Explicitly use reject for internal promise management
+          return new Promise((resolve) => { // Always resolve, never reject externally
             const spanElement = sentenceSpanElements[index];
-            const timeoutId = setTimeout(() => {
+            let timeoutHandle = setTimeout(() => {
+              timeoutHandle = null; // Mark timeout as having fired
               if (spanElement) removeRedactedStyle(spanElement);
-              // Resolve with error object for consistency, don't reject the outer promise here
               resolve({ error: `Timeout fetching sentence ${index + 1}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
             }, timeoutDuration);
 
             fetchSentenceAttempt(sentence, index, retries)
-              .then(result => { // This result is what fetchSentenceAttempt resolves to
-                  clearTimeout(timeoutId);
-                  if (spanElement && !result.error) removeRedactedStyle(spanElement); // Remove only on success here
+              .then(result => {
+                if (timeoutHandle) { // Check if timeout has NOT already fired
+                  clearTimeout(timeoutHandle);
+                  timeoutHandle = null;
+                  if (spanElement) { // Remove redaction regardless of result.error, as the attempt is complete
+                    removeRedactedStyle(spanElement);
+                  }
                   resolve(result);
+                }
+                // If timeoutHandle is null, timeout already occurred and resolved. Do nothing more.
               })
               .catch(internalError => { // Should ideally not be hit if fetchSentenceAttempt always resolves an object
-                  clearTimeout(timeoutId);
+                if (timeoutHandle) {
+                  clearTimeout(timeoutHandle);
+                  timeoutHandle = null;
                   if (spanElement) removeRedactedStyle(spanElement);
-                  console.error("Internal error in fetchSentenceAttempt promise chain:", internalError);
+                  console.error("Internal error from fetchSentenceAttempt's promise chain:", internalError);
                   resolve({ error: `Internal error: ${internalError.message}`, pcmBytes: null, sentenceText: sentence.trim(), originalIndex: index });
+                }
               });
           });
         };
@@ -647,19 +660,18 @@
 
         function tryPlayNextReadySentence() {
           if (currentSentencePlayIndex >= sentences.length) {
-            // All sentences processed or skipped
             if (mediaRecorder && mediaRecorder.state === "recording") {
-              setTimeout(() => { // Ensure last bits are captured
+              setTimeout(() => {
                 if (mediaRecorder && mediaRecorder.state === "recording") {
                     mediaRecorder.stop();
                 }
-              }, 700); // Delay a bit more
+              }, 700);
             }
             return;
           }
 
           const result = resultsInOrder[currentSentencePlayIndex];
-          if (result) { // Data (or error) for this sentence is available
+          if (result) {
             if (currentSentencePlayIndex === 0 && firstSentenceTimeoutId) {
               clearTimeout(firstSentenceTimeoutId);
               firstSentenceTimeoutId = null;
@@ -671,7 +683,7 @@
               showToast(`Skipping: "${shortText}" (Error: ${result.error || 'No audio data'})`, 'warning', 2000);
               if (sentenceSpan) {
                 sentenceSpan.style.textDecoration = 'line-through wavy red';
-                removeRedactedStyle(sentenceSpan); // Ensure redaction is removed if it failed
+                removeRedactedStyle(sentenceSpan); // Ensure redaction removed on failure/skip
               }
               currentSentencePlayIndex++;
               tryPlayNextReadySentence();
@@ -679,11 +691,11 @@
             }
 
             const { pcmBytes } = result;
-            const frameCount = pcmBytes.byteLength / (2 * numChannels); // 16-bit PCM = 2 bytes per sample
-            if (frameCount === 0) { // Handle empty audio data explicitly
+            const frameCount = pcmBytes.byteLength / (2 * numChannels);
+             if (frameCount === 0) {
                 showToast(`Skipping: "${result.sentenceText.substring(0, 20)}..." (Empty audio data)`, 'warning', 2000);
                 if (sentenceSpan) sentenceSpan.style.textDecoration = 'line-through wavy orange';
-                removeRedactedStyle(sentenceSpan);
+                removeRedactedStyle(sentenceSpan); // Ensure redaction removed
                 currentSentencePlayIndex++;
                 tryPlayNextReadySentence();
                 return;
@@ -693,14 +705,15 @@
             const dataView = new DataView(pcmBytes.buffer);
 
             for (let j = 0; j < frameCount; j++) {
-              nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0; // true for little-endian
+              nowBuffering[j] = dataView.getInt16(j * 2, true) / 32768.0;
             }
 
             const source = audioContext.createBufferSource();
             source.buffer = sentenceAudioBuffer;
 
             if (sentenceSpan) {
-              removeRedactedStyle(sentenceSpan); // Crucial: remove redaction before playing
+              // Redaction should have been removed by fetchSentenceWithTimeout on success
+              // removeRedactedStyle(sentenceSpan); // Not strictly needed here if fetchSentenceWithTimeout is robust
               const sourceScheduledStartTime = globalScheduleTime;
               const startHighlightDelay = Math.max(0, (sourceScheduledStartTime - audioContext.currentTime) * 1000);
 
@@ -711,8 +724,6 @@
 
               source.onended = () => {
                 sentenceSpan.classList.remove('playing');
-                // sentenceSpan.style.transform = ''; // Reset if needed, handled by class removal
-                // sentenceSpan.style.boxShadow = ''; // Reset if needed
                 currentSentencePlayIndex++;
                 tryPlayNextReadySentence();
               };
@@ -724,93 +735,133 @@
             }
 
             source.connect(speakerPlaybackNode);
-
             if (audioContext.currentTime > globalScheduleTime) {
-              globalScheduleTime = audioContext.currentTime + 0.02; // Add tiny buffer if fallen behind
+              globalScheduleTime = audioContext.currentTime + 0.02;
             }
             source.start(globalScheduleTime);
             globalScheduleTime += sentenceAudioBuffer.duration;
-
           }
-          // If data is not yet available for currentSentencePlayIndex, this function will be called again when it arrives.
         }
 
-        sentences.forEach((sentence, index) => {
-          const timeoutToUse = index === 0 ? FIRST_SENTENCE_TIMEOUT_MS : SENTENCE_FETCH_TIMEOUT_MS;
-          fetchSentenceWithTimeout(sentence, index, 2, timeoutToUse)
-            .then(result => {
-              resultsInOrder[index] = result;
-              const spanEl = sentenceSpanElements[index];
+        // --- MODIFICATION: New function to manage fetching sentences sequentially/concurrently ---
+        function manageSentenceFetching() {
+          while (activeFetchesCount < currentMaxConcurrentFetches && currentFetchQueueIndex < sentences.length) {
+            activeFetchesCount++;
+            const sentenceToFetch = sentences[currentFetchQueueIndex];
+            const originalSentenceIndex = currentFetchQueueIndex; // Closure for index
+            const timeoutToUse = originalSentenceIndex === 0 ? FIRST_SENTENCE_TIMEOUT_MS : SENTENCE_FETCH_TIMEOUT_MS;
+            const spanElementForFetch = sentenceSpanElements[originalSentenceIndex];
 
-              if (result.error && spanEl) { // If fetch resulted in error, remove redaction
-                removeRedactedStyle(spanEl);
-                spanEl.style.textDecoration = 'line-through wavy orange'; // Indicate fetch failure
-              }
+            if (spanElementForFetch) {
+              applyRedactedStyle(spanElementForFetch); // Apply redaction before fetch starts
+            }
 
-              if (index === 0 && firstSentenceTimeoutId) {
-                clearTimeout(firstSentenceTimeoutId);
-                firstSentenceTimeoutId = null;
-                if (result && !result.error && result.pcmBytes && result.pcmBytes.byteLength > 0) {
-                  if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
-                } else if (result && result.error) {
-                  showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
-                  if (currentSentencePlayIndex === 0) { // If it's still waiting for the first
-                    // currentSentencePlayIndex++; // This is handled by tryPlayNext if result is an error
-                    tryPlayNextReadySentence(); // Try to move to next if first one failed
+            currentFetchQueueIndex++; // Increment for the next iteration/call
+
+            fetchSentenceWithTimeout(sentenceToFetch, originalSentenceIndex, 2, timeoutToUse)
+              .then(result => {
+                resultsInOrder[originalSentenceIndex] = result;
+                const fetchedSpanElement = sentenceSpanElements[originalSentenceIndex];
+
+                if (result.error) {
+                  if (fetchedSpanElement) {
+                    fetchedSpanElement.style.textDecoration = 'line-through wavy orange'; // Indicate fetch failure
+                  }
+                  failureCount++;
+                  consecutiveSuccessfulFetches = 0; // Reset consecutive successes on failure
+                  if (failureCount >= FAILURE_TO_DECREASE && currentMaxConcurrentFetches > MIN_ALLOWED_CONCURRENCY) {
+                    currentMaxConcurrentFetches = Math.max(MIN_ALLOWED_CONCURRENCY, currentMaxConcurrentFetches - 1);
+                    console.log(`Concurrency decreased to: ${currentMaxConcurrentFetches}`);
+                    failureCount = 0; // Reset failure count after adjustment
+                  }
+                  showToast(`Fetch failed for sentence ${originalSentenceIndex + 1}. Concurrency adjusted to ${currentMaxConcurrentFetches}.`, 'warning', 3000);
+
+                } else if (result.pcmBytes && result.pcmBytes.byteLength > 0) {
+                  // Successful fetch
+                  consecutiveSuccessfulFetches++;
+                  failureCount = 0; // Reset failures on success
+                  if (consecutiveSuccessfulFetches >= CONSECUTIVE_SUCCESS_TO_INCREASE && currentMaxConcurrentFetches < MAX_ALLOWED_CONCURRENCY) {
+                    currentMaxConcurrentFetches = Math.min(MAX_ALLOWED_CONCURRENCY, currentMaxConcurrentFetches + 1);
+                    console.log(`Concurrency increased to: ${currentMaxConcurrentFetches}`);
+                    consecutiveSuccessfulFetches = 0; // Reset consecutive successes after adjustment
+                  }
+                } else {
+                  // No error, but no audio data (e.g., empty response)
+                  if (fetchedSpanElement) {
+                    fetchedSpanElement.style.textDecoration = 'line-through wavy orange'; // Indicate no audio data
+                  }
+                  showToast(`No audio data for sentence ${originalSentenceIndex + 1}.`, 'warning', 2000);
+                }
+
+                if (originalSentenceIndex === 0 && firstSentenceTimeoutId) {
+                  clearTimeout(firstSentenceTimeoutId);
+                  firstSentenceTimeoutId = null;
+                  if (result && !result.error && result.pcmBytes && result.pcmBytes.byteLength > 0) {
+                    if (currentSentencePlayIndex === 0) tryPlayNextReadySentence();
+                  } else if (result && result.error) {
+                    showToast(`First sentence failed: ${result.error || 'No audio data'}`, 'error');
+                    if (currentSentencePlayIndex === 0) {
+                      tryPlayNextReadySentence();
+                    }
+                  }
+                } else if (currentSentencePlayIndex === originalSentenceIndex) {
+                  tryPlayNextReadySentence();
+                }
+
+                const allResultsProcessed = resultsInOrder.every(r => r !== null);
+                if (allResultsProcessed && currentSentencePlayIndex >= sentences.length) {
+                  if (mediaRecorder && mediaRecorder.state === "recording") {
+                    setTimeout(() => {
+                      if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
+                    }, 700);
                   }
                 }
-              } else if (currentSentencePlayIndex === index) {
-                // If this is the sentence we are currently waiting to play
-                tryPlayNextReadySentence();
-              }
+              })
+              .catch(error => { // Should not be hit if fetchSentenceWithTimeout always resolves
+                console.error(`Unhandled promise rejection for sentence ${originalSentenceIndex}:`, error);
+                resultsInOrder[originalSentenceIndex] = { error: error.message || "Fetch promise rejected", pcmBytes: null, sentenceText: sentences[originalSentenceIndex], originalIndex: originalSentenceIndex };
+                const errorSpanElement = sentenceSpanElements[originalSentenceIndex];
+                if (errorSpanElement) {
+                  removeRedactedStyle(errorSpanElement); // Ensure redaction is removed
+                  errorSpanElement.style.textDecoration = 'line-through wavy red';
+                }
+                if (originalSentenceIndex === 0 && firstSentenceTimeoutId) {
+                  clearTimeout(firstSentenceTimeoutId);
+                  firstSentenceTimeoutId = null;
+                  showToast(`Failed to load first sentence (promise error): ${error.message}`, 'error');
+                }
+                if (currentSentencePlayIndex === originalSentenceIndex) tryPlayNextReadySentence();
+              })
+              .finally(() => {
+                activeFetchesCount--;
+                manageSentenceFetching(); // Attempt to fetch the next sentence
+              });
+          }
+        }
+        // --- END MODIFICATION ---
 
-              // Check if all fetches are done to stop recorder
-              const allResultsIn = resultsInOrder.every(r => r !== null);
-              if (allResultsIn && mediaRecorder.state === "recording" && currentSentencePlayIndex >= sentences.length) {
-                setTimeout(() => {
-                  if (mediaRecorder && mediaRecorder.state === "recording") {
-                      mediaRecorder.stop();
-                  }
-                }, 700); // Slightly longer delay
-              }
-            })
-            .catch(error => { // Should only happen if fetchSentenceWithTimeout itself rejects, which it shouldn't
-              console.error(`Unhandled promise rejection from fetchSentenceWithTimeout for sentence ${index}:`, error);
-              resultsInOrder[index] = { error: error.message || "Fetch promise rejected", pcmBytes: null, sentenceText: sentences[index], originalIndex: index };
-              const spanEl = sentenceSpanElements[index];
-              if(spanEl) {
-                removeRedactedStyle(spanEl);
-                spanEl.style.textDecoration = 'line-through wavy red';
-              }
-              if (index === 0 && firstSentenceTimeoutId) {
-                clearTimeout(firstSentenceTimeoutId);
-                firstSentenceTimeoutId = null;
-                showToast(`Failed to load first sentence (promise error): ${error.message}`, 'error');
-              }
-              if (currentSentencePlayIndex === index) tryPlayNextReadySentence();
-            });
-        });
+        // MODIFICATION: Initial call to start the fetching process
+        manageSentenceFetching();
 
         firstSentenceTimeoutId = setTimeout(() => {
           if (currentSentencePlayIndex === 0 && (!resultsInOrder[0] || (resultsInOrder[0] && (resultsInOrder[0].error || !resultsInOrder[0].pcmBytes)))) {
             const firstSentenceText = sentences.length > 0 ? (sentences[0].substring(0, 20) + '...') : "first sentence";
             showToast(`Timeout: "${firstSentenceText}" took too long.`, 'error', 5000);
-            firstSentenceTimeoutId = null;
+            firstSentenceTimeoutId = null; // Clear the ID
             if (resultsInOrder[0] == null) { // If no result yet, mark as error
                 resultsInOrder[0] = { error: `Timeout fetching sentence 1`, pcmBytes: null, sentenceText: sentences[0], originalIndex: 0 };
+                const spanEl = sentenceSpanElements[0];
+                if(spanEl) removeRedactedStyle(spanEl); // Ensure redaction removed
             }
-            // currentSentencePlayIndex++; // Handled by tryPlayNextReadySentence picking up the error result
-            tryPlayNextReadySentence();
+            tryPlayNextReadySentence(); // Attempt to play what's available (might be the errored first sentence or next)
           }
         }, FIRST_SENTENCE_TIMEOUT_MS);
 
-        // Initial kick-off, especially if first sentence resolves very quickly
         setTimeout(() => {
-            if (currentSentencePlayIndex === 0 && resultsInOrder[0]) { // if first sentence resolved before firstSentenceTimeoutId and this timeout
+            if (currentSentencePlayIndex === 0 && resultsInOrder[0] && !firstSentenceTimeoutId) { // If first sentence is ready and its specific timeout hasn't fired
                 tryPlayNextReadySentence();
             }
-        }, 50);
-
+        }, 50); // Small delay for initial kick-off if first fetch is very fast
 
       } catch (error) {
         console.error('General Error in speakButton listener:', error);
@@ -822,14 +873,13 @@
       } finally {
         speakButton.disabled = false;
         loadingIndicator.style.display = 'none';
-        // Check if all sentences processed and if media recorder should be stopped (if not already)
-        // This is more of a failsafe, should be handled by tryPlayNextReadySentence or fetch completion logic
-        const allResultsFinalized = resultsInOrder.every(r => r !== null);
-        if (allResultsFinalized && currentSentencePlayIndex >= sentences.length) {
+        // Failsafe for recorder stop, though specific logic should handle it earlier
+        const allResultsFinalizedCheck = resultsInOrder.every(r => r !== null);
+        if (allResultsFinalizedCheck && currentSentencePlayIndex >= sentences.length) {
             if (mediaRecorder && mediaRecorder.state === "recording") {
                 setTimeout(() => {
                     if (mediaRecorder && mediaRecorder.state === "recording") mediaRecorder.stop();
-                }, 1000); // Ensure it stops if processing ended quickly
+                }, 1000);
             }
         }
       }
