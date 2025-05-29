@@ -59,18 +59,17 @@ async fetch(
 };
 
 async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
-  if (request.method !== 'POST') {
+  if (request.method !== 'GET') { // Change to GET as splitting is now a URL parameter
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  try {
-    const { text, voiceId, apiKey } = await request.json();
-    if (!text || !voiceId || !apiKey) {
-      return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
-    }
-  } catch (error) {
-    console.error('Orchestrator: Error parsing request body:', error);
-    return new Response('Invalid JSON in request body', { status: 400 });
+  const text = url.searchParams.get('text');
+  const voiceId = url.searchParams.get('voiceId');
+  const splitting = url.searchParams.get('splitting'); // Get splitting parameter
+  const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+
+  if (!text || !voiceId || !apiKey) {
+    return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
   }
 
 let jobId = url.searchParams.get('jobId'); // Check for jobId in URL
@@ -124,8 +123,14 @@ if (!jobAlreadyInitialised) {
 }
 
 const optimizedText = optimizeTextForJson(text);
-let sentences = splitIntoSentences(optimizedText);
-console.log(`Orchestrator: Text optimized and split into ${sentences.length} sentences.`);
+let sentences;
+if (splitting === 'tokenCount') {
+    sentences = [optimizedText]; // Stub: Treat entire text as one "sentence" for token count splitting
+    console.log("Orchestrator: Using 'Sentence by Token Count' splitting (stub).");
+} else {
+    sentences = splitIntoSentences(optimizedText);
+    console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text optimized and split into ${sentences.length} sentences.`);
+}
 
 // Adjust sentences and audioChunks if resuming
 if (jobCurrentSentenceIndex > 0 && jobCurrentSentenceIndex < sentences.length) {
@@ -162,8 +167,6 @@ const sendSseMessage = (data, event = 'message') => {
     message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`; // Include jobId in data
     writer.write(encoder.encode(message));
 };
-
-// Update sendSseMessage to include jobId
 
 
 const outstandingPromises = new Set();
