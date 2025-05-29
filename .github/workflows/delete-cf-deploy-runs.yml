@@ -2,7 +2,7 @@ name: Delete cf-deploy Workflow Runs
 
 on:
   workflow_run:
-    workflows: ["Deploy Cloudflare Workers"] # Name of the workflow to monitor
+    workflows: ["Deploy Cloudflare Workers", "AI Code Review"] # Names of the workflows to monitor
     types:
       - completed
 
