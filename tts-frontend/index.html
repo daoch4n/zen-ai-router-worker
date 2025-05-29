@@ -474,7 +474,7 @@
 
               // Concatenate all buffers and enable download
               if (fullAudioBuffers.length > 0) {
-                const audioBlob = bufferToWave(fullAudioBuffers[0], fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
+                const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
                 downloadButtonLink.href = URL.createObjectURL(audioBlob);
                 downloadButtonLink.style.display = 'block';
               }
@@ -568,6 +568,12 @@
           lastPlayedIndex = index;
           cumulativeAudioDuration += buffer.duration;
 
+// The progress bar is now updated only in fetchAudioChunk to reflect overall fetch/decode progress.
+          // The following lines are commented out to prevent redundant updates.
+          // const totalTextLength = words.map(w => w.text).join('').length;
+          // const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;
+          // const progress = (playedTextLength / totalTextLength) * 100;
+          // progressBar.style.width = `${progress}%`;
           // Update progress bar
           const totalTextLength = words.map(w => w.text).join('').length;
           const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;
@@ -603,6 +609,30 @@
         });
       }
 
+// New function to concatenate multiple AudioBuffer objects
+      function concatenateAudioBuffers(audioBuffers, audioContext) {
+        if (!audioBuffers || audioBuffers.length === 0) {
+          return null;
+        }
+
+        const numberOfChannels = audioBuffers[0].numberOfChannels;
+        const sampleRate = audioBuffers[0].sampleRate;
+        let totalLength = 0;
+        for (const buffer of audioBuffers) {
+          totalLength += buffer.length;
+        }
+
+        const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate);
+
+        let offset = 0;
+        for (const buffer of audioBuffers) {
+          for (let i = 0; i < numberOfChannels; i++) {
+            outputBuffer.getChannelData(i).set(buffer.getChannelData(i), offset);
+          }
+          offset += buffer.length;
+        }
+        return outputBuffer;
+      }
       function bufferToWave(abuffer, len) {
         var numOfChan = abuffer.numberOfChannels,
           length = len * numOfChan * 2 + 44,
