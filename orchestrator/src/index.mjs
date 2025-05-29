@@ -156,7 +156,6 @@ const sentenceFetchPromises = sentences.map((sentence, index) => {
 const { readable, writable } = new TransformStream();
 const writer = writable.getWriter();
 const encoder = new TextEncoder();
-
 // Update sendSseMessage to include jobId
 const sendSseMessage = (data, event = 'message') => {
     let message = `event: ${event}\n`;
@@ -164,6 +163,9 @@ const sendSseMessage = (data, event = 'message') => {
     message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`; // Include jobId in data
     writer.write(encoder.encode(message));
 };
+
+// Update sendSseMessage to include jobId
+
 
 const outstandingPromises = new Set();
 
