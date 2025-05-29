@@ -408,7 +408,7 @@
 
       document.getElementById('speakButton').addEventListener('click', async () => {
         const text = textInput.value;
-        const voiceId = document.getElementById('voiceIdInput').value;
+        const voiceName = document.getElementById('voiceIdInput').value;
         const apiKey = document.getElementById('apiKeyInput').value;
         const splitting = splittingInput.value; // Get the selected splitting option
         const messageDiv = document.getElementById('message');
@@ -443,7 +443,7 @@
         textDisplayArea.style.display = 'block'; // Show text display
 
         try {
-          await connectToEventSource(text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting);
+          await connectToEventSource(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting);
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
