@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TTS Frontend</title>
+  <style>
+    /* MODIFICATION: Global reset and body styling for fixed header */
+    body {
+      font-family: Arial, sans-serif;
+      /* display: flex; /* Removed for normal flow with fixed header */
+      /* justify-content: center; */
+      /* align-items: center; */
+      /* min-height: 100vh; */
+      background-color: #f4f4f4;
+      margin: 0;
+      padding-top: 230px;
+      /* MODIFICATION: Add padding to body to offset fixed input bar height */
+      /* This will be dynamically updated by JavaScript */
+    }
+
+    /* MODIFICATION: Style for the fixed input bar */
+    .top-input-bar {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      background-color: #ffffff;
+      padding: 15px 20px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+      z-index: 1000;
+      box-sizing: border-box;
+    }
+
+    .top-input-bar .input-group {
+      /* MODIFICATION: For better layout within the bar */
+      margin: 0 auto;
+      /* Center the group */
+      text-align: center;
+    }
+
+    .container {
+      /* MODIFICATION: Container is no longer the main centering/positioning element for inputs */
+      /* position: relative; /* Kept for cog icon positioning */
+      display: flex;
+      flex-direction: column;
+      /* Added for better stacking of internal elements */
+      align-items: center;
+      /* Center items like download button, message */
+      background-color: #fff;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      width: 90%;
+      max-width: 700px;
+      /* Added for better responsiveness on large screens */
+      text-align: center;
+      margin: 20px auto;
+      /* Centering the content box below the input bar */
+      position: relative;
+      /* For cog positioning inside this specific box if preferred */
+    }
+
+    /* MODIFICATION: Relative positioning for cog icon placement */
+    /* Let's position cog relative to the main container, below the input bar */
+    #settingsCog {
+      position: fixed;
+      /* Change to fixed positioning relative to viewport */
+      top: 15px;
+      right: 15px;
+      cursor: pointer;
+      font-size: 20px;
+      /* Adjust size as needed */
+      color: #555;
+      display: none;
+      /* Hidden by default, shown by JS if API key is set */
+    }
+
+    #settingsCog:hover {
+      color: #007bff;
+    }
+
+    h1 {
+      /* Though no H1 is in the HTML, good to have a base style */
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    textarea {
+      width: calc(100% - 20px);
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      box-sizing: border-box;
+      /* Ensure padding and border are inside width/height */
+      border-radius: 4px;
+      resize: vertical;
+      min-height: 100px;
+    }
+
+    input[type="text"],
+    select {
+      width: calc(100% - 20px);
+      padding: 10px;
+      margin-bottom: 10px;
+      border: 1px solid #ddd;
+      box-sizing: border-box;
+      border-radius: 4px;
+    }
+
+    button {
+      background-color: #007bff;
+      color: white;
+      padding: 10px 15px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      margin-top: 10px;
+    }
+
+    button:hover {
+      background-color: #0056b3;
+    }
+
+    button:disabled {
+      /* Style for disabled button */
+      background-color: #cccccc;
+      cursor: not-allowed;
+    }
+
+    .message {
+      margin-top: 10px;
+      color: red;
+      /* Default to red, can be changed by JS */
+      font-weight: bold;
+    }
+
+    .spinner {
+      border: 4px solid rgba(0, 0, 0, 0.1);
+      border-left-color: #007bff;
+      border-radius: 50%;
+      width: 24px;
+      height: 24px;
+      animation: spin 1s linear infinite;
+      display: inline-block;
+      vertical-align: middle;
+      /* MODIFICATION: Spinner will be the only content in loadingIndicator, so no margin needed here */
+    }
+
+    @keyframes spin {
+      0% {
+        transform: rotate(0deg);
+      }
+
+      100% {
+        transform: rotate(360deg);
+      }
+    }
+
+    #loadingIndicator {
+      margin-top: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 30px;
+    }
+
+    /* MODIFICATION: Style for the cipher text */
+    #loadingText {
+      font-family: 'Courier New', Courier, monospace;
+      /* Optional: for a more cipher-like feel */
+      display: inline-block;
+      margin-left: 10px;
+      /* Spacing between spinner and text */
+    }
+
+    /* New styles for progress bar */
+    #progressBarContainer {
+      width: 80%;
+      background-color: #e0e0e0;
+      border-radius: 5px;
+      height: 10px;
+      margin-top: 10px;
+      overflow: hidden;
+    }
+
+    #progressBar {
+      height: 100%;
+      width: 0%;
+      background-color: #007bff;
+      border-radius: 5px;
+      transition: width 0.1s ease-out;
+    }
+
+    /* --- MODIFICATION: Toast Notification Styles --- */
+    .toast-container {
+      position: fixed;
+      top: 20px;
+      /* MODIFICATION: Adjust if it overlaps with the new input bar, maybe lower or different corner */
+      /* Let's move it down a bit to ensure it doesn't overlap with a potentially tall input bar if window is small */
+      right: 20px;
+      z-index: 1050;
+      /* Ensure it's above other elements */
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .toast {
+      padding: 12px 20px;
+      border-radius: 6px;
+      color: #fff;
+      font-size: 14px;
+      font-weight: bold;
+      box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15);
+      opacity: 0;
+      transform: translateX(110%);
+      /* Start off-screen to the right */
+      transition: opacity 0.4s ease-out, transform 0.4s ease-out;
+      min-width: 280px;
+      max-width: 350px;
+      word-wrap: break-word;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateX(0);
+    }
+
+    .toast.toast-info {
+      background-color: #17a2b8;
+    }
+
+    .toast.toast-success {
+      background-color: #28a745;
+    }
+
+    .toast.toast-error {
+      background-color: #dc3545;
+    }
+
+    .toast.toast-warning {
+      background-color: #ffc107;
+      color: #212549;
+    }
+
+    /* Darker text for yellow */
+    /* --- END MODIFICATION: Toast Notification Styles --- */
+
+    /* New styles for highlighting */
+    .text-display-area {
+      margin-top: 20px;
+      padding: 15px;
+      border: 1px solid #eee;
+      border-radius: 8px;
+      background-color: #f9f9f9;
+      text-align: left;
+      line-height: 1.6;
+      font-size: 1.1em;
+      color: #333;
+      display: none;
+      /* Hidden by default, shown when text is entered */
+    }
+
+    .highlighted-word {
+      background-color: #a8d9ff;
+      /* Light blue background for highlighting */
+      border-radius: 3px;
+      padding: 2px 4px;
+      margin: 0 -4px;
+      /* Adjust margin to prevent gap between words */
+      transition: background-color 0.2s ease;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="top-input-bar">
+    <div class="input-group">
+      <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
+      <select id="voiceIdInput">
+        <option value="achernar">achernar</option>
+        <option value="achird">achird</option>
+        <option value="algenib">algenib</option>
+        <option value="algieba">algieba</option>
+        <option value="alnilam">alnilam</option>
+        <option value="aoede">aoede</option>
+        <option value="autonoe">autonoe</option>
+        <option value="callirrhoe">callirrhoe</option>
+        <option value="charon">charon</option>
+        <option value="despina">despina</option>
+        <option value="erinome">erinome</option>
+        <option value="fenrir">fenrir</option>
+        <option value="gacrux">gacrux</option>
+        <option value="iapetus">iapetus</option>
+        <option value="kore">kore</option>
+        <option value="laomedeia">laomedeia</option>
+        <option value="leda">leda</option>
+        <option value="orus">orus</option>
+        <option value="puck">puck</option>
+        <option value="pulcherrima">pulcherrima</option>
+        <option value="rasalgethi">rasalgethi</option>
+        <option value="sadachbia">sadachbia</option>
+        <option value="sadaltager">sadaltager</option>
+        <option value="schedar">schedar</option>
+        <option value="sulafat">sulafat</option>
+        <option value="umbriel">umbriel</option>
+        <option value="vindemiatrix">vindemiatrix</option>
+        <option value="zephyr">zephyr</option>
+        <option value="zubenelgenubi">zubenelgenubi</option>
+      </select>
+      <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
+      <button id="speakButton">Speak</button>
+    </div>
+  </div>
+
+  <div class="container">
+    <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
+    <a id="downloadButton" download="audio.wav" style="display: none; margin-top: 15px;">
+      <button>Download WAV</button>
+    </a>
+    <div id="loadingIndicator" style="display: none;">
+      <div class="spinner"></div>
+      <span id="loadingText">Connecting...</span>
+    </div>
+    <div id="progressBarContainer" style="display: none;">
+      <div id="progressBar"></div>
+    </div>
+    <div id="message" class="message"></div>
+    <div id="toastContainer" class="toast-container"></div>
+    <!-- New section for displaying text and highlighting -->
+    <div id="textDisplayArea" class="text-display-area"></div>
+  </div>
+
+  <script type="module">
+    import { setupTTSClient } from './ttsClient.mjs';
+
+    // This should be configured at deployment, e.g., by a build process or environment variable
+    // For local testing, you might hardcode it or use a simple config mechanism.
+    const ORCHESTRATOR_WORKER_URL = 'http://localhost:8787'; // Example URL
+
+    const { connectToEventSource, showToast } = setupTTSClient(ORCHESTRATOR_WORKER_URL);
+
+    document.addEventListener('DOMContentLoaded', () => {
+      const apiKeyInput = document.getElementById('apiKeyInput');
+      const settingsCog = document.getElementById('settingsCog');
+      const storedApiKey = localStorage.getItem('apiKey');
+      const textInput = document.getElementById('textInput');
+      const textDisplayArea = document.getElementById('textDisplayArea');
+      const loadingText = document.getElementById('loadingText');
+      const progressBarContainer = document.getElementById('progressBarContainer');
+      const progressBar = document.getElementById('progressBar');
+
+
+      if (storedApiKey) {
+        apiKeyInput.value = storedApiKey;
+        apiKeyInput.type = 'password';
+        apiKeyInput.style.display = 'none';
+        settingsCog.style.display = 'inline-block';
+      } else {
+        apiKeyInput.style.display = 'block';
+        settingsCog.style.display = 'inline-block';
+      }
+
+      const storedVoiceId = localStorage.getItem('voiceId');
+      if (storedVoiceId) {
+        document.getElementById('voiceIdInput').value = storedVoiceId;
+      }
+
+      const topInputBar = document.querySelector('.top-input-bar');
+      function updateBodyPadding() {
+        if (topInputBar) {
+          const barHeight = topInputBar.offsetHeight;
+          document.body.style.paddingTop = `${barHeight + 20}px`;
+        }
+      }
+
+      if (topInputBar) {
+        updateBodyPadding();
+        window.addEventListener('resize', updateBodyPadding);
+        new ResizeObserver(updateBodyPadding).observe(topInputBar);
+      }
+
+      settingsCog.addEventListener('click', () => {
+        const isHidden = apiKeyInput.style.display === 'none';
+        apiKeyInput.style.display = isHidden ? 'block' : 'none';
+        if (isHidden && apiKeyInput.value) {
+          apiKeyInput.type = 'text';
+        } else if (!isHidden) {
+          apiKeyInput.type = 'password';
+        }
+      });
+
+      document.getElementById('voiceIdInput').addEventListener('change', (event) => {
+        localStorage.setItem('voiceId', event.target.value);
+      });
+
+      document.getElementById('speakButton').addEventListener('click', async () => {
+        const text = textInput.value;
+        const voiceId = document.getElementById('voiceIdInput').value;
+        const apiKey = document.getElementById('apiKeyInput').value;
+        const messageDiv = document.getElementById('message');
+        const downloadButtonLink = document.getElementById('downloadButton');
+        const speakButton = document.getElementById('speakButton');
+        const loadingIndicator = document.getElementById('loadingIndicator');
+
+        messageDiv.textContent = '';
+        downloadButtonLink.style.display = 'none';
+        downloadButtonLink.href = '';
+        speakButton.disabled = true;
+        loadingIndicator.style.display = 'flex';
+        loadingText.textContent = 'Connecting...';
+        progressBarContainer.style.display = 'none';
+        progressBar.style.width = '0%';
+        textDisplayArea.style.display = 'none'; // Hide text display initially
+
+
+        if (!text || !apiKey) {
+          showToast('Please enter text and API Key.', 'error');
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          return;
+        }
+
+        localStorage.setItem('apiKey', apiKey);
+
+        // Prepare text for highlighting
+        textDisplayArea.innerHTML = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
+            return word.match(/\b(\w+)\b/) ? `<span data-word-index="${index}">${word}</span>` : word;
+        }).join('');
+        textDisplayArea.style.display = 'block'; // Show text display
+
+        try {
+          await connectToEventSource(text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea);
+        } catch (error) {
+          console.error('TTS Request Error:', error);
+          showToast(`Error: ${error.message}`, 'error');
+        } finally {
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          progressBarContainer.style.display = 'none';
+          progressBar.style.width = '0%';
+        }
+      });
+    });
+  </script>
+</body>
+</html>
