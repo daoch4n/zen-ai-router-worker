@@ -190,7 +190,7 @@ async function handleTtsChunk(request, env) {
 
         const job = await retrieveResponse.json();
 
-        if (!job || !job.audioChunks || chunkIndex < 0 || chunkIndex >= job.audioChunks.length) {
+        if (!job || !Array.isArray(job.audioChunks) || chunkIndex < 0 || chunkIndex >= job.audioChunks.length) {
             return new Response('Chunk not found or invalid chunkIndex', { status: 404 });
         }
 
