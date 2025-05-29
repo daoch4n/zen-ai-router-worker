@@ -66,7 +66,7 @@ export class TTSStateDurableObject {
     async updateProgress(sentenceIndex, audioChunkBase64, error = null) {
         this.currentSentenceIndex = sentenceIndex;
         this.audioChunks[sentenceIndex] = audioChunkBase64;
-
+ 
         if (error) {
             this.lastError = error;
             this.errorTimestamp = Date.now();
@@ -88,6 +88,8 @@ export class TTSStateDurableObject {
             text: this.text,
             voiceId: this.voiceId,
             currentSentenceIndex: this.currentSentenceIndex,
+            // audioChunks can be a sparse array if sentences are processed out of order.
+            // Consumers of this array should be aware of and handle potential `undefined` elements.
             audioChunks: this.audioChunks,
             lastError: this.lastError,
             errorTimestamp: this.errorTimestamp
