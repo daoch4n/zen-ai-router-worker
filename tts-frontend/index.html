@@ -388,9 +388,10 @@
         }, duration);
       }
 
-      const connectToEventSource = (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting) => {
+      // Refactored function to remove SSE logic and prepare for fetch-based requests
+      const initiateTtsRequest = (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting) => {
+        // Clear existing state related to previous playback or SSE
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
-          // Only consider actual words for highlighting, not spaces or punctuation alone
           if (word.match(/\b(\w+)\b/)) {
             return {
               text: word,
@@ -409,147 +410,31 @@
         });
         currentHighlightedWordIndex = 0;
         currentSentenceIndex = -1;
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        cumulativeAudioDuration = 0;
+        lastPlayedIndex = -1;
+        audioQueue = [];
+        fullAudioBuffers = [];
+        currentSource = null;
 
-        const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceName=${encodeURIComponent(voiceName)}&text=${encodeURIComponent(text)}&splitting=${encodeURIComponent(splitting)}`;
-        const eventSource = new EventSource(sseUrl, {
-          headers: {
-            'Authorization': `Bearer ${apiKey}`
+        loadingText.textContent = 'Playing...';
+        progressBarContainer.style.display = 'block';
+        progressBar.style.width = '0%';
+
+        const wordSpans = textDisplayArea.querySelectorAll('span[data-word-index]');
+        wordSpans.forEach(span => {
+          const originalIndex = parseInt(span.dataset.wordIndex);
+          const wordObj = words.find(w => w.originalIndex === originalIndex);
+          if (wordObj) {
+            wordObj.element = span;
           }
         });
+        clearAllHighlights(textDisplayArea);
 
-        eventSource.onopen = () => {
-          console.log('SSE connection opened.');
-          showToast('SSE stream connected.', 'success');
-          if (!audioContext) {
-            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-          }
-          cumulativeAudioDuration = 0; // Reset for new playback
-          lastPlayedIndex = -1; // Reset for new playback
-          audioQueue = []; // Clear queue
-          fullAudioBuffers = []; // Clear full audio buffers
-          currentSource = null; // Clear current source
-
-          loadingText.textContent = 'Playing...'; // Update loading text
-          progressBarContainer.style.display = 'block'; // Show progress bar
-          progressBar.style.width = '0%'; // Reset progress bar
-
-          // Initial setup for highlighting
-          const wordSpans = textDisplayArea.querySelectorAll('span[data-word-index]');
-          wordSpans.forEach(span => {
-            const originalIndex = parseInt(span.dataset.wordIndex);
-            const wordObj = words.find(w => w.originalIndex === originalIndex);
-            if (wordObj) {
-              wordObj.element = span;
-            }
-          });
-          clearAllHighlights(textDisplayArea);
-        };
-
-        eventSource.onmessage = async (event) => {
-          const data = JSON.parse(event.data);
-          if (data.error) {
-            console.error('SSE Error:', data.error);
-            showToast(`Stream Error: ${data.error.message || 'Unknown error'}`, 'error');
-            connectionErrorOccurred = true;
-            eventSource.close();
-            return;
-          }
-
-          const audioChunk = data.audioChunk;
-          const index = data.index; // This is the sentence index now
-          const mimeType = data.mimeType;
-
-          // Assign sentence index to words
-          // Assuming `data.text` is the sentence being spoken
-          // This part needs more robust mapping if `data.text` isn't the full sentence or if words are split differently
-          // For now, a simple approach: if data.text is provided, find the words belonging to that sentence
-          if (data.text) {
-            const sentenceWords = data.text.split(/\b(\w+)\b|\s+/).filter(Boolean);
-            let wordCursor = 0;
-            for (let i = 0; i < words.length; i++) {
-              if (!words[i].isSeparator && words[i].text === sentenceWords[wordCursor]) {
-                words[i].sentenceIndex = index;
-                wordCursor++;
-                if (wordCursor === sentenceWords.length) break; // End of current sentence words
-              }
-            }
-          }
-
-
-          if (audioChunk && audioContext) {
-            try {
-              const audioData = Uint8Array.from(atob(audioChunk), c => c.charCodeAt(0));
-              const audioBuffer = await audioContext.decodeAudioData(audioData.buffer);
-
-              fullAudioBuffers.push({
-                buffer: audioBuffer,
-                index: index
-              }); // Store for reconstruction
-              audioQueue.push({
-                buffer: audioBuffer,
-                index: index
-              });
-              audioQueue.sort((a, b) => a.index - b.index); // Ensure correct order
-
-              if (!currentSource || (audioContext.currentTime >= cumulativeAudioDuration + audioContext.baseLatency && lastPlayedIndex < index)) {
-                playNextChunk(textDisplayArea, progressBar); // Pass progressBar
-              }
-
-            } catch (e) {
-              console.error('Error decoding audio data:', e);
-              showToast(`Audio Error: ${e.message}`, 'error');
-            }
-          }
-        };
-
-        eventSource.addEventListener('end', async () => {
-          console.log('SSE stream ended.');
-          showToast('Audio stream completed.', 'success');
-          eventSource.close();
-          clearAllHighlights(textDisplayArea); // Clear highlights when done
-
-          if (fullAudioBuffers.length > 0 && audioContext) {
-            fullAudioBuffers.sort((a, b) => a.index - b.index);
-
-            const totalLength = fullAudioBuffers.reduce((sum, chunk) => sum + chunk.buffer.length, 0);
-            const outputBuffer = audioContext.createBuffer(
-              fullAudioBuffers[0].buffer.numberOfChannels,
-              totalLength,
-              fullAudioBuffers[0].buffer.sampleRate
-            );
-
-            let offset = 0;
-            for (const chunk of fullAudioBuffers) {
-              for (let i = 0; i < chunk.buffer.numberOfChannels; i++) {
-                outputBuffer.copyToChannel(chunk.buffer.getChannelData(i), i, offset);
-              }
-              offset += chunk.buffer.length;
-            }
-
-            const wavBlob = bufferToWave(outputBuffer, outputBuffer.length);
-            downloadButtonLink.href = URL.createObjectURL(wavBlob);
-            downloadButtonLink.style.display = 'block';
-          }
-
-          speakButton.disabled = false;
-          loadingIndicator.style.display = 'none';
-          progressBarContainer.style.display = 'none';
-          progressBar.style.width = '0%';
-        });
-
-        eventSource.onerror = (error) => {
-          console.error('SSE Error:', error);
-          if (!connectionErrorOccurred) {
-            showToast('SSE connection error. Please try again.', 'error');
-            connectionErrorOccurred = true;
-          }
-          eventSource.close();
-          speakButton.disabled = false;
-          loadingIndicator.style.display = 'none';
-          progressBarContainer.style.display = 'none';
-          progressBar.style.width = '0%';
-          clearAllHighlights(textDisplayArea); // Clear highlights on error
-        };
+        // This function will be adapted in a later step to manage `fetch`-based sequential requests.
+        // For now, it only prepares the state and clears previous SSE-related logic.
+        console.log('initiateTtsRequest called. SSE logic removed. Ready for fetch-based implementation.');
+        showToast('SSE logic removed. Ready for fetch-based implementation.', 'info');
       };
 
       const playNextChunk = (textDisplayArea, progressBar) => {
@@ -628,7 +513,7 @@
         setUint16(numOfChan);
         setUint32(abuffer.sampleRate);
         setUint32(abuffer.sampleRate * numOfChan * 2); // avg. bytes/sec
-        setUint16(numOfChan * 2); // block-align
+        setUint32(numOfChan * 2); // block-align
         setUint16(16); // 16-bit (each sample uses 2 bytes)
 
         setUint32(0x61746164); // "data" chunk
@@ -663,7 +548,7 @@
       }
 
       return {
-        connectToEventSource,
+        initiateTtsRequest, // Renamed from connectToEventSource
         showToast,
         bufferToWave
       };
@@ -687,7 +572,7 @@
       const ORCHESTRATOR_WORKER_URL = 'http://localhost:8787'; // Example URL
 
       const {
-        connectToEventSource,
+        initiateTtsRequest, // Renamed from connectToEventSource
         showToast
       } = setupTTSClient(ORCHESTRATOR_WORKER_URL);
 
@@ -776,7 +661,7 @@
         textDisplayArea.style.display = 'block'; // Show text display
 
         try {
-          await connectToEventSource(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting);
+          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
