@@ -31,13 +31,15 @@ export class TTSStateDurableObject {
         this.errorTimestamp = null; // Clear errors on initialization
         this.initialised = true; // Set local flag as we are explicitly initializing
 
-        await this.state.storage.put("text", text);
-        await this.state.storage.put("voiceId", voiceId);
-        await this.state.storage.put("currentSentenceIndex", 0);
-        await this.state.storage.put("audioChunks", []);
-        await this.state.storage.put("initialised", true); // Persist initialised status
-        await this.state.storage.put("lastError", null);
-        await this.state.storage.put("errorTimestamp", null);
+        await this.state.storage.put({
+            text: text,
+            voiceId: voiceId,
+            currentSentenceIndex: 0,
+            audioChunks: [],
+            initialised: true, // Persist initialised status
+            lastError: null,
+            errorTimestamp: null
+        });
         console.log("TTSStateDurableObject initialised and state persisted.");
     }
 
