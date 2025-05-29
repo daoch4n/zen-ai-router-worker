@@ -62,7 +62,7 @@
     {
       "file_path": "src/worker.mjs",
       "github_diff_position": 21,
-      "comment_text_md": "**My Confidence: High**\n\nThere's a syntax error on this line. `new new HttpError` should be `new HttpError`. This will cause a runtime error.",
+      "comment_text_md": "[ADDRESSED] **Resolution**: The syntax error on line 95 of `src/worker.mjs` (`new new HttpError`) has been corrected to `new HttpError`. This resolves a potential runtime error and ensures proper error handling.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
