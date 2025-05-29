@@ -103,6 +103,7 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
     }
 
     const backendTtsUrl = new URL(request.url);
+backendTtsUrl.search = '';
     backendTtsUrl.pathname = '/api/rawtts';
     
 
