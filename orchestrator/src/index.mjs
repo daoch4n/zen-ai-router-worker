@@ -28,7 +28,7 @@ async fetch(
     }
 
     if (url.pathname === '/api/rawtts') {
-      return handleTtsRequest(request, env, backendServices, numSrcWorkers);
+      return handleTtsRequest(request, env, backendServices, numSrcWorkers, url);
     } else {
       // Existing routing logic for non-TTS requests
       const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
@@ -58,7 +58,7 @@ async fetch(
   },
 };
 
-async function handleTtsRequest(request, env, backendServices, numSrcWorkers) {
+async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
   if (request.method !== 'POST') {
     return new Response('Method Not Allowed', { status: 405 });
   }
@@ -73,7 +73,6 @@ async function handleTtsRequest(request, env, backendServices, numSrcWorkers) {
     return new Response('Invalid JSON in request body', { status: 400 });
   }
 
-const url = new URL(request.url);
 let jobId = url.searchParams.get('jobId'); // Check for jobId in URL
 
 if (!jobId) {
