@@ -65,21 +65,18 @@ class MockAudioBufferSourceNode {
   }
 }
 
-class MockAudioContext {
-  constructor() {
-    this.decodeAudioData = jest.fn(buffer => {
-      // Simulate decoding a simple audio buffer
-      return Promise.resolve(new MockAudioBuffer(1, 44100, 44100)); // 1 channel, 1 second
-    });
-    this.createBuffer = jest.fn((channels, length, sampleRate) => {
-      return new MockAudioBuffer(channels, length, sampleRate);
-    });
-    this.createBufferSource = jest.fn(() => new MockAudioBufferSourceNode());
-    this.destination = {}; // Mock destination node
-    this.currentTime = 0;
-    this.baseLatency = 0;
-  }
-}
+const MockAudioContext = jest.fn(function() {
+  this.decodeAudioData = jest.fn(buffer => {
+    return Promise.resolve(new MockAudioBuffer(1, 44100, 44100));
+  });
+  this.createBuffer = jest.fn((channels, length, sampleRate) => {
+    return new MockAudioBuffer(channels, length, sampleRate);
+  });
+  this.createBufferSource = jest.fn(() => new MockAudioBufferSourceNode());
+  this.destination = {};
+  this.currentTime = 0;
+  this.baseLatency = 0;
+});
 
 // Mock EventSource
 class MockEventSource {
@@ -236,7 +233,6 @@ describe('TTS Frontend', () => {
       function showToast(message, type = 'info', duration = 4000) {
         const toastContainer = document.getElementById('toastContainer');
         const messageDiv = document.getElementById('message'); // Fallback
-
         if (!toastContainer) {
           if (messageDiv) {
             messageDiv.textContent = \`[\${type.toUpperCase()}] \${message}\`;
@@ -500,22 +496,26 @@ describe('TTS Frontend', () => {
     apiKeyInput.value = 'test-api-key';
     dispatchClick(speakButton);
 
-    mockEventSourceInstance._simulateOpen();
-    const mockAudioContextInstance = new MockAudioContext();
+    mockEventSourceInstance._simulateOpen(); // This triggers new (window.AudioContext || window.webkitAudioContext)()
+
+    // Retrieve the AudioContext instance created by the application code
+    // This works because MockAudioContext is now a jest.fn() constructor
+    const scriptAudioContextInstance = MockAudioContext.mock.instances[0];
+    expect(scriptAudioContextInstance).toBeDefined(); // Ensure an instance was created
+
+    // Mock the createBufferSource method on the *actual* instance used by the script
     const mockAudioBufferSourceNodeInstance = new MockAudioBufferSourceNode();
-    mockAudioContextInstance.createBufferSource.mockReturnValue(mockAudioBufferSourceNodeInstance);
-    // Mock the global AudioContext instance that is created
-    window.AudioContext.mockImplementation(() => mockAudioContextInstance);
+    scriptAudioContextInstance.createBufferSource.mockReturnValue(mockAudioBufferSourceNodeInstance);
 
     // Simulate first audio chunk
     mockEventSourceInstance._simulateMessage({ audioChunk: btoa('raw_audio_data_1'), index: 0, mimeType: 'audio/opus' });
     await Promise.resolve(); // Allow promises to resolve
 
     expect(atob).toHaveBeenCalledWith('raw_audio_data_1');
-    expect(mockAudioContextInstance.decodeAudioData).toHaveBeenCalled();
-    expect(mockAudioContextInstance.createBufferSource).toHaveBeenCalled();
+    expect(scriptAudioContextInstance.decodeAudioData).toHaveBeenCalled();
+    expect(scriptAudioContextInstance.createBufferSource).toHaveBeenCalled();
     expect(mockAudioBufferSourceNodeInstance.buffer).toBeInstanceOf(MockAudioBuffer);
-    expect(mockAudioBufferSourceNodeInstance.connect).toHaveBeenCalledWith(mockAudioContextInstance.destination);
+    expect(mockAudioBufferSourceNodeInstance.connect).toHaveBeenCalledWith(scriptAudioContextInstance.destination);
     expect(mockAudioBufferSourceNodeInstance.start).toHaveBeenCalled();
 
     // Simulate second audio chunk
