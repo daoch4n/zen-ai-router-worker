@@ -575,10 +575,7 @@
           // const progress = (playedTextLength / totalTextLength) * 100;
           // progressBar.style.width = `${progress}%`;
           // Update progress bar
-          const totalTextLength = words.map(w => w.text).join('').length;
-          const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;
-          const progress = (playedTextLength / totalTextLength) * 100;
-          progressBar.style.width = `${progress}%`;
+          
 
           // Highlight current sentence
           clearAllHighlights(textDisplayArea);
@@ -653,7 +650,7 @@
         setUint16(numOfChan);
         setUint32(abuffer.sampleRate);
         setUint32(abuffer.sampleRate * numOfChan * 2); // avg. bytes/sec
-        setUint32(numOfChan * 2); // block-align
+        setUint16(numOfChan * 2); // block-align
         setUint16(16); // 16-bit (each sample uses 2 bytes)
 
         setUint32(0x61746164); // "data" chunk
