@@ -389,7 +389,7 @@
       }
 
       // Refactored function to remove SSE logic and prepare for fetch-based requests
-      const initiateTtsRequest = (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting) => {
+      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting, model) => {
         // Clear existing state related to previous playback or SSE
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
           if (word.match(/\b(\w+)\b/)) {
@@ -433,8 +433,118 @@
 
         // This function will be adapted in a later step to manage `fetch`-based sequential requests.
         // For now, it only prepares the state and clears previous SSE-related logic.
-        console.log('initiateTtsRequest called. SSE logic removed. Ready for fetch-based implementation.');
-        showToast('SSE logic removed. Ready for fetch-based implementation.', 'info');
+        try {
+          loadingText.textContent = 'Initiating TTS request...';
+          const response = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-initiate`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+              fullText: text,
+              voiceId: voiceName,
+              model: model,
+              splittingPreference: splitting
+            })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+          }
+
+          const { jobId, totalChunks } = await response.json();
+          showToast(`TTS initiated. Job ID: ${jobId}, Total Chunks: ${totalChunks}`, 'success');
+
+          loadingText.textContent = 'Fetching audio chunks...';
+          progressBarContainer.style.display = 'block';
+          progressBar.style.width = '0%';
+
+          // Function to fetch individual audio chunks
+          const fetchAudioChunk = async (chunkIndex) => {
+            if (chunkIndex >= totalChunks) {
+              showToast('All audio chunks fetched.', 'success');
+              loadingText.textContent = 'Playback complete.';
+              progressBar.style.width = '100%';
+              setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
+              speakButton.disabled = false;
+              loadingIndicator.style.display = 'none';
+              progressBarContainer.style.display = 'none';
+
+              // Concatenate all buffers and enable download
+              if (fullAudioBuffers.length > 0) {
+                const audioBlob = bufferToWave(fullAudioBuffers[0], fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
+                downloadButtonLink.href = URL.createObjectURL(audioBlob);
+                downloadButtonLink.style.display = 'block';
+              }
+              return;
+            }
+
+            try {
+              const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
+                method: 'GET',
+                headers: {
+                  'Authorization': `Bearer ${apiKey}`
+                }
+              });
+
+              if (!chunkResponse.ok) {
+                const errorData = await chunkResponse.json();
+                throw new Error(errorData.error || `HTTP error! status: ${chunkResponse.status}`);
+              }
+
+              const { audioBase64, sentenceMapping } = await chunkResponse.json();
+              const audioBinary = atob(audioBase64); // Decode base64 to binary string
+              const audioBytes = new Uint8Array(audioBinary.length);
+              for (let i = 0; i < audioBinary.length; i++) {
+                audioBytes[i] = audioBinary.charCodeAt(i);
+              }
+
+              audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
+                fullAudioBuffers.push(buffer);
+                audioQueue.push({ buffer, index: chunkIndex, sentenceMapping });
+                if (!currentSource) {
+                  playNextChunk(textDisplayArea, progressBar);
+                }
+
+                // Update word sentence indices
+                sentenceMapping.forEach(mapping => {
+                    const mappedSentenceIndex = mapping.sentenceIndex;
+                    mapping.wordIndexes.forEach(wordOriginalIndex => {
+                        const wordObj = words.find(w => w.originalIndex === wordOriginalIndex);
+                        if (wordObj) {
+                            wordObj.sentenceIndex = mappedSentenceIndex;
+                        }
+                    });
+                });
+
+                const totalTextLength = words.map(w => w.text).join('').length;
+                const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= chunkIndex).map(w => w.text).join('').length;
+                const progress = (playedTextLength / totalTextLength) * 100;
+                progressBar.style.width = `${progress}%`;
+
+                fetchAudioChunk(chunkIndex + 1); // Fetch next chunk
+              });
+
+            } catch (error) {
+              console.error(`Error fetching chunk ${chunkIndex}:`, error);
+              showToast(`Error fetching chunk ${chunkIndex}: ${error.message}`, 'error');
+              speakButton.disabled = false;
+              loadingIndicator.style.display = 'none';
+              progressBarContainer.style.display = 'none';
+            }
+          };
+
+          fetchAudioChunk(0); // Start fetching the first chunk
+
+        } catch (error) {
+          console.error('Initial TTS Request Error:', error);
+          showToast(`Error initiating TTS: ${error.message}`, 'error');
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          progressBarContainer.style.display = 'none';
+        }
       };
 
       const playNextChunk = (textDisplayArea, progressBar) => {
@@ -661,7 +771,8 @@
         textDisplayArea.style.display = 'block'; // Show text display
 
         try {
-          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting); // Renamed from connectToEventSource
+          const model = 'gemini-2.5-flash-preview-tts';
+          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
