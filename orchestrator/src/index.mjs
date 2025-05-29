@@ -39,6 +39,7 @@ async fetch(
             return new Response('Method Not Allowed', { status: 405 });
         }
         const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+        console.log(`Orchestrator: API Key received for /api/tts-stream: ${apiKey ? 'Present' : 'Missing'}`);
         if (!apiKey) {
             throw new HttpError("API key is required", 401);
         }
@@ -95,8 +96,10 @@ if (request.method === 'OPTIONS') {
   const splitting = url.searchParams.get('splitting');
   const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
 
+  console.log(`Orchestrator: handleTtsRequest - text: ${text ? 'Present' : 'Missing'}, voiceId: ${voiceId ? 'Present' : 'Missing'}, splitting: ${splitting || 'default'}, apiKey: ${apiKey ? 'Present' : 'Missing'}`);
 
   if (!text || !voiceId || !apiKey) {
+    console.log("Orchestrator: handleTtsRequest - Missing required parameters.");
     return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
   }
 
@@ -124,7 +127,7 @@ try {
             jobCurrentSentenceIndex = state.currentSentenceIndex;
             jobAudioChunks = state.audioChunks;
             jobAlreadyInitialised = state.initialised;
-            console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}.`);
+            console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}. Already Initialised: ${jobAlreadyInitialised}`);
         }
     }
 } catch (error) {
@@ -133,6 +136,7 @@ try {
 
 if (!jobAlreadyInitialised) {
     try {
+        console.log(`Orchestrator: Initializing Durable Object for job ${jobId}.`);
         const initResponse = await ttsStateStub.fetch(new Request("https://dummy-url/initialize", {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -153,6 +157,7 @@ const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
 const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
 
 let sentences;
+console.log(`Orchestrator: Starting text splitting with option: ${splitting}`);
 if (splitting === 'tokenCount') {
     const initialSentences = splitIntoSentences(text);
     const batchedSentences = [];
@@ -170,15 +175,18 @@ if (splitting === 'tokenCount') {
                 currentBatchLength = 0;
             }
             batchedSentences.push(sentence.trim());
+            console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
         } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
             // If adding the current sentence exceeds the limit, push the current batch
             batchedSentences.push(currentBatch.trim());
             currentBatch = sentence;
             currentBatchLength = sentenceLength;
+            console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
         } else {
             // Otherwise, add to the current batch
             currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
             currentBatchLength += sentenceLength;
+            console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
         }
     }
 
@@ -199,15 +207,27 @@ if (splitting === 'tokenCount') {
 
 // Adjust sentences and audioChunks if resuming
 if (jobCurrentSentenceIndex > 0 && jobCurrentSentenceIndex < sentences.length) {
-    console.log(`Orchestrator: Resuming from sentence index ${jobCurrentSentenceIndex}`);
+    console.log(`Orchestrator: Resuming from sentence index ${jobCurrentSentenceIndex}. Total sentences: ${sentences.length}`);
     // Prepend already synthesized audio chunks to the stream
     for (let i = 0; i < jobCurrentSentenceIndex; i++) {
         if (jobAudioChunks[i]) {
+            console.log(`Orchestrator: Prepending audio chunk for index ${i} from previous session.`);
             sendSseMessage({ audioChunk: jobAudioChunks[i], index: i, mimeType: "audio/opus" });
         }
     }
     sentences = sentences.slice(jobCurrentSentenceIndex);
+    console.log(`Orchestrator: Remaining sentences to process: ${sentences.length}`);
+} else if (jobCurrentSentenceIndex >= sentences.length && jobAlreadyInitialised) {
+    console.log(`Orchestrator: All sentences already processed for job ${jobId}. Sending end event.`);
+    writer.write(encoder.encode('event: end\ndata: \n\n'));
+    writer.close();
+    const responseOptions = fixCors({
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+        status: 200
+    });
+    return new Response(readable, responseOptions);
 }
+
 
 const MAX_CONCURRENT_SENTENCE_FETCHES = 5;
 const MAX_RETRIES = 3;
@@ -218,6 +238,7 @@ const sentenceFetchPromises = sentences.map((sentence, index) => {
     const originalIndex = index + jobCurrentSentenceIndex;
     return new Promise((resolve, reject) => {
         fetchQueue.push({ sentence, index: originalIndex, resolve, reject });
+        console.log(`Orchestrator: Added sentence ${originalIndex} to fetch queue. Queue size: ${fetchQueue.length}`);
     });
 });
 
@@ -230,15 +251,18 @@ const sendSseMessage = (data, event = 'message') => {
     message += `id: ${data.index}\n`;
     message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`;
     writer.write(encoder.encode(message));
+    console.log(`Orchestrator: SSE message sent for index ${data.index}, event: ${event}`);
 };
 
 
 const outstandingPromises = new Set();
 
 const processQueue = async () => {
+    console.log(`Orchestrator: Processing queue. Active fetches: ${activeFetches}, Queue size: ${fetchQueue.length}`);
     while (fetchQueue.length > 0 && activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES) {
         const { sentence, index, resolve, reject } = fetchQueue.shift();
         activeFetches++;
+        console.log(`Orchestrator: Starting fetch for sentence ${index}. Active fetches: ${activeFetches}`);
 
         const currentPromise = (async () => {
             const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
@@ -248,6 +272,7 @@ const processQueue = async () => {
 
             const targetWorkerIndex = currentCounter % numSrcWorkers;
             const targetService = backendServices[targetWorkerIndex];
+            console.log(`Orchestrator: Sentence ${index} - Selected targetWorkerIndex: ${targetWorkerIndex}, targetService: ${targetService}`);
 
             let result = { index, audioContentBase64: null, error: null };
             let finalErrMsg = null;
@@ -263,32 +288,29 @@ const processQueue = async () => {
                 while (attempts <= MAX_RETRIES) {
                     try {
                         const backendTtsUrl = new URL(request.url);
-                                backendTtsUrl.pathname = '/rawtts';
+                                backendTtsUrl.pathname = '/api/rawtts'; // Corrected path for backend worker
                                 // Pass voiceId as voiceName in URL query parameters
                                 backendTtsUrl.searchParams.set('voiceName', voiceId);
                                 // Clear other search parameters if needed, or explicitly set only required ones
                                 // backendTtsUrl.search = `voiceName=${encodeURIComponent(voiceId)}`;
 
-
-
-                                console.log(`Orchestrator: API Key being sent to backend: ${apiKey ? 'Present' : 'Missing'}`);
-                                 const headersToSend = {};
-                                 for (const [key, value] of newHeaders.entries()) {
-                                     headersToSend[key] = value;
-                                 }
-                                 console.log(`Orchestrator: Headers sent to backend: ${JSON.stringify(headersToSend)}`);
+                                console.log(`Orchestrator: Sentence ${index} - Backend TTS URL: ${backendTtsUrl.toString()}`);
+                                console.log(`Orchestrator: Sentence ${index} - API Key being sent to backend: ${apiKey ? 'Present' : 'Missing'}`);
+                                 const headersToSend = {
+                                    'Content-Type': 'application/json',
+                                    'Authorization': `Bearer ${apiKey}`
+                                 };
+                                 console.log(`Orchestrator: Sentence ${index} - Headers sent to backend: ${JSON.stringify(headersToSend)}`);
                                  const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
                                     method: 'POST',
-
-                                    headers: {
-                                        'Content-Type': 'application/json',
-                                        'Authorization': `Bearer ${apiKey}`
-                                    },
+                                    headers: headersToSend,
                                     body: JSON.stringify({
                                         text: sentence.trim(),
                                         model: DEFAULT_TTS_MODEL // Pass the default model name
                                     }),
                                 }));
+                        
+                        console.log(`Orchestrator: Sentence ${index} - Response status from backend: ${response.status}`);
 
                         if (!response.ok) {
                             let errorData;
@@ -314,6 +336,7 @@ const processQueue = async () => {
                             result.error = finalErrMsg;
                         } else {
                             const data = await response.json();
+                            console.log(`Orchestrator: Sentence ${index} - Successfully received audio data from backend.`);
                             result.audioContentBase64 = data.audioContentBase64;
                             result.error = null;
                         }
@@ -334,6 +357,7 @@ const processQueue = async () => {
                 }
             }
 
+            console.log(`Orchestrator: Sentence ${index} - Updating Durable Object progress.`);
             await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -355,6 +379,7 @@ const processQueue = async () => {
         
         currentPromise.finally(() => {
             activeFetches--;
+            console.log(`Orchestrator: Fetch for sentence ${index} completed. Active fetches: ${activeFetches}`);
             outstandingPromises.delete(currentPromise);
             processQueue();
         });
@@ -366,6 +391,7 @@ const processQueue = async () => {
 processQueue();
 
 Promise.allSettled(sentenceFetchPromises).then(() => {
+    console.log("Orchestrator: All sentence fetch promises settled. Sending end event to SSE.");
     writer.write(encoder.encode('event: end\ndata: \n\n'));
     writer.close();
 });
