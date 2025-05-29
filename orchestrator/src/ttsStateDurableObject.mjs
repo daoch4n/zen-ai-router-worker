@@ -77,10 +77,12 @@ export class TTSStateDurableObject {
             this.errorTimestamp = null;
         }
 
-        await this.state.storage.put("currentSentenceIndex", this.currentSentenceIndex);
-        await this.state.storage.put("audioChunks", this.audioChunks);
-        await this.state.storage.put("lastError", this.lastError);
-        await this.state.storage.put("errorTimestamp", this.errorTimestamp);
+        await this.state.storage.put({
+            currentSentenceIndex: this.currentSentenceIndex,
+            audioChunks: this.audioChunks,
+            lastError: this.lastError,
+            errorTimestamp: this.errorTimestamp
+        });
         console.log(`TTSStateDurableObject progress updated for sentence ${sentenceIndex}.`);
     }
 
