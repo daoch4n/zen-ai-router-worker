@@ -461,26 +461,9 @@
           progressBarContainer.style.display = 'block';
           progressBar.style.width = '0%';
 
-          // Function to fetch individual audio chunks
-          const fetchAudioChunk = async (chunkIndex) => {
-            if (chunkIndex >= totalChunks) {
-              showToast('All audio chunks fetched.', 'success');
-              loadingText.textContent = 'Playback complete.';
-              progressBar.style.width = '100%';
-              setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
-              speakButton.disabled = false;
-              loadingIndicator.style.display = 'none';
-              progressBarContainer.style.display = 'none';
-
-              // Concatenate all buffers and enable download
-              if (fullAudioBuffers.length > 0) {
-                const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
-                downloadButtonLink.href = URL.createObjectURL(audioBlob);
-                downloadButtonLink.style.display = 'block';
-              }
-              return;
-            }
-
+          // Function to fetch individual audio chunks - Refactored to use iteration
+          let chunkIndex = 0;
+          while (chunkIndex < totalChunks) {
             try {
               const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
                 method: 'GET',
@@ -501,43 +484,60 @@
                 audioBytes[i] = audioBinary.charCodeAt(i);
               }
 
-              audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
-                fullAudioBuffers.push(buffer);
-                audioQueue.push({ buffer, index: chunkIndex, sentenceMapping });
-                if (!currentSource) {
-                  playNextChunk(textDisplayArea, progressBar);
-                }
+              await new Promise((resolve, reject) => {
+                audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
+                  fullAudioBuffers.push(buffer);
+                  audioQueue.push({ buffer, index: chunkIndex, sentenceMapping });
+                  if (!currentSource) {
+                    playNextChunk(textDisplayArea, progressBar);
+                  }
 
-                // Update word sentence indices
-                sentenceMapping.forEach(mapping => {
-                    const mappedSentenceIndex = mapping.sentenceIndex;
-                    mapping.wordIndexes.forEach(wordOriginalIndex => {
-                        const wordObj = words.find(w => w.originalIndex === wordOriginalIndex);
-                        if (wordObj) {
-                            wordObj.sentenceIndex = mappedSentenceIndex;
-                        }
-                    });
-                });
+                  // Update word sentence indices
+                  sentenceMapping.forEach(mapping => {
+                      const mappedSentenceIndex = mapping.sentenceIndex;
+                      mapping.wordIndexes.forEach(wordOriginalIndex => {
+                          const wordObj = words.find(w => w.originalIndex === wordOriginalIndex);
+                          if (wordObj) {
+                              wordObj.sentenceIndex = mappedSentenceIndex;
+                          }
+                      });
+                  });
 
-                const totalTextLength = words.map(w => w.text).join('').length;
-                const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= chunkIndex).map(w => w.text).join('').length;
-                const progress = (playedTextLength / totalTextLength) * 100;
-                progressBar.style.width = `${progress}%`;
-
-                fetchAudioChunk(chunkIndex + 1); // Fetch next chunk
+                  const totalTextLength = words.map(w => w.text).join('').length;
+                  const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= chunkIndex).map(w => w.text).join('').length;
+                  const progress = (playedTextLength / totalTextLength) * 100;
+                  progressBar.style.width = `${progress}%`;
+                  resolve();
+                }, reject);
               });
 
+              chunkIndex++; // Increment for the next iteration
             } catch (error) {
               console.error(`Error fetching chunk ${chunkIndex}:`, error);
               showToast(`Error fetching chunk ${chunkIndex}: ${error.message}`, 'error');
               speakButton.disabled = false;
               loadingIndicator.style.display = 'none';
               progressBarContainer.style.display = 'none';
+              return; // Exit the loop on error
             }
-          };
+          }
 
-          fetchAudioChunk(0); // Start fetching the first chunk
+          // Completion logic after the loop finishes
+          showToast('All audio chunks fetched.', 'success');
+          loadingText.textContent = 'Playback complete.';
+          progressBar.style.width = '100%';
+          setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
+          speakButton.disabled = false;
+          loadingIndicator.style.display = 'none';
+          progressBarContainer.style.display = 'none';
 
+          // Concatenate all buffers and enable download
+          if (fullAudioBuffers.length > 0) {
+            const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
+            downloadButtonLink.href = URL.createObjectURL(audioBlob);
+            downloadButtonLink.style.display = 'block';
+          }
+          
         } catch (error) {
           console.error('Initial TTS Request Error:', error);
           showToast(`Error initiating TTS: ${error.message}`, 'error');
