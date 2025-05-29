@@ -284,3 +284,39 @@ describe('Stream Transformers', () => {
     });
   });
 });
+
+describe('toOpenAiStreamFlush', () => {
+    let mockController;
+    let context;
+
+    beforeEach(() => {
+      mockController = {
+        enqueue: jest.fn()
+      };
+      context = {
+        last: []
+      };
+    });
+
+    it('should send final chunks and DONE signal when last array is not empty', () => {
+      const mockObj1 = { id: "chunk1" };
+      const mockObj2 = { id: "chunk2" };
+      context.last = [mockObj1, mockObj2];
+
+      toOpenAiStreamFlush.call(context, mockController);
+
+      expect(mockController.enqueue).toHaveBeenCalledTimes(3);
+      expect(mockController.enqueue).toHaveBeenNthCalledWith(1, sseline(mockObj1));
+      expect(mockController.enqueue).toHaveBeenNthCalledWith(2, sseline(mockObj2));
+      expect(mockController.enqueue).toHaveBeenNthCalledWith(3, "data: [DONE]\n\n");
+    });
+
+    it('should only send DONE signal when last array is empty', () => {
+      context.last = [];
+
+      toOpenAiStreamFlush.call(context, mockController);
+
+      expect(mockController.enqueue).toHaveBeenCalledTimes(1);
+      expect(mockController.enqueue).toHaveBeenNthCalledWith(1, "data: [DONE]\n\n");
+    });
+  });

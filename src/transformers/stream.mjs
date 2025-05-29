@@ -67,7 +67,7 @@ export function toOpenAiStream(line, controller) {
     }
   } catch (err) {
     console.error("Error parsing response:", err);
-    if (!this.shared.is_buffers_rest) { line =+ STREAM_DELIMITER; }
+    if (!this.shared.is_buffers_rest) { line += STREAM_DELIMITER; }
     controller.enqueue(line);
     return;
   }

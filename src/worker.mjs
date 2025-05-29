@@ -84,13 +84,6 @@ async function fetch(request, env) {
         return handleModels(apiKey)
           .catch(errHandler);
 
-      case pathname.endsWith("/tts"):
-        if (!(request.method === "POST")) {
-          throw new Error("Assertion failed: expected POST request");
-        }
-        return handleTTS(request, apiKey)
-          .catch(errHandler);
-
       case pathname.endsWith("/rawtts"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
