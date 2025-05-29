@@ -19,20 +19,6 @@ export function splitIntoSentences(text) {
     .filter(s => s.length > 0 && /\S/.test(s));
 }
 
-export function optimizeTextForJson(text) {
-  let optimizedText = text;
-
-  // Remove invisible control characters, excluding newlines, carriage returns, and tabs.
-  optimizedText = optimizedText.replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F-\u009F]/g, '');
-
-  // Replace (e.g., with (e.g. to avoid pronunciation issues with TTS
-  optimizedText = optimizedText.replace(/\(e\.g\.,/g, '(e.g.');
-
-  // Normalize line endings from \r\n to \n
-  optimizedText = optimizedText.replace(/\r\n/g, '\n');
-
-  // Trim leading and trailing whitespace
-  optimizedText = optimizedText.trim();
-
-  return optimizedText;
+export function getTextCharacterCount(text) {
+  return new TextEncoder().encode(text).length;
 }
