@@ -36,9 +36,10 @@ export default {
 
     if (url.pathname === '/api/rawtts') {
       return handleRawTTS(request, env, backendServices, numSrcWorkers);
-if (url.pathname === '/api/tts-initiate') {
+    } else if (url.pathname === '/api/tts-initiate') {
       return handleTtsInitiate(request, env, backendServices, numSrcWorkers);
-    }
+    } else if (url.pathname === '/api/tts-chunk') {
+      return handleTtsChunk(request, env);
     } else {
       // Existing routing logic for non-TTS requests
       const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
@@ -142,12 +143,60 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
     }
 }
+async function handleTtsChunk(request, env) {
+    if (request.method === 'OPTIONS') {
+        return handleOPTIONS();
+    }
+    if (request.method !== 'GET') {
+        return new Response('Method Not Allowed', { status: 405 });
+    }
+
+    const { searchParams } = new URL(request.url);
+    const jobId = searchParams.get('jobId');
+    const chunkIndex = parseInt(searchParams.get('chunkIndex'), 10);
+
+    if (!jobId || isNaN(chunkIndex)) {
+        return new Response('Missing or invalid parameters: jobId or chunkIndex', { status: 400 });
+    }
+
+    try {
+        const id = env.TTS_JOBS.idFromName(jobId);
+        const stub = env.TTS_JOBS.get(id);
+
+        const retrieveResponse = await stub.fetch(new Request(`https://dummy-url/retrieve?jobId=${jobId}`));
+
+        if (!retrieveResponse.ok) {
+            console.error(`Orchestrator: Failed to retrieve TTS job ${jobId} from Durable Object: ${await retrieveResponse.text()}`);
+            return new Response('Failed to retrieve TTS job.', { status: retrieveResponse.status });
+        }
+
+        const job = await retrieveResponse.json();
+
+        if (!job || !job.audioChunks || chunkIndex < 0 || chunkIndex >= job.audioChunks.length) {
+            return new Response('Chunk not found or invalid chunkIndex', { status: 404 });
+        }
+
+        const audioContentBase64 = job.audioChunks[chunkIndex];
+        const mimeType = job.mimeType || 'audio/mpeg'; // Default to audio/mpeg if mimeType is not stored
+
+        return new Response(JSON.stringify({ audioContentBase64, mimeType, index: chunkIndex }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+        });
+
+    } catch (e) {
+        console.error(`Orchestrator: Error handling TTS chunk request:`, e);
+        const status = e instanceof HttpError ? e.status : 500;
+        return new Response(`Error retrieving TTS chunk: ${e.message}`, { status: status });
+    }
+}
 
 class TTSJob {
-    constructor(jobId, totalChunks, audioChunks) {
+    constructor(jobId, totalChunks, audioChunks, mimeType) {
         this.jobId = jobId;
         this.totalChunks = totalChunks;
         this.audioChunks = audioChunks; // Store base64 encoded audio chunks
+        this.mimeType = mimeType; // Store the mimeType
         this.createdAt = Date.now();
     }
 }
@@ -197,7 +246,7 @@ export class TTS_DURABLE_OBJECT {
                         headers: { 'Content-Type': 'application/json' },
                         status: 200
                     });
-                } else {
+           
                     return new Response('Job not found', { status: 404 });
                 }
 
@@ -265,7 +314,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
                 console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
-            } else {
+       
                 currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
                 currentBatchLength += sentenceLength;
                 console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
@@ -326,7 +375,8 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
         body: JSON.stringify({
             jobId,
             totalChunks: successfulChunks.length,
-            audioChunks: successfulChunks.sort((a, b) => a.index - b.index).map(c => c.audioContentBase64)
+            audioChunks: successfulChunks.sort((a, b) => a.index - b.index).map(c => c.audioContentBase64),
+mimeType: successfulChunks[0].mimeType // Assuming all chunks have the same mimeType
         })
     }));
 
