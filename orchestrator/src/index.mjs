@@ -255,7 +255,7 @@ export class TTS_DURABLE_OBJECT {
                         headers: { 'Content-Type': 'application/json' },
                         status: 200
                     });
-           
+                } else { // Corrected: Moved 'Job not found' into an else block
                     return new Response('Job not found', { status: 404 });
                 }
 
@@ -263,7 +263,7 @@ export class TTS_DURABLE_OBJECT {
                 if (request.method !== 'POST') {
                     return new Response('Method Not Allowed', { status: 405 });
                 }
-                const deleteJobId = await request.json();
+                const { jobId: deleteJobId } = await request.json(); // Corrected: Destructured jobId
                 await this.storage.delete(deleteJobId);
                 console.log(`TTS_DURABLE_OBJECT: Deleted job ${deleteJobId}.`);
                 return new Response('OK', { status: 200 });
@@ -323,11 +323,10 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
                 console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
-       
+            }
                 currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
                 currentBatchLength += sentenceLength;
                 console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
-            }
         }
 
         if (currentBatch.length > 0) {
