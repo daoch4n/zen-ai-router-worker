@@ -1,0 +1,17 @@
+name = "zen-ai-router-orchestrator"
+main = "src/index.mjs"
+compatibility_date = "2025-01-01"
+compatibility_flags = [ "nodejs_compat" ]
+
+[vars]
+# PASS variable will be overridden by the --var argument during deployment
+PASS = "placeholder_pass_for_local_testing" 
+
+[durable_objects]
+bindings = [
+  { name = "ROUTER_COUNTER", class_name = "RouterCounter" }
+]
+
+[[migrations]]
+tag = "v1"
+new_classes = ["RouterCounter"]

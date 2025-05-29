@@ -1,9 +1,10 @@
 import { RouterCounter } from './routerCounter.mjs';
-import { fixCors } from '../src/utils/cors.mjs';
-import { HttpError } from '../src/utils/error.mjs';
-import { handleOPTIONS } from '../src/utils/cors.mjs';
+import { fixCors } from './utils/cors.mjs';
+import { HttpError } from './utils/error.mjs';
+import { handleOPTIONS } from './utils/cors.mjs';
 import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
 export { RouterCounter };
+
 
 export default {
 async fetch(
@@ -103,55 +104,8 @@ if (request.method === 'OPTIONS') {
     return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
   }
 
-let jobId = url.searchParams.get('jobId');
-
-if (!jobId) {
-    jobId = crypto.randomUUID();
-    console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
-} else {
-    console.log(`Orchestrator: Resuming TTS Job ID: ${jobId}`);
-}
-
-const ttsStateId = env.TTS_STATE_DO.idFromName(jobId);
-const ttsStateStub = env.TTS_STATE_DO.get(ttsStateId);
-
-let jobCurrentSentenceIndex = 0;
-let jobAudioChunks = [];
-let jobAlreadyInitialised = false;
-
-try {
-    const stateResponse = await ttsStateStub.fetch(new Request("https://dummy-url/get-state"));
-    if (stateResponse.ok) {
-        const state = await stateResponse.json();
-        if (state && state.initialised) {
-            jobCurrentSentenceIndex = state.currentSentenceIndex;
-            jobAudioChunks = state.audioChunks;
-            jobAlreadyInitialised = state.initialised;
-            console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}. Already Initialised: ${jobAlreadyInitialised}`);
-        }
-    }
-} catch (error) {
-    console.warn(`Orchestrator: Could not retrieve state for job ${jobId}. Assuming new job or state corrupted. Error: ${error.message}`);
-}
-
-if (!jobAlreadyInitialised) {
-    try {
-        console.log(`Orchestrator: Initializing Durable Object for job ${jobId}.`);
-        const initResponse = await ttsStateStub.fetch(new Request("https://dummy-url/initialize", {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, voiceId })
-        }));
-        if (!initResponse.ok) {
-            console.error(`Orchestrator: Failed to initialize Durable Object for job ${jobId}: ${await initResponse.text()}`);
-            return new Response("Failed to initialize TTS job state.", { status: 500 });
-        }
-        console.log(`Orchestrator: Durable Object initialized for job ${jobId}.`);
-    } catch (error) {
-        console.error(`Orchestrator: Error initializing Durable Object for job ${jobId}: ${error.message}`);
-        return new Response("Error initializing TTS job state.", { status: 500 });
-    }
-}
+const jobId = crypto.randomUUID();
+console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
 
 const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
 const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
@@ -206,27 +160,7 @@ if (splitting === 'tokenCount') {
 }
 
 // Adjust sentences and audioChunks if resuming
-if (jobCurrentSentenceIndex > 0 && jobCurrentSentenceIndex < sentences.length) {
-    console.log(`Orchestrator: Resuming from sentence index ${jobCurrentSentenceIndex}. Total sentences: ${sentences.length}`);
-    // Prepend already synthesized audio chunks to the stream
-    for (let i = 0; i < jobCurrentSentenceIndex; i++) {
-        if (jobAudioChunks[i]) {
-            console.log(`Orchestrator: Prepending audio chunk for index ${i} from previous session.`);
-            sendSseMessage({ audioChunk: jobAudioChunks[i], index: i, mimeType: "audio/opus" });
-        }
-    }
-    sentences = sentences.slice(jobCurrentSentenceIndex);
-    console.log(`Orchestrator: Remaining sentences to process: ${sentences.length}`);
-} else if (jobCurrentSentenceIndex >= sentences.length && jobAlreadyInitialised) {
-    console.log(`Orchestrator: All sentences already processed for job ${jobId}. Sending end event.`);
-    writer.write(encoder.encode('event: end\ndata: \n\n'));
-    writer.close();
-    const responseOptions = fixCors({
-        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-        status: 200
-    });
-    return new Response(readable, responseOptions);
-}
+
 
 
 const MAX_CONCURRENT_SENTENCE_FETCHES = 5;
@@ -249,7 +183,7 @@ const encoder = new TextEncoder();
 const sendSseMessage = (data, event = 'message') => {
     let message = `event: ${event}\n`;
     message += `id: ${data.index}\n`;
-    message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`;
+    message += `data: ${JSON.stringify(data)}\n\n`;
     writer.write(encoder.encode(message));
     console.log(`Orchestrator: SSE message sent for index ${data.index}, event: ${event}`);
 };
@@ -357,16 +291,7 @@ const processQueue = async () => {
                 }
             }
 
-            console.log(`Orchestrator: Sentence ${index} - Updating Durable Object progress.`);
-            await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    sentenceIndex: index,
-                    audioChunkBase64: result.audioContentBase64,
-                    error: result.error
-                })
-            }));
+            
 
             if (result.error) {
                 sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${result.error}`, audioContentBase64: null }, 'error');
