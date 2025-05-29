@@ -196,14 +196,18 @@ const processQueue = async () => {
 
                 while (attempts <= MAX_RETRIES) {
                     try {
-                        const response = await targetService.fetch(new Request(request.url, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'Authorization': `Bearer ${apiKey}`
-                            },
-                            body: JSON.stringify({ text: sentence.trim(), voiceId }),
-                        }));
+                        const backendTtsUrl = new URL(request.url); // Start with original URL
+                                backendTtsUrl.pathname = '/tts'; // Or whatever the backend's actual TTS endpoint is
+                                backendTtsUrl.search = ''; // Remove search params if not needed by backend
+
+                                const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'Authorization': `Bearer ${apiKey}`
+                                    },
+                                    body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                                }));
 
                         if (!response.ok) {
                             let errorData;
