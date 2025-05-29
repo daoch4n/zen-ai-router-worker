@@ -138,7 +138,7 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         if (data.mimeType) {
             mimeType = data.mimeType;
         } else if (!mimeType) {
-            mimeType = 'audio/mpeg'; // Consistent with handleTtsChunk default
+            mimeType = 'audio/L16;rate=24000'; // Consistent with handleTtsChunk default
             console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
         }
 
@@ -187,7 +187,7 @@ async function handleTtsChunk(request, env) {
         }
 
         const audioContentBase64 = job.audioChunks[chunkIndex];
-        const mimeType = job.mimeType || 'audio/mpeg'; // Default to audio/mpeg if mimeType is not stored
+        const mimeType = job.mimeType || 'audio/L16;rate=24000'; // Default to audio/mpeg if mimeType is not stored
 
         return new Response(JSON.stringify({ audioContentBase64, mimeType, index: chunkIndex }), {
             headers: { 'Content-Type': 'application/json' },
