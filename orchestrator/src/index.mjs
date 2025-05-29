@@ -7,7 +7,7 @@ export { RouterCounter };
 
 
 export default {
-async fetch(
+  async fetch(
     request,
     env,
     ctx
@@ -32,27 +32,13 @@ async fetch(
     }
 
     // Handle /api/tts-stream requests
-    if (url.pathname === '/api/tts-stream') {
-        if (request.method === 'OPTIONS') {
-            return handleOPTIONS();
-        }
-        if (request.method !== 'GET') {
-            return new Response('Method Not Allowed', { status: 405 });
-        }
-        const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
-        console.log(`Orchestrator: API Key received for /api/tts-stream: ${apiKey ? 'Present' : 'Missing'}`);
-        if (!apiKey) {
-            throw new HttpError("API key is required", 401);
-        }
-        if (apiKey !== env.PASS) {
-            throw new HttpError("Bad credentials - wrong api key for orchestrator", 401);
-        }
-        // If authenticated, delegate to handleTtsRequest which handles streaming
-        return handleTtsRequest(request, env, backendServices, numSrcWorkers, url);
-    }
+
 
     if (url.pathname === '/api/rawtts') {
-      return handleTtsRequest(request, env, backendServices, numSrcWorkers, url);
+      return handleRawTTS(request, env, backendServices, numSrcWorkers);
+if (url.pathname === '/api/tts-initiate') {
+      return handleTtsInitiate(request, env, backendServices, numSrcWorkers);
+    }
     } else {
       // Existing routing logic for non-TTS requests
       const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
@@ -84,246 +70,273 @@ async fetch(
 
 const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"; // Updated model name
 
-async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
-  if (request.method !== 'GET') {
-if (request.method === 'OPTIONS') {
-    return handleOPTIONS();
-  }
-    return new Response('Method Not Allowed', { status: 405 });
-  }
+async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
+    if (request.method === 'OPTIONS') {
+        return handleOPTIONS();
+    }
+    if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405 });
+    }
 
-  const text = url.searchParams.get('text');
-  const voiceId = url.searchParams.get('voiceId');
-  const splitting = url.searchParams.get('splitting');
-  const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+    const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+    if (!apiKey || apiKey !== env.PASS) {
+        throw new HttpError("Authentication required or invalid API key", 401);
+    }
 
-  console.log(`Orchestrator: handleTtsRequest - text: ${text ? 'Present' : 'Missing'}, voiceId: ${voiceId ? 'Present' : 'Missing'}, splitting: ${splitting || 'default'}, apiKey: ${apiKey ? 'Present' : 'Missing'}`);
+    const { text, voiceId, model } = await request.json();
 
-  if (!text || !voiceId || !apiKey) {
-    console.log("Orchestrator: handleTtsRequest - Missing required parameters.");
-    return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
-  }
+    if (!text || !voiceId || !model) {
+        return new Response('Missing required parameters: text, voiceId, or model', { status: 400 });
+    }
 
-const jobId = crypto.randomUUID();
-console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
+    const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
+    const stub = env.ROUTER_COUNTER.get(id);
+    const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
+    const currentCounter = parseInt(await currentCounterResponse.text());
 
-const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
-const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
+    const targetWorkerIndex = currentCounter % numSrcWorkers;
+    const targetService = backendServices[targetWorkerIndex];
 
-let sentences;
-console.log(`Orchestrator: Starting text splitting with option: ${splitting}`);
-if (splitting === 'tokenCount') {
-    const initialSentences = splitIntoSentences(text);
-    const batchedSentences = [];
-    let currentBatch = '';
-    let currentBatchLength = 0;
+    if (!targetService) {
+        return new Response("Failed to select target worker.", { status: 500 });
+    }
 
-    for (const sentence of initialSentences) {
-        const sentenceLength = getTextCharacterCount(sentence);
+    const backendTtsUrl = new URL(request.url);
+    backendTtsUrl.pathname = '/api/rawtts';
+    backendTtsUrl.searchParams.set('voiceName', voiceId);
 
-        if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
-            // If a single sentence is too long, send it as its own batch
-            if (currentBatch.length > 0) {
-                batchedSentences.push(currentBatch.trim());
-                currentBatch = '';
-                currentBatchLength = 0;
+    const headersToSend = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+    };
+
+    try {
+        const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+            method: 'POST',
+            headers: headersToSend,
+            body: JSON.stringify({
+                text: text.trim(),
+                model: model
+            }),
+        }));
+
+        if (!response.ok) {
+            let errorData;
+            try {
+                errorData = await response.json();
+            } catch (e) {
+                errorData = { message: await response.text() };
             }
-            batchedSentences.push(sentence.trim());
-            console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
-        } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
-            // If adding the current sentence exceeds the limit, push the current batch
-            batchedSentences.push(currentBatch.trim());
-            currentBatch = sentence;
-            currentBatchLength = sentenceLength;
-            console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
-        } else {
-            // Otherwise, add to the current batch
-            currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
-            currentBatchLength += sentenceLength;
-            console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
+            throw new HttpError(errorData.message || `Backend error: ${response.status}`, response.status);
+        }
+
+        const data = await response.json();
+        return new Response(JSON.stringify(data), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+        });
+
+    } catch (e) {
+        console.error(`Orchestrator: Error during raw TTS fetch:`, e);
+        const status = e instanceof HttpError ? e.status : 500;
+        return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
+    }
+}
+
+class TTSJob {
+    constructor(jobId, totalChunks, audioChunks) {
+        this.jobId = jobId;
+        this.totalChunks = totalChunks;
+        this.audioChunks = audioChunks; // Store base64 encoded audio chunks
+        this.createdAt = Date.now();
+    }
+}
+
+export class TTS_DURABLE_OBJECT {
+    constructor(state, env) {
+        this.state = state;
+        this.env = env;
+        this.initialized = false;
+        this.storage = this.state.storage;
+    }
+
+    async initialize() {
+        if (!this.initialized) {
+            this.initialized = true;
         }
     }
 
-    // Add any remaining batch
-    if (currentBatch.length > 0) {
-        batchedSentences.push(currentBatch.trim());
-    }
+    async fetch(request) {
+        await this.initialize();
 
-    sentences = batchedSentences.filter(s => s.length > 0);
-    console.log(`Orchestrator: Using 'Sentence by Token Count' splitting. Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_TOKEN_COUNT}.`);
-} else if (splitting === 'none') {
-    sentences = [text];
-    console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
-} else {
-    sentences = splitIntoSentences(text);
-    console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text split into ${sentences.length} sentences.`);
+        const url = new URL(request.url);
+        const path = url.pathname;
+
+        switch (path) {
+            case '/store':
+                if (request.method !== 'POST') {
+                    return new Response('Method Not Allowed', { status: 405 });
+                }
+                const { jobId, totalChunks, audioChunks } = await request.json();
+                await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks));
+                console.log(`TTS_DURABLE_OBJECT: Stored job ${jobId} with ${totalChunks} chunks.`);
+                return new Response('OK', { status: 200 });
+
+            case '/retrieve':
+                if (request.method !== 'GET') {
+                    return new Response('Method Not Allowed', { status: 405 });
+                }
+                const retrieveJobId = url.searchParams.get('jobId');
+                if (!retrieveJobId) {
+                    return new Response('Missing jobId parameter', { status: 400 });
+                }
+                const job = await this.storage.get(retrieveJobId);
+                if (job) {
+                    console.log(`TTS_DURABLE_OBJECT: Retrieved job ${retrieveJobId} with ${job.totalChunks} chunks.`);
+                    return new Response(JSON.stringify(job), {
+                        headers: { 'Content-Type': 'application/json' },
+                        status: 200
+                    });
+                } else {
+                    return new Response('Job not found', { status: 404 });
+                }
+
+            case '/delete':
+                if (request.method !== 'POST') {
+                    return new Response('Method Not Allowed', { status: 405 });
+                }
+                const deleteJobId = await request.json();
+                await this.storage.delete(deleteJobId);
+                console.log(`TTS_DURABLE_OBJECT: Deleted job ${deleteJobId}.`);
+                return new Response('OK', { status: 200 });
+
+            default:
+                return new Response('Not Found', { status: 404 });
+        }
+    }
 }
 
-// Adjust sentences and audioChunks if resuming
-
-
-
-const MAX_CONCURRENT_SENTENCE_FETCHES = 5;
-const MAX_RETRIES = 3;
-const RETRY_INITIAL_DELAY_MS = 1000;
-let activeFetches = 0;
-let fetchQueue = [];
-const sentenceFetchPromises = sentences.map((sentence, index) => {
-    const originalIndex = index + jobCurrentSentenceIndex;
-    return new Promise((resolve, reject) => {
-        fetchQueue.push({ sentence, index: originalIndex, resolve, reject });
-        console.log(`Orchestrator: Added sentence ${originalIndex} to fetch queue. Queue size: ${fetchQueue.length}`);
-    });
-});
-
-const { readable, writable } = new TransformStream();
-const writer = writable.getWriter();
-const encoder = new TextEncoder();
-
-const sendSseMessage = (data, event = 'message') => {
-    let message = `event: ${event}\n`;
-    message += `id: ${data.index}\n`;
-    message += `data: ${JSON.stringify(data)}\n\n`;
-    writer.write(encoder.encode(message));
-    console.log(`Orchestrator: SSE message sent for index ${data.index}, event: ${event}`);
-};
-
-
-const outstandingPromises = new Set();
-
-const processQueue = async () => {
-    console.log(`Orchestrator: Processing queue. Active fetches: ${activeFetches}, Queue size: ${fetchQueue.length}`);
-    while (fetchQueue.length > 0 && activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES) {
-        const { sentence, index, resolve, reject } = fetchQueue.shift();
-        activeFetches++;
-        console.log(`Orchestrator: Starting fetch for sentence ${index}. Active fetches: ${activeFetches}`);
-
-        const currentPromise = (async () => {
-            const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
-            const stub = env.ROUTER_COUNTER.get(id);
-            const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
-            const currentCounter = parseInt(await currentCounterResponse.text());
-
-            const targetWorkerIndex = currentCounter % numSrcWorkers;
-            const targetService = backendServices[targetWorkerIndex];
-            console.log(`Orchestrator: Sentence ${index} - Selected targetWorkerIndex: ${targetWorkerIndex}, targetService: ${targetService}`);
-
-            let result = { index, audioContentBase64: null, error: null };
-            let finalErrMsg = null;
-
-            if (!targetService) {
-                finalErrMsg = "Failed to select target worker.";
-                console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
-                result.error = finalErrMsg;
-            } else {
-                let attempts = 0;
-                let delay = RETRY_INITIAL_DELAY_MS;
-
-                while (attempts <= MAX_RETRIES) {
-                    try {
-                        const backendTtsUrl = new URL(request.url);
-                                backendTtsUrl.pathname = '/api/rawtts'; // Corrected path for backend worker
-                                // Pass voiceId as voiceName in URL query parameters
-                                backendTtsUrl.searchParams.set('voiceName', voiceId);
-                                // Clear other search parameters if needed, or explicitly set only required ones
-                                // backendTtsUrl.search = `voiceName=${encodeURIComponent(voiceId)}`;
-
-                                console.log(`Orchestrator: Sentence ${index} - Backend TTS URL: ${backendTtsUrl.toString()}`);
-                                console.log(`Orchestrator: Sentence ${index} - API Key being sent to backend: ${apiKey ? 'Present' : 'Missing'}`);
-                                 const headersToSend = {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${apiKey}`
-                                 };
-                                 console.log(`Orchestrator: Sentence ${index} - Headers sent to backend: ${JSON.stringify(headersToSend)}`);
-                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
-                                    method: 'POST',
-                                    headers: headersToSend,
-                                    body: JSON.stringify({
-                                        text: sentence.trim(),
-                                        model: DEFAULT_TTS_MODEL // Pass the default model name
-                                    }),
-                                }));
-                        
-                        console.log(`Orchestrator: Sentence ${index} - Response status from backend: ${response.status}`);
-
-                        if (!response.ok) {
-                            let errorData;
-                            let rawErrorMessage = `HTTP error Status ${response.status}`;
-                            try {
-                                errorData = await response.json();
-                                rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
-                            } catch (e) {
-                                rawErrorMessage = await response.text() || rawErrorMessage;
-                            }
-
-                            if (response.status >= 500 || response.status === 429) {
-                                console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
-                                attempts++;
-                                if (attempts <= MAX_RETRIES) {
-                                    await new Promise(res => setTimeout(res, delay));
-                                    delay *= 2;
-                                    continue;
-                                }
-                            }
-                            finalErrMsg = `Backend Error: ${rawErrorMessage}`;
-                            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
-                            result.error = finalErrMsg;
-                        } else {
-                            const data = await response.json();
-                            console.log(`Orchestrator: Sentence ${index} - Successfully received audio data from backend.`);
-                            result.audioContentBase64 = data.audioContentBase64;
-                            result.error = null;
-                        }
-                        break;
-                    } catch (e) {
-                        finalErrMsg = `Fetch Exception: ${e.message}`;
-                        console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
-                        attempts++;
-                        if (attempts <= MAX_RETRIES) {
-                            await new Promise(res => setTimeout(res, delay));
-                            delay *= 2;
-                            continue;
-                        }
-                        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
-                        result.error = finalErrMsg;
-                        break;
-                    }
-                }
-            }
-
-            
-
-            if (result.error) {
-                sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${result.error}`, audioContentBase64: null }, 'error');
-            } else {
-                sendSseMessage({ audioChunk: result.audioContentBase64, index, mimeType: "audio/opus" });
-            }
-            return result;
-        })();
-        outstandingPromises.add(currentPromise);
-        
-        currentPromise.finally(() => {
-            activeFetches--;
-            console.log(`Orchestrator: Fetch for sentence ${index} completed. Active fetches: ${activeFetches}`);
-            outstandingPromises.delete(currentPromise);
-            processQueue();
-        });
-
-        currentPromise.then(resolve, reject);
+async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
+    if (request.method === 'OPTIONS') {
+        return handleOPTIONS();
     }
-};
+    if (request.method !== 'POST') {
+        return new Response('Method Not Allowed', { status: 405 });
+    }
 
-processQueue();
+    const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+    if (!apiKey || apiKey !== env.PASS) {
+        throw new HttpError("Authentication required or invalid API key", 401);
+    }
 
-Promise.allSettled(sentenceFetchPromises).then(() => {
-    console.log("Orchestrator: All sentence fetch promises settled. Sending end event to SSE.");
-    writer.write(encoder.encode('event: end\ndata: \n\n'));
-    writer.close();
-});
+    const { text: fullText, voiceId, model, splittingPreference } = await request.json();
 
-const responseOptions = fixCors({
-        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+    if (!fullText || !voiceId || !model || !splittingPreference) {
+        return new Response('Missing required parameters: text, voiceId, model, or splittingPreference', { status: 400 });
+    }
+
+    const jobId = crypto.randomUUID();
+    console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
+
+    const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
+    const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
+
+    let sentences;
+    console.log(`Orchestrator: Starting text splitting with option: ${splittingPreference}`);
+    if (splittingPreference === 'tokenCount') {
+        const initialSentences = splitIntoSentences(fullText);
+        const batchedSentences = [];
+        let currentBatch = '';
+        let currentBatchLength = 0;
+
+        for (const sentence of initialSentences) {
+            const sentenceLength = getTextCharacterCount(sentence);
+
+            if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+                if (currentBatch.length > 0) {
+                    batchedSentences.push(currentBatch.trim());
+                    currentBatch = '';
+                    currentBatchLength = 0;
+                }
+                batchedSentences.push(sentence.trim());
+                console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
+            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+                batchedSentences.push(currentBatch.trim());
+                currentBatch = sentence;
+                currentBatchLength = sentenceLength;
+                console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
+            } else {
+                currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
+                currentBatchLength += sentenceLength;
+                console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
+            }
+        }
+
+        if (currentBatch.length > 0) {
+            batchedSentences.push(currentBatch.trim());
+        }
+
+        sentences = batchedSentences.filter(s => s.length > 0);
+        console.log(`Orchestrator: Using 'Sentence by Token Count' splitting. Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_TOKEN_COUNT}.`);
+    } else if (splittingPreference === 'none') {
+        sentences = [fullText];
+        console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
+    } else {
+        sentences = splitIntoSentences(fullText);
+        console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text split into ${sentences.length} sentences.`);
+    }
+
+    const audioChunkPromises = sentences.map(async (sentence, index) => {
+        const rawTtsRequest = new Request(request.url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${apiKey}`
+            },
+            body: JSON.stringify({
+                text: sentence,
+                voiceId: voiceId,
+                model: model
+            })
+        });
+        const rawTtsResponse = await handleRawTTS(rawTtsRequest, env, backendServices, numSrcWorkers);
+        const rawTtsData = await rawTtsResponse.json();
+        return { index, audioContentBase64: rawTtsData.audioContentBase64, error: rawTtsData.error };
+    });
+
+    const results = await Promise.allSettled(audioChunkPromises);
+
+    const successfulChunks = results.filter(r => r.status === 'fulfilled' && !r.value.error).map(r => r.value);
+    const failedChunks = results.filter(r => r.status === 'rejected' || r.value.error);
+
+    if (failedChunks.length > 0) {
+        console.error(`Orchestrator: ${failedChunks.length} chunks failed during TTS initiation.`);
+        // Decide how to handle partial failures: either return an error or return successful chunks and log failures
+        // For now, let's return an error if any chunk fails.
+        return new Response(JSON.stringify({ error: 'Failed to generate all audio chunks.', details: failedChunks }), { status: 500 });
+    }
+
+    // Store the generated audio chunks in a Durable Object
+    const id = env.TTS_JOBS.idFromName(jobId);
+    const stub = env.TTS_JOBS.get(id);
+
+    const storeResponse = await stub.fetch(new Request("https://dummy-url/store", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            jobId,
+            totalChunks: successfulChunks.length,
+            audioChunks: successfulChunks.sort((a, b) => a.index - b.index).map(c => c.audioContentBase64)
+        })
+    }));
+
+    if (!storeResponse.ok) {
+        console.error(`Orchestrator: Failed to store TTS job ${jobId} in Durable Object: ${await storeResponse.text()}`);
+        return new Response('Failed to store TTS job.', { status: 500 });
+    }
+
+    return new Response(JSON.stringify({ jobId, totalChunks: successfulChunks.length }), {
+        headers: { 'Content-Type': 'application/json' },
         status: 200
     });
-    return new Response(readable, responseOptions);
 }
