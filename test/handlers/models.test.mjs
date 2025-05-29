@@ -166,13 +166,11 @@ describe('Models Handler', () => {
       fetch.mockResolvedValueOnce({
         ok: false,
         status: 401,
-        body: JSON.stringify(errorResponse)
+        text: () => Promise.resolve(JSON.stringify(errorResponse))
       });
 
-      const response = await handleModels("invalid-api-key");
-
-      expect(response.ok).toBe(false);
-      expect(response.status).toBe(401);
+      // With enhanced error handling, the handler now throws HttpError instead of returning Response
+      await expect(handleModels("invalid-api-key")).rejects.toThrow('Invalid or missing API key. Please check your authentication credentials.');
     });
 
     it('should handle network errors', async () => {

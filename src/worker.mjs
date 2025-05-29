@@ -9,7 +9,8 @@ import {
   handleCompletions,
   handleEmbeddings,
   handleModels,
-  handleTTS
+  handleTTS,
+  handleRawTTS
 } from './handlers/index.mjs';
 
 import {
@@ -30,6 +31,8 @@ import { handleOPTIONS } from './utils/cors.mjs';
  * - POST /chat/completions - Chat completion requests
  * - POST /embeddings - Text embedding requests
  * - GET /models - Available model listing
+ * - POST /tts - Text-to-speech requests
+ * - POST /rawtts - Raw text-to-speech requests (returns base64 audio)
  *
  * @param {Request} request - The incoming HTTP request
  * @param {Object} env - Cloudflare Worker environment variables
@@ -83,18 +86,17 @@ async function fetch(request, env) {
 
       case pathname.endsWith("/tts"):
         if (!(request.method === "POST")) {
-          throw new HttpError("Method Not Allowed", 405);
+          throw new Error("Assertion failed: expected POST request");
         }
-        const requestBody = await request.json();
-        const apiKeyTTS = getRandomApiKey(request, env); // Ensure getRandomApiKey is correctly used
-        const ttsResponse = await handleTTS(requestBody, apiKeyTTS);
-        // Directly apply CORS headers to the ttsResponse headers
-        ttsResponse.headers.set("Access-Control-Allow-Origin", "*");
-        ttsResponse.headers.set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-        ttsResponse.headers.set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With");
-        ttsResponse.headers.set("Access-Control-Max-Age", "86400");
-        console.log(`TTS response status: ${ttsResponse.status}`);
-        return ttsResponse;
+        return handleTTS(request, apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/rawtts"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleRawTTS(request, apiKey)
+          .catch(errHandler);
 
       default:
         throw new HttpError("404 Not Found", 404);
