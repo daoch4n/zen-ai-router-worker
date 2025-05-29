@@ -1,5 +1,7 @@
 import { RouterCounter } from './routerCounter.mjs';
 import { fixCors } from '../src/utils/cors.mjs';
+import { HttpError } from '../src/utils/error.mjs';
+import { handleOPTIONS } from '../src/utils/cors.mjs';
 import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
 export { RouterCounter };
 
@@ -26,6 +28,25 @@ async fetch(
     if (numSrcWorkers === 0) {
       console.log("Orchestrator: No backend workers configured.");
       return new Response("No backend workers configured.", { status: 500 });
+    }
+
+    // Handle /api/tts-stream requests
+    if (url.pathname === '/api/tts-stream') {
+        if (request.method === 'OPTIONS') {
+            return handleOPTIONS();
+        }
+        if (request.method !== 'GET') {
+            return new Response('Method Not Allowed', { status: 405 });
+        }
+        const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+        if (!apiKey) {
+            throw new HttpError("API key is required", 401);
+        }
+        if (apiKey !== env.PASS) {
+            throw new HttpError("Bad credentials - wrong api key for orchestrator", 401);
+        }
+        // If authenticated, delegate to handleTtsRequest which handles streaming
+        return handleTtsRequest(request, env, backendServices, numSrcWorkers, url);
     }
 
     if (url.pathname === '/api/rawtts') {
@@ -73,6 +94,7 @@ if (request.method === 'OPTIONS') {
   const voiceId = url.searchParams.get('voiceId');
   const splitting = url.searchParams.get('splitting');
   const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
+
 
   if (!text || !voiceId || !apiKey) {
     return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
@@ -248,8 +270,10 @@ const processQueue = async () => {
                                 // backendTtsUrl.search = `voiceName=${encodeURIComponent(voiceId)}`;
 
 
+
                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
                                     method: 'POST',
+
                                     headers: {
                                         'Content-Type': 'application/json',
                                         'Authorization': `Bearer ${apiKey}`
