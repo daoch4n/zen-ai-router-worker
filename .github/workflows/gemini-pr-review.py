@@ -58,7 +58,8 @@ class GitHubAuthenticator:
             logger.info("Using private key from environment variable (less secure)")
             private_key = os.environ.get("ZEN_APP_PRIVATE_KEY")
             # Replace newline placeholders if the key was stored with them
-            return private_key.replace('\\n', '\n')
+            # Ensure private_key is not None before calling replace
+            return private_key.replace('\\n', '\n') if private_key else None
 
         return None
 
@@ -210,22 +211,15 @@ class GeminiKeyManager:
     Supports multiple alternative keys (GEMINI_ALT_1 through GEMINI_ALT_4).
     """
     def __init__(self):
-        # Initialize primary key
+        # Initialize primary and fallback keys
         self.primary_key = os.environ.get("GEMINI_API_KEY")
+        self.fallback_key = os.environ.get("GEMINI_FALLBACK_API_KEY")
+
         if not self.primary_key:
             logger.error("GEMINI_API_KEY environment variable is required")
             raise ValueError("GEMINI_API_KEY environment variable is required")
 
-        # Initialize alternative keys
-        self.alt_keys = {}
-        for i in range(1, 5):  # GEMINI_ALT_1 through GEMINI_ALT_4
-            key_name = f"GEMINI_ALT_{i}"
-            key_value = os.environ.get(key_name)
-            if key_value:
-                self.alt_keys[key_name] = key_value
-                logger.info(f"Alternative key {key_name} is available for rotation")
-
-        # Set current key to primary
+        # Set current key to primary initially
         self.current_key = self.primary_key
         self.current_key_name = "GEMINI_API_KEY"
 
@@ -234,12 +228,17 @@ class GeminiKeyManager:
         self.encountered_rate_limiting = False
         self.all_keys_rate_limited = False
         self.used_fallback_key = False
-        self.rotation_order = ["GEMINI_API_KEY"] + list(self.alt_keys.keys())
+
+        # Define rotation order: primary, then fallback if available
+        self.rotation_order = ["GEMINI_API_KEY"]
+        if self.fallback_key:
+            self.rotation_order.append("GEMINI_FALLBACK_API_KEY")
+            logger.info("Fallback API key is available for rotation.")
+        else:
+            logger.warning("No GEMINI_FALLBACK_API_KEY found. API key rotation will not be available.")
 
         # Log initialization status
-        logger.info(f"Initialized GeminiKeyManager with primary key and {len(self.alt_keys)} alternative keys")
-        if not self.alt_keys:
-            logger.warning("No alternative keys (GEMINI_ALT_1 through GEMINI_ALT_4) found. API key rotation will not be available.")
+        logger.info(f"Initialized GeminiKeyManager with primary key and {'a fallback key' if self.fallback_key else 'no fallback key'}")
 
     def get_current_key(self):
         """Get the currently active API key."""
@@ -253,60 +252,34 @@ class GeminiKeyManager:
         """Get an API key by its name."""
         if key_name == "GEMINI_API_KEY":
             return self.primary_key
-        return self.alt_keys.get(key_name)
+        elif key_name == "GEMINI_FALLBACK_API_KEY":
+            return self.fallback_key
+        return None
 
     def rotate_key(self):
         """
         Rotate to the next available API key in sequence.
         Returns True if rotation was successful, False if no more keys are available.
         """
-        # Mark current key as rate limited
         self.rate_limited_keys.add(self.current_key_name)
+        self.encountered_rate_limiting = True # Ensure this flag is set
 
-        # Find the next available key in rotation order
-        current_index = self.rotation_order.index(self.current_key_name)
-        tried_count = 0
-
-        # Try each key in sequence until we find one that's not rate limited
-        while tried_count < len(self.rotation_order):
-            # Move to next key in rotation order
-            next_index = (current_index + 1) % len(self.rotation_order)
-            next_key_name = self.rotation_order[next_index]
-
-            # Skip if this key is already rate limited
-            if next_key_name in self.rate_limited_keys:
-                current_index = next_index
-                tried_count += 1
-                continue
-
-            # Get the actual key value
-            next_key = self.get_key_by_name(next_key_name)
-            if not next_key:
-                # This key doesn't exist or is empty, mark as rate limited and continue
-                self.rate_limited_keys.add(next_key_name)
-                current_index = next_index
-                tried_count += 1
-                continue
-
-            # Found a valid key, update current key
-            logger.info(f"Rotating from {self.current_key_name} to {next_key_name} due to rate limiting")
-            self.current_key = next_key
-            self.current_key_name = next_key_name
-            self.used_fallback_key = True  # Mark that we successfully used a fallback key
+        # Attempt to rotate to the fallback key if available and not already rate-limited
+        if self.fallback_key and "GEMINI_FALLBACK_API_KEY" not in self.rate_limited_keys:
+            logger.info(f"Rotating from {self.current_key_name} to GEMINI_FALLBACK_API_KEY due to rate limiting")
+            self.current_key = self.fallback_key
+            self.current_key_name = "GEMINI_FALLBACK_API_KEY"
+            self.used_fallback_key = True
             return True
-
-            # Note: Code below is unreachable due to return statement above
-            # Keeping for clarity of algorithm
-            # current_index = next_index
-            # tried_count += 1
-
-        # If we get here, we've tried all keys and they're all rate limited
-        logger.warning("All API keys are rate limited. Resetting to primary key.")
-        self.current_key = self.primary_key
-        self.current_key_name = "GEMINI_API_KEY"
-        self.all_keys_rate_limited = True  # Mark that all keys were rate limited
-        self.rate_limited_keys.clear()  # Clear the set to try again
-        return False
+        else:
+            # If fallback is not available or already rate-limited, all keys are exhausted
+            logger.warning("All available API keys are rate limited or unavailable. Resetting to primary key.")
+            self.current_key = self.primary_key
+            self.current_key_name = "GEMINI_API_KEY"
+            self.all_keys_rate_limited = True # Mark that all keys were rate limited
+            self.rate_limited_keys.clear() # Clear the set to try again
+            self.used_fallback_key = False # Reset fallback flag
+            return False
 
     def is_rate_limit_error(self, error):
         """
@@ -377,7 +350,7 @@ except Exception as e:
 
 
 class PRDetails:
-    def __init__(self, owner: str, repo_name_str: str, pull_number: int, title: str, description: str, repo_obj=None, pr_obj=None, event_type: str = None):
+    def __init__(self, owner: str, repo_name_str: str, pull_number: int, title: Optional[str], description: Optional[str], repo_obj=None, pr_obj=None, event_type: Optional[str] = None):
         self.owner = owner
         self.repo_name = repo_name_str
         self.pull_number = pull_number
@@ -423,8 +396,8 @@ def get_pr_details() -> PRDetails:
     owner, repo_name_str = repo_full_name.split("/")
 
     try:
-        repo_obj = gh.get_repo(repo_full_name)
-        pr_obj = repo_obj.get_pull(pull_number)
+        repo_obj = gh.get_repo(repo_full_name) if gh else None
+        pr_obj = repo_obj.get_pull(pull_number) if repo_obj else None
     except GithubException as e:
         print(f"Error accessing GitHub repository or PR: {e}")
         sys.exit(1)
@@ -432,7 +405,11 @@ def get_pr_details() -> PRDetails:
         print(f"An unexpected error occurred while fetching PR details: {e}")
         sys.exit(1)
 
-    return PRDetails(owner, repo_name_str, pull_number, pr_obj.title, pr_obj.body or "", repo_obj, pr_obj, pr_event_type)
+    # Ensure pr_obj is not None before accessing its attributes.
+    # If pr_obj is None, title and body will default to empty strings.
+    pr_title = pr_obj.title if pr_obj else ""
+    pr_body = pr_obj.body if pr_obj else ""
+    return PRDetails(owner, repo_name_str, pull_number, pr_title, pr_body, repo_obj, pr_obj, pr_event_type)
 
 
 def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str:
@@ -448,19 +425,21 @@ def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str
     """
     repo = pr_details.repo_obj
     pr = pr_details.pr_obj
-    head_sha = pr.head.sha
+    head_sha = pr.head.sha if pr and pr.head else None
 
     # Strategy 1: Use repo.compare if comparison_sha is provided
     if comparison_sha:
         logger.info(f"Getting diff comparing HEAD ({head_sha}) against specified SHA ({comparison_sha})")
         try:
-            comparison_obj = repo.compare(comparison_sha, head_sha)
+            comparison_obj = repo.compare(comparison_sha, head_sha) if repo and head_sha else None
             diff_parts = []
-            for file_diff in comparison_obj.files:
-                if file_diff.patch:
-                    # Construct a valid diff header format for unidiff
-                    source_file_path_for_header = file_diff.previous_filename if file_diff.status == 'renamed' else file_diff.filename
-                    target_file_path_for_header = file_diff.filename
+            # Ensure comparison_obj is not None before accessing its 'files' attribute
+            if comparison_obj and comparison_obj.files:
+                for file_diff in comparison_obj.files:
+                    if file_diff.patch:
+                        # Construct a valid diff header format for unidiff
+                        source_file_path_for_header = file_diff.previous_filename if file_diff.status == 'renamed' else file_diff.filename
+                        target_file_path_for_header = file_diff.filename
 
                     diff_header = f"diff --git a/{source_file_path_for_header} b/{target_file_path_for_header}\n"
                     if file_diff.status == 'added':
@@ -513,7 +492,7 @@ def get_diff(pr_details: PRDetails, comparison_sha: Optional[str] = None) -> str
     # Strategy 2: Use pr.get_diff()
     logger.info(f"Falling back to pr.get_diff() for PR #{pr_details.pull_number}")
     try:
-        diff_text = pr.get_diff() # This is usually well-formatted for unidiff
+        diff_text = pr.get_diff() if pr else None # This is usually well-formatted for unidiff
         if diff_text:
             logger.info(f"Retrieved diff (length: {len(diff_text)}) using pr.get_diff()")
             return diff_text
@@ -853,11 +832,7 @@ def improved_calculate_github_position(file_patch: PatchedFile, hunk_idx: int, l
         # Validate line number
         if not (1 <= line_num_in_hunk <= num_lines_in_hunk):
             print(f"Warning: Line number {line_num_in_hunk} is outside the range of hunk content (1-{num_lines_in_hunk})")
-            # Return a special value to indicate invalid position but don't skip the comment
-            return {
-                "invalidPosition": True,
-                "file": file_patch.path
-            }
+            return None
 
         # Calculate position based on hunk position and line number
         position = 0
@@ -952,7 +927,9 @@ def get_ai_response_with_structured_output(prompt: str, model_name: str, max_ret
 
             enforce_gemini_rate_limits()
             # Only show first 5 chars of key followed by *** for security
-            key_prefix = gemini_key_manager.get_current_key()[:5] if gemini_key_manager.get_current_key() else "None"
+            # Ensure get_current_key() returns a string before slicing
+            current_key_value = gemini_key_manager.get_current_key()
+            key_prefix = current_key_value[:5] if current_key_value else "None"
             print(f"Attempt {attempt}/{max_retries} - Sending prompt to Gemini model {model_name} with structured output using key: {key_prefix}***")
 
             # Generate content with the prompt
@@ -1014,20 +991,22 @@ def get_ai_response_with_structured_output(prompt: str, model_name: str, max_ret
                 print(f"Detected rate limit error: {e}")
 
                 # Log available keys status (without exposing full keys)
-                available_keys = ["GEMINI_API_KEY"] + [f"GEMINI_ALT_{i}" for i in range(1, 5)]
-                key_status = []
-                for key_name in available_keys:
-                    key_value = gemini_key_manager.get_key_by_name(key_name)
-                    status = "SET" if key_value else "NOT SET"
-                    key_status.append(f"{key_name}: {status}")
+                # Log available keys status (without exposing full keys)
+                key_status_info = []
+                if gemini_key_manager.primary_key:
+                    key_status_info.append(f"GEMINI_API_KEY: {'SET' if gemini_key_manager.primary_key else 'NOT SET'}")
+                if gemini_key_manager.fallback_key:
+                    key_status_info.append(f"GEMINI_FALLBACK_API_KEY: {'SET' if gemini_key_manager.fallback_key else 'NOT SET'}")
 
-                print(f"API key status - {', '.join(key_status)}")
+                print(f"API key status - {', '.join(key_status_info)}")
                 print(f"Currently using: {gemini_key_manager.get_current_key_name()}")
 
                 # Try to rotate to the next available key
                 if gemini_key_manager.rotate_key():
                     # Only show first 5 chars of key followed by *** for security
-                    key_prefix = gemini_key_manager.get_current_key()[:5] if gemini_key_manager.get_current_key() else "None"
+                    # Ensure get_current_key() returns a string before slicing
+                    current_key_value = gemini_key_manager.get_current_key()
+                    key_prefix = current_key_value[:5] if current_key_value else "None"
                     print(f"Rotated to alternative API key {gemini_key_manager.get_current_key_name()}: {key_prefix}***")
                     # Don't increment attempt counter when we rotate keys
                     continue
@@ -1133,14 +1112,13 @@ def process_batch_ai_reviews(patched_file: PatchedFile, ai_reviews: List[Dict[st
 
             formatted_comment_body = f"**My Confidence: {confidence}**\n\n{comment_text}"
 
-            # Check if we have an invalid position result (dictionary with invalidPosition flag)
-            if isinstance(github_pos_result, dict) and github_pos_result.get("invalidPosition"):
+            # If github_pos_result is None, it means the position couldn't be calculated precisely
+            if github_pos_result is None:
                 # For invalid positions, we'll add a special prefix to the comment
                 formatted_comment_body = (
                     "**Note: I couldn't precisely position this comment in the diff, but I think it's important feedback:**\n\n"
                     f"**My Confidence: {confidence}**\n\n{comment_text}"
                 )
-
                 # Add the comment to the list of comments to post at the file level (position=1)
                 gh_comment = {
                     "body": formatted_comment_body,
@@ -1175,15 +1153,13 @@ def save_review_results_to_json(pr_details: PRDetails, comments: List[Dict[str, 
 
     # Get API key info for metadata
     api_key_info = "primary"
-    if gemini_key_manager:
-        if gemini_key_manager.current_key_name != "GEMINI_API_KEY":
-            api_key_info = f"{gemini_key_manager.current_key_name} (rotated due to rate limiting)"
+    rate_limited = False # Default to False
 
+    if gemini_key_manager:
+        if gemini_key_manager.current_key_name == "GEMINI_FALLBACK_API_KEY":
+            api_key_info = "fallback (rotated due to rate limiting)"
         # Check if ALL keys were rate limited (for commit message)
-        # Only set rate_limited to true if all keys failed
         rate_limited = gemini_key_manager.all_keys_rate_limited
-    else:
-        rate_limited = False
 
     review_data = {
         "metadata": {
@@ -1513,12 +1489,12 @@ def create_review_and_summary_comment(pr_details: PRDetails, comments_for_gh_rev
     fallback_key_note = ""
 
     if gemini_key_manager:
-        if gemini_key_manager.current_key_name != "GEMINI_API_KEY":
-            api_key_info = "alternative (rotated due to rate limiting)"
-
+        if gemini_key_manager.current_key_name == "GEMINI_FALLBACK_API_KEY":
+            api_key_info = "fallback (rotated due to rate limiting)"
+        
         # Add note about fallback key usage if applicable
         if gemini_key_manager.used_fallback_key:
-            fallback_key_note = f"- **Note:** I encountered rate limiting with the primary API key, but I was able to use a fallback key successfully.\n"
+            fallback_key_note = "- **Note:** I encountered rate limiting with the primary API key, but I was able to use the fallback key successfully.\n"
 
         # Add warning only if ALL keys were rate limited and got no results
         if gemini_key_manager.all_keys_rate_limited and num_suggestions == 0:
@@ -1598,8 +1574,8 @@ def main():
 
         # Determine what to review based on event type
         last_run_sha_from_env = os.environ.get("LAST_RUN_SHA", "").strip()
-        head_sha = pr_details.pr_obj.head.sha
-        base_sha = pr_details.pr_obj.base.sha
+        head_sha = pr_details.pr_obj.head.sha if pr_details.pr_obj and pr_details.pr_obj.head else None
+        base_sha = pr_details.pr_obj.base.sha if pr_details.pr_obj and pr_details.pr_obj.base else None
 
         comparison_sha_for_diff = None
         if pr_details.event_type in ["opened", "reopened"]:
