@@ -70,7 +70,7 @@
     {
       "file_path": "test/tts/index.test.mjs",
       "github_diff_position": 195,
-      "comment_text_md": "**My Confidence: High**\n\nThe embedded script defines `SENTENCE_FETCH_TIMEOUT_MS` and `FIRST_SENTENCE_TIMEOUT_MS`. However, the current `speakButton` click handler logic does not appear to utilize these timeouts to prevent the UI from hanging if the SSE stream stops sending data prematurely or the first chunk never arrives. This could lead to a poor user experience where the loading indicator remains indefinitely.\n\nConsider adding `setTimeout` calls to the `connectToEventSource` function or within the `speakButton` handler's `try` block. These timeouts should trigger an error message and reset the UI if no data is received within the specified duration.\n\nFor example, a timeout for the first sentence:\n```javascript\nlet firstChunkTimeout;\neventSource.onopen = () => {\n  // ...\n  firstChunkTimeout = setTimeout(() => {\n    if (audioQueue.length === 0 && !connectionErrorOccurred) {\n      showToast('Error: First audio chunk timed out.', 'error');\n      eventSource.close();\n      speakButton.disabled = false;\n      loadingIndicator.style.display = 'none';\n    }\n  }, FIRST_SENTENCE_TIMEOUT_MS);\n};\neventSource.onmessage = async (event) => {\n  // ...\n  clearTimeout(firstChunkTimeout); // Clear once first chunk arrives\n  // ...\n};\n```\nAdd corresponding tests to verify these timeout scenarios.",
+      "comment_text_md": "[IGNORED] **Reason**: The user has requested to ignore this comment.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "concurrency"
