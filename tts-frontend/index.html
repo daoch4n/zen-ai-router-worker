@@ -178,7 +178,7 @@
     }
 
     /* New styles for progress bar */
-    #progressBarContainer {
+    #overallProgressBarContainer {
       width: 80%;
       background-color: #e0e0e0;
       border-radius: 5px;
@@ -187,13 +187,31 @@
       overflow: hidden;
     }
 
-    #progressBar {
+    #overallProgressBar {
       height: 100%;
       width: 0%;
       background-color: #007bff;
       border-radius: 5px;
       transition: width 0.1s ease-out;
+    } /* Corrected position of closing brace */
+
+    #playbackProgressBarContainer {
+      width: 80%;
+      background-color: #e0e0e0;
+      border-radius: 5px;
+      height: 10px;
+      margin-top: 10px;
+      overflow: hidden;
     }
+
+    #playbackProgressBar {
+      height: 100%;
+      width: 0%;
+      background-color: #28a745; /* Green color for playback */
+      border-radius: 5px;
+      transition: width 0.1s ease-out;
+    }
+    /* Removed extraneous closing brace at line 212 */
 
     /* --- MODIFICATION: Toast Notification Styles --- */
     .toast-container {
@@ -333,8 +351,14 @@
       <div class="spinner"></div>
       <span id="loadingText">Connecting...</span>
     </div>
-    <div id="progressBarContainer" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
-      <div id="progressBar"></div>
+    <label for="overallProgressBar">Overall Progress:</label>
+    <div id="overallProgressBarContainer" style="display: block;">
+      <div id="overallProgressBar"></div>
+    </div>
+
+    <label for="playbackProgressBar">Audio Playback Progress:</label>
+    <div id="playbackProgressBarContainer" style="display: block;">
+      <div id="playbackProgressBar"></div>
     </div>
     <div id="message" class="message"></div>
     <div id="toastContainer" class="toast-container"></div>
@@ -389,7 +413,7 @@
       }
 
       // Refactored function to remove SSE logic and prepare for fetch-based requests
-      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting, model) => {
+      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
         // Clear existing state related to previous playback or SSE
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
           if (word.match(/\b(\w+)\b/)) {
@@ -418,8 +442,10 @@
         currentSource = null;
 
         loadingText.textContent = 'Playing...';
-        progressBarContainer.style.display = 'block';
-        progressBar.style.width = '0%';
+        overallProgressBarContainer.style.display = 'block';
+        overallProgressBar.style.width = '0%';
+        playbackProgressBarContainer.style.display = 'none';
+        playbackProgressBar.style.width = '0%';
 
         const wordSpans = textDisplayArea.querySelectorAll('span[data-word-index]');
         wordSpans.forEach(span => {
@@ -458,8 +484,10 @@
           showToast(`TTS initiated. Job ID: ${jobId}, Total Chunks: ${totalChunks}`, 'success');
 
           loadingText.textContent = 'Fetching audio chunks...';
-          progressBarContainer.style.display = 'block';
-          progressBar.style.width = '0%';
+          overallProgressBarContainer.style.display = 'block';
+          overallProgressBar.style.width = '0%';
+        playbackProgressBarContainer.style.display = 'none';
+        playbackProgressBar.style.width = '0%';
 
           // Function to fetch individual audio chunks - Refactored to use iteration
           let chunkIndex = 0;
@@ -489,7 +517,7 @@
                   fullAudioBuffers.push(buffer);
                   audioQueue.push({ buffer, index: chunkIndex, sentenceMapping });
                   if (!currentSource) {
-                    playNextChunk(textDisplayArea, progressBar);
+                    playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
                   }
 
                   // Update word sentence indices
@@ -506,7 +534,7 @@
                   const totalTextLength = words.map(w => w.text).join('').length;
                   const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= chunkIndex).map(w => w.text).join('').length;
                   const progress = (playedTextLength / totalTextLength) * 100;
-                  progressBar.style.width = `${progress}%`;
+                  overallProgressBar.style.width = `${progress}%`;
                   resolve();
                 }, reject);
               });
@@ -517,7 +545,7 @@
               showToast(`Error fetching chunk ${chunkIndex}: ${error.message}`, 'error');
               speakButton.disabled = false;
               loadingIndicator.style.display = 'none';
-              progressBarContainer.style.display = 'none';
+              overallProgressBarContainer.style.display = 'none';
               return; // Exit the loop on error
             }
           }
@@ -525,11 +553,11 @@
           // Completion logic after the loop finishes
           showToast('All audio chunks fetched.', 'success');
           loadingText.textContent = 'Playback complete.';
-          progressBar.style.width = '100%';
-          setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
+          overallProgressBar.style.width = '100%';
+          setTimeout(() => overallProgressBar.style.width = '0%', 1000); // Reset after a short delay
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
-          progressBarContainer.style.display = 'none';
+          overallProgressBarContainer.style.display = 'none';
 
           // Concatenate all buffers and enable download
           if (fullAudioBuffers.length > 0) {
@@ -543,11 +571,11 @@
           showToast(`Error initiating TTS: ${error.message}`, 'error');
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
-          progressBarContainer.style.display = 'none';
+          overallProgressBarContainer.style.display = 'none';
         }
       };
 
-      const playNextChunk = (textDisplayArea, progressBar) => {
+      const playNextChunk = (textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer) => {
         if (audioQueue.length > 0) {
           const {
             buffer,
@@ -563,20 +591,31 @@
             scheduledTime = audioContext.currentTime;
           }
 
+          playbackProgressBarContainer.style.display = 'block'; // Show playback progress bar when playback starts
+          playStartTime = audioContext.currentTime; // Set play start time for this chunk
+          
           source.start(scheduledTime);
           currentSource = source;
           lastPlayedIndex = index;
           cumulativeAudioDuration += buffer.duration;
 
-// The progress bar is now updated only in fetchAudioChunk to reflect overall fetch/decode progress.
-          // The following lines are commented out to prevent redundant updates.
-          // const totalTextLength = words.map(w => w.text).join('').length;
-          // const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;
-          // const progress = (playedTextLength / totalTextLength) * 100;
-          // progressBar.style.width = `${progress}%`;
-          // Update progress bar
-          
+          const updatePlaybackProgress = () => {
+            if (currentSource && audioContext) {
+              const elapsed = audioContext.currentTime - playStartTime;
+              const duration = buffer.duration;
+              const progress = (elapsed / duration) * 100;
+              playbackProgressBar.style.width = `${progress}%`;
 
+              if (elapsed < duration) {
+                requestAnimationFrame(updatePlaybackProgress);
+              } else {
+                // Playback for this chunk is complete, reset its progress bar
+                playbackProgressBar.style.width = '0%';
+              }
+            }
+          };
+          requestAnimationFrame(updatePlaybackProgress);
+          
           // Highlight current sentence
           clearAllHighlights(textDisplayArea);
           currentSentenceIndex = index;
@@ -589,12 +628,14 @@
 
           source.onended = () => {
             if (audioQueue.length > 0) {
-              playNextChunk(textDisplayArea, progressBar);
+              playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
             } else {
               currentSource = null;
               clearAllHighlights(textDisplayArea); // Ensure all highlights are cleared at the very end
-              progressBar.style.width = '100%'; // Mark as complete
-              setTimeout(() => progressBar.style.width = '0%', 1000); // Reset after a short delay
+              overallProgressBar.style.width = '100%'; // Mark as complete
+              setTimeout(() => overallProgressBar.style.width = '0%', 1000); // Reset after a short delay
+              playbackProgressBarContainer.style.display = 'none'; // Hide playback progress bar when all chunks are done
+              playbackProgressBar.style.width = '0%'; // Reset playback progress bar
             }
           };
         }
@@ -700,8 +741,11 @@
       const textInput = document.getElementById('textInput');
       const textDisplayArea = document.getElementById('textDisplayArea');
       const loadingText = document.getElementById('loadingText');
-      const progressBarContainer = document.getElementById('progressBarContainer');
-      const progressBar = document.getElementById('progressBar');
+      const overallProgressBarContainer = document.getElementById('overallProgressBarContainer');
+      const overallProgressBar = document.getElementById('overallProgressBar');
+      const playbackProgressBarContainer = document.getElementById('playbackProgressBarContainer');
+      const playbackProgressBar = document.getElementById('playbackProgressBar');
+      
 
 
       // This should be configured at deployment, e.g., by a build process or environment variable
@@ -777,8 +821,10 @@
         speakButton.disabled = true;
         loadingIndicator.style.display = 'flex';
         loadingText.textContent = 'Connecting...';
-        progressBarContainer.style.display = 'none';
-        progressBar.style.width = '0%';
+        overallProgressBarContainer.style.display = 'none';
+        overallProgressBar.style.width = '0%';
+        playbackProgressBarContainer.style.display = 'none';
+        playbackProgressBar.style.width = '0%';
         textDisplayArea.style.display = 'none'; // Hide text display initially
 
 
@@ -799,15 +845,17 @@
 
         try {
           const model = 'gemini-2.5-flash-preview-tts';
-          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
+          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
         } finally {
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
-          progressBarContainer.style.display = 'none';
-          progressBar.style.width = '0%';
+          overallProgressBarContainer.style.display = 'none';
+          overallProgressBar.style.width = '0%';
+        playbackProgressBarContainer.style.display = 'none';
+        playbackProgressBar.style.width = '0%';
         }
       });
     });
