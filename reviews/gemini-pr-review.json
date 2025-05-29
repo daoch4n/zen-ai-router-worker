@@ -29,7 +29,7 @@
     {
       "file_path": "orchestrator/src/ttsStateDurableObject.mjs",
       "github_diff_position": 67,
-      "comment_text_md": "**My Confidence: Medium**\n\nSimilar to the `initialise` method, the `updateProgress` method also performs multiple individual `put` operations. Batching these into a single `put` call with an object can offer performance benefits.\n\n```javascript\nawait this.state.storage.put({\n    currentSentenceIndex: this.currentSentenceIndex,\n    audioChunks: this.audioChunks,\n    lastError: this.lastError,\n    errorTimestamp: this.errorTimestamp\n});\n```",
+      "comment_text_md": "[ADDRESSED] **Resolution**: The `updateProgress` method in `orchestrator/src/ttsStateDurableObject.mjs` has been refactored to batch `put` operations for improved performance. Individual `await this.state.storage.put` calls were replaced with a single `put` operation that passes an object containing all properties: `currentSentenceIndex`, `audioChunks`, `lastError`, and `errorTimestamp`.",
       "ai_confidence": "Medium",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
