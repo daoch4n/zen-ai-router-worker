@@ -90,6 +90,20 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         return new Response('Missing required parameters: text, voiceId, or model', { status: 400 });
     }
 
+    try {
+        const { audioContentBase64, mimeType } = await _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers);
+
+        return new Response(JSON.stringify({ audioContentBase64, mimeType }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+        });
+    } catch (e) {
+        console.error(`Orchestrator: Error during raw TTS fetch:`, e);
+        const status = e instanceof HttpError ? e.status : 500;
+        return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
+    }
+}
+async function _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers) {
     const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
     const stub = env.ROUTER_COUNTER.get(id);
     const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
@@ -99,14 +113,11 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
     const targetService = backendServices[targetWorkerIndex];
 
     if (!targetService) {
-        return new Response("Failed to select target worker.", { status: 500 });
+        throw new HttpError("Failed to select target worker.", 500);
     }
 
-    const backendTtsUrl = new URL(request.url);
-backendTtsUrl.search = '';
-    backendTtsUrl.pathname = '/api/rawtts';
+    const backendTtsUrl = new URL("https://dummy-url/api/rawtts"); // Base URL for backend rawtts endpoint
     
-
     const headersToSend = {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
@@ -139,19 +150,15 @@ backendTtsUrl.search = '';
         if (data.mimeType) {
             mimeType = data.mimeType;
         } else if (!mimeType) {
-            mimeType = 'audio/L16;rate=24000'; // Consistent with handleTtsChunk default
+            mimeType = 'audio/L16;rate=24000'; 
             console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
         }
 
-        return new Response(JSON.stringify({ audioContentBase64: data.audioContentBase64, mimeType: mimeType }), {
-            headers: { 'Content-Type': 'application/json' },
-            status: 200
-        });
+        return { audioContentBase64: data.audioContentBase64, mimeType: mimeType };
 
     } catch (e) {
         console.error(`Orchestrator: Error during raw TTS fetch:`, e);
-        const status = e instanceof HttpError ? e.status : 500;
-        return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
+        throw e; // Re-throw the error to be handled by the caller
     }
 }
 async function handleTtsChunk(request, env) {
@@ -343,21 +350,13 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
     }
 
     const audioChunkPromises = sentences.map(async (sentence, index) => {
-        const rawTtsRequest = new Request(request.url, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${apiKey}`
-            },
-            body: JSON.stringify({
-                text: sentence,
-                voiceId: voiceId,
-                model: model
-            })
-        });
-        const rawTtsResponse = await handleRawTTS(rawTtsRequest, env, backendServices, numSrcWorkers);
-        const rawTtsData = await rawTtsResponse.json();
-        return { index, audioContentBase64: rawTtsData.audioContentBase64, error: rawTtsData.error };
+        try {
+            const { audioContentBase64, mimeType } = await _callBackendTtsService(sentence, voiceId, model, apiKey, env, backendServices, numSrcWorkers);
+            return { index, audioContentBase64, mimeType };
+        } catch (error) {
+            console.error(`Orchestrator: Error generating chunk ${index}:`, error);
+            return { index, error: error.message };
+        }
     });
 
     const results = await Promise.allSettled(audioChunkPromises);
