@@ -1,0 +1,22 @@
+# General
+- Use powershell only syntax to interact with console. Instead of "mkdir -p A B C" use "New-Item -ItemType File -Path A, B, C"
+
+# Documentation
+- For JavaScript/TypeScript documentation: condense comments to focus on `why` not `what`, ensure JSDoc for all exports with @param/@returns/@throws tags, and every comment must provide meaningful value explaining complex logic, API contracts, or business rules.
+
+# Testing
+- The project uses Jest for testing with tests organized in a dedicated `test/` directory that mirrors the `src/` structure, configured to run `.test.mjs` files with ES modules support and comprehensive coverage reporting.
+- Focus on practical, valuable tests that cover core functionality, critical user flows, edge cases, integration tests for external services, and error handling scenarios. Avoid redundant or trivial tests.
+
+# Gemini API
+- The project only uses Gemini 2.5 models, so no backward compatibility with older Gemini models is needed.
+- For JSON schema compatibility with Gemini API, prefer using Gemini`s structured output feature (https://ai.google.dev/gemini-api/docs/structured-output) instead of removing unsupported properties outright.
+- For Gemini 2.5 models, use responseSchema with Type enums from @google/genai package and responseMimeType: `application/json` for proper JSON schema handling.
+
+# Wrangler
+- The project uses Wrangler for local development and deployment. Dev values are configurated there as well
+- Use `npx run dev` for debug
+- Use `npx run deploy` for deploy
+
+# Node
+- Use `npm test` for running tests or `npm test -- FILEMAME`
