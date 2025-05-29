@@ -268,7 +268,7 @@ const processQueue = async () => {
             return result; // Resolve the promise with the final result
         })();
         outstandingPromises.add(currentPromise);
-        outstandingPromises.add(currentPromise);
+        
         currentPromise.finally(() => {
             activeFetches--; // Decrement when promise settles
             outstandingPromises.delete(currentPromise);
