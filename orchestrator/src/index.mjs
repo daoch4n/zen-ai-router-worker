@@ -292,6 +292,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
         throw new HttpError("Authentication required or invalid API key", 401);
     }
 
+// splittingPreference: 'characterCount' uses character count as a proxy for token count
     const { text: fullText, voiceId, model, splittingPreference } = await request.json();
 
     if (!fullText || !voiceId || !model || !splittingPreference) {
@@ -301,12 +302,12 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
     const jobId = crypto.randomUUID();
     console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
 
-    const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
-    const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
+    const MIN_TEXT_LENGTH_CHARACTER_COUNT = 1;
+    const MAX_TEXT_LENGTH_CHARACTER_COUNT = 1500;
 
     let sentences;
     console.log(`Orchestrator: Starting text splitting with option: ${splittingPreference}`);
-    if (splittingPreference === 'tokenCount') {
+    if (splittingPreference === 'characterCount') {
         const initialSentences = splitIntoSentences(fullText);
         const batchedSentences = [];
         let currentBatch = '';
@@ -315,7 +316,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
         for (const sentence of initialSentences) {
             const sentenceLength = getTextCharacterCount(sentence);
 
-            if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            if (sentenceLength > MAX_TEXT_LENGTH_CHARACTER_COUNT) {
                 if (currentBatch.length > 0) {
                     batchedSentences.push(currentBatch.trim());
                     currentBatch = '';
@@ -323,7 +324,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
                 }
                 batchedSentences.push(sentence.trim());
                 console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
-            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_CHARACTER_COUNT) {
                 batchedSentences.push(currentBatch.trim());
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
@@ -340,7 +341,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
         }
 
         sentences = batchedSentences.filter(s => s.length > 0);
-        console.log(`Orchestrator: Using 'Sentence by Token Count' splitting. Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_TOKEN_COUNT}.`);
+        console.log(`Orchestrator: Using 'Sentence by Character Count' splitting (character count used as a proxy for token count). Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_CHARACTER_COUNT}.`);
     } else if (splittingPreference === 'none') {
         sentences = [fullText];
         console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
