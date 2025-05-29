@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-29T23:03:07.174445+00:00",
+    "timestamp_utc": "2025-05-29T23:08:40.230473+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -12,67 +12,19 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 412,
-      "comment_text_md": "**My Confidence: High**\n\nThe `mimeType` property in the `TTSJob` object stored in the Durable Object will always be `undefined` because `handleRawTTS` does not return `mimeType` in its response. This means `successfulChunks[0].mimeType` will be `undefined`. As a result, `handleTtsChunk` will always fall back to `'audio/mpeg'`.\nTo fix this, `handleRawTTS` should return the actual `mimeType` from the backend response. If the backend doesn't provide it, a consistent default `mimeType` should be passed to `TTSJob` during storage.\nFor example, if `handleRawTTS` returned `{ audioContentBase64: \"...\", mimeType: \"audio/opus\" }`, then `handleTtsInitiate` could use `mimeType: successfulChunks[0].mimeType`.\nAlternatively, if the `mimeType` is always known (e.g., `audio/opus`), it should be explicitly passed to the `TTSJob` constructor.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "bug"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 332,
-      "comment_text_md": "**My Confidence: High**\n\nThe `TTSJob` constructor expects `mimeType` as its fourth argument, but it's not being passed here. This means the `mimeType` property of the stored `TTSJob` instance will always be `undefined`. This is directly related to the issue in `handleTtsInitiate` where `mimeType` is not correctly propagated.\nChange:\n```javascript\n// Assuming mimeType is passed in the request body to /store\n// const { jobId, totalChunks, audioChunks, mimeType } = await request.json();\n// await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, mimeType));\n// Or if mimeType is fixed, pass a default:\nawait this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, 'audio/mpeg')); // Or 'audio/opus' as per backend\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "bug"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 348,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe line `return new Response('Job not found', { status: 404 });` is unreachable because it's immediately after the `if (job)` block which already returns. This line should be inside an `else` block to correctly handle cases where the job is not found.\n```javascript\nif (job) {\n    // ... existing success logic ...\n    return new Response(JSON.stringify(job), {\n        headers: { 'Content-Type': 'application/json' },\n        status: 200\n    });\n} else { // Add this else block\n    return new Response('Job not found', { status: 404 });\n}\n```",
+      "github_diff_position": 230,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `initialize` method in `TTS_DURABLE_OBJECT` does not perform any actual initialization logic beyond setting a flag. Since it's called on every `fetch` request, it's redundant and can be removed, simplifying the Durable Object's lifecycle.\n\nConsider removing the `initialize` method and the `this.initialized` property entirely.",
       "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 353,
-      "comment_text_md": "**My Confidence: High**\n\nThe `delete` endpoint expects the `jobId` to be directly passed to `this.storage.delete()`. However, `await request.json()` parses the request body as a JSON object. If the client sends `{\"jobId\": \"some-uuid\"}`, `deleteJobId` will be the object `{\"jobId\": \"some-uuid\"}` instead of the string `\"some-uuid\"`. This will cause the `delete` operation to fail.\nConsider changing how `deleteJobId` is extracted:\n```javascript\n// If expecting a JSON object like { \"jobId\": \"...\" }\nconst { jobId: deleteJobId } = await request.json();\nawait this.storage.delete(deleteJobId);\n// Or if expecting a plain string body (less common for POST with JSON header)\n// const deleteJobId = await request.text();\n// await this.storage.delete(deleteJobId);\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 163,
-      "comment_text_md": "**My Confidence: High**\n\nThe `voiceId` is received in the `POST` request body for `handleRawTTS` (line 110: `const { text, voiceId, model } = await request.json();`). However, when forwarding the request to the backend service, `voiceId` is set as a query parameter (`voiceName`) while `text` and `model` are sent in the JSON body.\nFor consistency and clarity with a `POST` request expecting a JSON body, `voiceId` should also be included in the JSON body sent to the backend, rather than as a query parameter.\nRemove: `backendTtsUrl.searchParams.set('voiceName', voiceId);`\nModify `body`:\n```javascript\nbody: JSON.stringify({\n    text: text.trim(),\n    model: model,\n    voiceId: voiceId // Add voiceId here\n}),\n```\nAnd ensure the backend expects `voiceId` in the body.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "style/clarity"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 394,
-      "comment_text_md": "**My Confidence: High**\n\nThere's a logical error in the `tokenCount` splitting logic. The line `currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;` (line 353) is outside the `else` block, meaning it will always append the current sentence to `currentBatch` even when a new batch should have started. This will cause batches to exceed `MAX_TEXT_LENGTH_TOKEN_COUNT`.\nThe line should be moved inside the `else` block:\n```javascript\n} else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {\n    // If adding the current sentence exceeds the limit, push the current batch\n    batchedSentences.push(currentBatch.trim());\n    currentBatch = sentence;\n    currentBatchLength = sentenceLength;\n    console.log(`Orchestrator: Batch full, starting new batch for sentence.`);\n} else { // This 'else' block was missing, causing the bug\n    // Otherwise, add to the current batch\n    currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;\n    currentBatchLength += sentenceLength;\n    console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);\n}\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 281,
-      "comment_text_md": "**My Confidence: High**\n\nThe progress bar update logic is duplicated. It's present both in `fetchAudioChunk` (Hunk 2) and `playNextChunk` (Hunk 3). The comment `// The progress bar is now updated only in fetchAudioChunk to reflect overall fetch/decode progress.` suggests it should only be in `fetchAudioChunk`. Please remove the progress bar update lines from `playNextChunk` to avoid redundancy and potential confusion about what the progress bar represents.",
-      "ai_confidence": "High",
       "detected_severity_heuristic": "medium",
       "detected_category_heuristic": "refactoring/design"
     },
     {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 324,
-      "comment_text_md": "**My Confidence: High**\n\nThe `block-align` field in the WAV header (`fmt` chunk) is a 16-bit unsigned integer (`WORD`). Changing `setUint16(numOfChan * 2)` to `setUint32(numOfChan * 2)` will write 4 bytes instead of the required 2 bytes, which will corrupt the WAV file header. Please revert this line to `setUint16(numOfChan * 2);` to ensure correct WAV file generation.",
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 156,
+      "comment_text_md": "**My Confidence: High**\n\nIn `handleRawTTS`, the `backendTtsUrl` is constructed using `new URL(request.url)`. When `handleRawTTS` is called internally by `handleTtsInitiate` (line 410), the `request.url` will be the original URL from the `/api/tts-initiate` endpoint. This means any query parameters present in the client's `/api/tts-initiate` request will be forwarded to the backend's `/api/rawtts` endpoint.\n\nFor example, if a client calls `/api/tts-initiate?debug=true`, the backend will receive a request for `/api/rawtts?debug=true`. This is likely unintended and could cause issues if the backend does not gracefully ignore unknown query parameters.\n\nTo fix this, ensure that only relevant parameters are forwarded to the backend. You could clear the search parameters before setting the pathname:\n\n```javascript\nconst backendTtsUrl = new URL(request.url);\nbackendTtsUrl.search = ''; // Clear existing search parameters\nbackendTtsUrl.pathname = '/api/rawtts';\n// ... rest of the code\n```\n\nAlternatively, if `handleRawTTS` is intended to be a pure proxy, it should explicitly define what parameters it accepts and forwards.",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "concurrency"
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
     }
   ]
 }
