@@ -58,6 +58,8 @@ async fetch(
   },
 };
 
+const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"; // Updated model name
+
 async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
   if (request.method !== 'GET') {
     return new Response('Method Not Allowed', { status: 405 });
@@ -236,7 +238,11 @@ const processQueue = async () => {
                     try {
                         const backendTtsUrl = new URL(request.url);
                                 backendTtsUrl.pathname = '/rawtts';
-                                backendTtsUrl.search = '';
+                                // Pass voiceId as voiceName in URL query parameters
+                                backendTtsUrl.searchParams.set('voiceName', voiceId);
+                                // Clear other search parameters if needed, or explicitly set only required ones
+                                // backendTtsUrl.search = `voiceName=${encodeURIComponent(voiceId)}`;
+
 
                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
                                     method: 'POST',
@@ -244,7 +250,10 @@ const processQueue = async () => {
                                         'Content-Type': 'application/json',
                                         'Authorization': `Bearer ${apiKey}`
                                     },
-                                    body: JSON.stringify({ text: sentence.trim(), voiceId }),
+                                    body: JSON.stringify({
+                                        text: sentence.trim(),
+                                        model: DEFAULT_TTS_MODEL // Pass the default model name
+                                    }),
                                 }));
 
                         if (!response.ok) {
