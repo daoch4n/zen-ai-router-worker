@@ -116,7 +116,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
         throw new HttpError("Failed to select target worker.", 500);
     }
 
-    const backendTtsUrl = new URL("https://dummy-url/api/rawtts"); // Base URL for backend rawtts endpoint
+    const backendTtsUrl = new URL('/api/rawtts', 'http://placeholder'); // Base URL for backend rawtts endpoint
     
     const headersToSend = {
         'Content-Type': 'application/json',
