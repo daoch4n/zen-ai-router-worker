@@ -1,4 +1,5 @@
 import { RouterCounter } from './routerCounter.mjs';
+import { fixCors } from '../src/utils/cors.mjs';
 import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
 export { RouterCounter };
 
@@ -62,6 +63,9 @@ const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"; // Updated model name
 
 async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
   if (request.method !== 'GET') {
+if (request.method === 'OPTIONS') {
+    return handleOPTIONS();
+  }
     return new Response('Method Not Allowed', { status: 405 });
   }
 
@@ -336,8 +340,9 @@ Promise.allSettled(sentenceFetchPromises).then(() => {
     writer.close();
 });
 
-return new Response(readable, {
-    headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-    status: 200
-});
+const responseOptions = fixCors({
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+        status: 200
+    });
+    return new Response(readable, responseOptions);
 }
