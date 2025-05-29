@@ -630,7 +630,8 @@ def get_previous_file_comments(review_data: Dict[str, Any], file_path: str) -> L
 
     file_comments = []
     for comment in review_data.get("review_comments", []):
-        if comment.get("file_path") == file_path:
+        comment_text = comment.get("comment_text_md", "")
+        if comment.get("file_path") == file_path and "[IGNORED]" not in comment_text:
             file_comments.append(comment)
 
     print(f"Found {len(file_comments)} previous comments for file {file_path}")
