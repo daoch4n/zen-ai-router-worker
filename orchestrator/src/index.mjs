@@ -27,7 +27,7 @@ async fetch(
       return new Response("No backend workers configured.", { status: 500 });
     }
 
-    if (url.pathname === '/api/tts') {
+    if (url.pathname === '/api/rawtts') {
       return handleTtsRequest(request, env, backendServices, numSrcWorkers);
     } else {
       // Existing routing logic for non-TTS requests
@@ -197,7 +197,7 @@ const processQueue = async () => {
                 while (attempts <= MAX_RETRIES) {
                     try {
                         const backendTtsUrl = new URL(request.url); // Start with original URL
-                                backendTtsUrl.pathname = '/tts'; // Or whatever the backend's actual TTS endpoint is
+                                backendTtsUrl.pathname = '/rawtts'; // Or whatever the backend's actual TTS endpoint is
                                 backendTtsUrl.search = ''; // Remove search params if not needed by backend
 
                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
