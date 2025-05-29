@@ -72,7 +72,7 @@ jobs:
             done
             if [ "$ast_errors" -gt 0 ]; then
               summary+=$ast_summary
-              errors=$((errors + ast_errors)) # Add to total errors if counting distinctly
+              errors=$((errors + ast_errors)) # Add to total errors
             fi
 
 
@@ -104,14 +104,62 @@ jobs:
             echo "\n✅ No critical issues detected in Python files."
           fi
 
+      - name: 🔑 Prepare Gemini API Keys
+        id: prepare_gemini_keys
+        env:
+          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
+        run: |
+          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
+          if [ -z "$ALL_API_KEYS_JSON_SECRET" ]; then
+            echo "Error: ALL_API_KEYS_JSON_SECRET is empty." >&2
+            exit 1
+          fi
+
+          # Parse JSON array into newline-separated keys
+          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
+          JQ_EXIT_CODE=$?
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
+            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
+            exit 1
+          fi
+
+          # Convert to array for counting and selection
+          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
+          local_api_keys_count=${#API_KEYS_ARRAY[@]}
+          echo "Successfully parsed ${local_api_keys_count} keys."
+
+          SELECTED_KEYS=()
+          if [ "${local_api_keys_count}" -eq 0 ]; then
+            echo "Error: No API keys found in ALL_API_KEYS_JSON_SECRET." >&2
+            exit 1
+          elif [ "${local_api_keys_count}" -eq 1 ]; then
+            echo "Only one API key found. Using it as main key."
+            SELECTED_KEYS+=("${API_KEYS_ARRAY[0]}")
+            SELECTED_KEYS+=("") # No fallback key
+          else
+            # Randomly select 2 unique keys
+            # Ensure unique keys are selected if there are enough
+            if [ "${local_api_keys_count}" -ge 2 ]; then
+              mapfile -t SHUFFLED_KEYS < <(printf "%s\n" "${API_KEYS_ARRAY[@]}" | shuf)
+              SELECTED_KEYS+=("${SHUFFLED_KEYS[0]}") # Main key
+              SELECTED_KEYS+=("${SHUFFLED_KEYS[1]}") # Fallback key
+            else
+              # This case should ideally be covered by the local_api_keys_count == 1 check, but as a safeguard
+              echo "Not enough unique API keys for main and fallback. Using available keys."
+              SELECTED_KEYS+=("${API_KEYS_ARRAY[0]}")
+              SELECTED_KEYS+=("")
+            fi
+          fi
+
+          echo "gemini_main_key=${SELECTED_KEYS[0]}" >> $GITHUB_OUTPUT
+          echo "gemini_fallback_key=${SELECTED_KEYS[1]}" >> $GITHUB_OUTPUT
+          echo "Selected keys for review."
       - name: 🧠 Run code review
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_ALT_1: ${{ secrets.GEMINI_ALT_1 }}
-          GEMINI_ALT_2: ${{ secrets.GEMINI_ALT_2 }}
-          GEMINI_ALT_3: ${{ secrets.GEMINI_ALT_3 }}
-          GEMINI_ALT_4: ${{ secrets.GEMINI_ALT_4 }}
+          GEMINI_API_KEY: ${{ steps.prepare_gemini_keys.outputs.gemini_main_key }}
+          GEMINI_FALLBACK_API_KEY: ${{ steps.prepare_gemini_keys.outputs.gemini_fallback_key }}
           GEMINI_MODEL: gemini-2.5-flash-preview-05-20
           INPUT_EXCLUDE: "*.md,*.txt,*.json,*.lock,*.yml,*.yaml,*.svg,*.png,*.jpg,*.jpeg,*.gif,*.ico,*.woff,*.woff2,*.ttf,*.eot,*.otf,*.map,*.min.js,*.min.css,reviews/gemini-pr-review.json,*.test.js,*.d.ts,vendor/**,node_modules/**,dist/**,build/**"
           GITHUB_EVENT_PATH: ${{ github.event_path }}
