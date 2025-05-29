@@ -215,18 +215,14 @@ export class TTS_DURABLE_OBJECT {
     constructor(state, env) {
         this.state = state;
         this.env = env;
-        this.initialized = false;
+        
         this.storage = this.state.storage;
     }
 
-    async initialize() {
-        if (!this.initialized) {
-            this.initialized = true;
-        }
-    }
+    
 
     async fetch(request) {
-        await this.initialize();
+        
 
         const url = new URL(request.url);
         const path = url.pathname;
