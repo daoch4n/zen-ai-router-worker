@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-29T23:24:47.810646+00:00",
+    "timestamp_utc": "2025-05-29T23:57:35.952059+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -12,27 +12,11 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 172,
-      "comment_text_md": "**My Confidence: High**\n\nThe `_callBackendTtsService` function constructs `backendTtsUrl` using `new URL(\"https://dummy-url/api/rawtts\")`. When `targetService.fetch` is called with `new Request(backendTtsUrl.toString(), ...)`, it will attempt to fetch `https://dummy-url/api/rawtts` from the `targetService` binding. This is likely incorrect. If `targetService` is a Worker binding, `targetService.fetch` expects a path relative to the worker's origin (e.g., `/api/rawtts`) or a `Request` object with a URL that the binding can resolve. Using `https://dummy-url` as the origin is misleading and might cause routing issues or failures.\n\n**Suggestion**: If `targetService` is a Worker binding, you should likely call `await targetService.fetch(new Request('/api/rawtts', { ... }))` or simply `await targetService.fetch('/api/rawtts', { ... })` if the `Request` object is not strictly necessary for the binding. The `dummy-url` is unnecessary and problematic.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "bug"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 178,
-      "comment_text_md": "**My Confidence: High**\n\nIn `_callBackendTtsService`, the `model` parameter received by the function is not used when constructing the request body for the backend TTS service. Instead, `DEFAULT_TTS_MODEL` is hardcoded: `body: JSON.stringify({ text: text.trim(), model: DEFAULT_TTS_MODEL, voiceId: voiceId })`. This means any `model` specified by the client (via `handleRawTTS` or `handleTtsInitiate`) will be ignored, and the backend will always use `gemini-2.5-flash-preview-tts`.\n\n**Suggestion**: Replace `DEFAULT_TTS_MODEL` with the `model` parameter passed to `_callBackendTtsService`:\n```javascript\nbody: JSON.stringify({\n    text: text.trim(),\n    model: model, // Use the 'model' parameter here\n    voiceId: voiceId\n})\n```",
-      "ai_confidence": "High",
+      "github_diff_position": 225,
+      "comment_text_md": "**My Confidence: Low**\n\nThe `TTS_DURABLE_OBJECT` includes a `/delete` endpoint, which is good for managing stored TTS jobs. However, there doesn't appear to be any automatic cleanup mechanism implemented in the orchestrator (e.g., in `handleTtsChunk` after all chunks are served, or a time-based expiry for jobs). This could lead to Durable Objects accumulating old TTS job data indefinitely. Consider implementing a TTL on the stored jobs within the Durable Object, or a separate cleanup process to remove jobs after they are completed or expire.",
+      "ai_confidence": "Low",
       "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 301,
-      "comment_text_md": "**My Confidence: Medium**\n\nIn `handleTtsInitiate`, when `splittingPreference` is `'tokenCount'`, the code uses `getTextCharacterCount(sentence)` to determine `sentenceLength`. This measures the number of characters, not actual tokens. If the backend TTS service's rate limits or processing logic are based on actual token counts (which is common for LLM-based services), using character count as a proxy might lead to requests exceeding limits or being processed inefficiently.\n\n**Suggestion**: Clarify if \"token count\" is indeed intended to be character count, or if a more accurate tokenization method is needed. If the backend truly uses token counts, consider integrating a proper tokenization library or adjusting the `MAX_TEXT_LENGTH_TOKEN_COUNT` and `MIN_TEXT_LENGTH_TOKEN_COUNT` values based on empirical token-to-character ratios for the specific model. If `getTextCharacterCount` is sufficient, consider renaming `splittingPreference: 'tokenCount'` to something like `'characterCount'` for clarity.",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "performance"
+      "detected_category_heuristic": "refactoring/design"
     }
   ]
 }
