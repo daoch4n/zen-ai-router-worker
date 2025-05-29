@@ -37,7 +37,7 @@
     {
       "file_path": "orchestrator/src/utils/textProcessing.mjs",
       "github_diff_position": 3,
-      "comment_text_md": "**My Confidence: High**\n\nThe regular expression for `abbreviationPlaceholder` is highly redundant and inefficient. The list of abbreviations is repeated many times, making the regex extremely long and difficult to read or maintain. This could also have a performance impact on large texts.\n\nConsider defining the list of abbreviations in an array and then dynamically constructing the regex. This improves readability, maintainability, and efficiency.\n\nFor example:\n\n```javascript\nconst abbreviations = [\n  \"Mr\", \"Mrs\", \"Ms\", \"Dr\", \"Prof\", \"Capt\", \"Lt\", \"Col\", \"Gen\", \"Rev\", \"Fr\", \"Sr\", \"Jr\", \"Maj\", \"Gov\", \"Sen\", \"Rep\",\n  \"etc\", \"e.g\", \"i.e\", \"Fig\", \"No\", \"Ave\", \"St\", \"Co\", \"Inc\", \"Ltd\", \"Vol\", \"Chap\", \"p\", \"pp\", \"vs\"\n];\n\n// Escape any special regex characters like '.' in 'e.g.'\nconst escapedAbbreviations = abbreviations.map(abbr => abbr.replace(/\\./g, '\\\\.'));\n\n// Construct the regex to match any of these abbreviations followed by a dot\nconst abbreviationPattern = `(${escapedAbbreviations.join('|')})\\./g`;\n\nlet processedText = text.replace(new RegExp(abbreviationPattern), `$1${abbreviationPlaceholder}`);\n```\n\nAlso, review the part `(...s)` in the original regex. If it's intended to match plural forms like `Figs.`, ensure those specific plural forms are added to the `abbreviations` array directly, rather than using a generic `s` which might lead to incorrect matches (e.g., `Mr.s`). If `e.g.` and `i.e.` are already in the main list, their separate inclusion at the end of the regex is redundant.",
+      "comment_text_md": "[ADDRESSED] **Resolution**: I've successfully refactored the `abbreviationPlaceholder` regular expression in `orchestrator/src/utils/textProcessing.mjs` to be dynamically constructed from an array of abbreviations. This includes handling of plural forms and proper escaping of special characters. The changes have been committed to the repository.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
@@ -45,7 +45,7 @@
     {
       "file_path": "src/transformers/stream.mjs",
       "github_diff_position": 6,
-      "comment_text_md": "**My Confidence: High**\n\nThis change correctly fixes a typo. The original `line =+ STREAM_DELIMITER;` would not perform addition assignment as intended. `line += STREAM_DELIMITER;` correctly appends `STREAM_DELIMITER` to the `line` variable, which is crucial for ensuring the stream is properly formatted even during error handling. This is a good fix for a potential runtime issue.",
+      "comment_text_md": "[ADDRESSED] **Resolution**: The typo in `src/transformers/stream.mjs` on line 70, changing `line =+ STREAM_DELIMITER;` to `line += STREAM_DELIMITER;`, has been corrected. The file was already updated with the correct syntax, so no changes were applied.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
