@@ -423,12 +423,6 @@
           loadingIndicator.style.display = 'none';
           return;
         }
-        if (!window.ORCHESTRATOR_WORKER_URL) {
-          showToast('Error: Orchestrator URL not configured.', 'error');
-          speakButton.disabled = false;
-          loadingIndicator.style.display = 'none';
-          return;
-        }
 
         localStorage.setItem('apiKey', apiKey);
 
