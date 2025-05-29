@@ -1,0 +1,143 @@
+{
+  "metadata": {
+    "pr_number": 6,
+    "repo": "daoch4n/zen-ai-router-worker",
+    "title": "Feat/orchestrator parallel tts",
+    "timestamp_utc": "2025-05-29T11:55:37.498597+00:00",
+    "review_tool": "I'm your Gemini AI Reviewer",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false
+  },
+  "review_comments": [
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 49,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `url` object is already parsed from `request.url` at the top level of the `fetch` function. Passing it as an argument to `handleTtsRequest` would avoid redundant parsing and improve clarity.\n\n**Suggestion:**\n```javascript\n// In fetch function:\nif (url.pathname === '/api/rawtts') {\n  return handleTtsRequest(request, env, backendServices, numSrcWorkers, url);\n}\n\n// In handleTtsRequest function signature:\nasync function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {\n  // ... remove: const url = new URL(request.url);\n}\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "refactoring/design"
+    },
+    {
+      "file_path": "orchestrator/src/ttsStateDurableObject.mjs",
+      "github_diff_position": 36,
+      "comment_text_md": "**My Confidence: Medium**\n\nConsider batching `put` operations in the `initialise` method. Instead of multiple individual `await this.state.storage.put` calls, you can pass an object to `put` to write all properties at once. This can improve performance by reducing the number of I/O operations to Durable Object storage.\n\n```javascript\nawait this.state.storage.put({\n    text: text,\n    voiceId: voiceId,\n    currentSentenceIndex: 0,\n    audioChunks: [],\n    initialised: true,\n    lastError: null,\n    errorTimestamp: null\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "orchestrator/src/ttsStateDurableObject.mjs",
+      "github_diff_position": 67,
+      "comment_text_md": "**My Confidence: Medium**\n\nSimilar to the `initialise` method, the `updateProgress` method also performs multiple individual `put` operations. Batching these into a single `put` call with an object can offer performance benefits.\n\n```javascript\nawait this.state.storage.put({\n    currentSentenceIndex: this.currentSentenceIndex,\n    audioChunks: this.audioChunks,\n    lastError: this.lastError,\n    errorTimestamp: this.errorTimestamp\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "orchestrator/src/utils/textProcessing.mjs",
+      "github_diff_position": 3,
+      "comment_text_md": "**My Confidence: High**\n\nThe regular expression for `abbreviationPlaceholder` is highly redundant and inefficient. The list of abbreviations is repeated many times, making the regex extremely long and difficult to read or maintain. This could also have a performance impact on large texts.\n\nConsider defining the list of abbreviations in an array and then dynamically constructing the regex. This improves readability, maintainability, and efficiency.\n\nFor example:\n\n```javascript\nconst abbreviations = [\n  \"Mr\", \"Mrs\", \"Ms\", \"Dr\", \"Prof\", \"Capt\", \"Lt\", \"Col\", \"Gen\", \"Rev\", \"Fr\", \"Sr\", \"Jr\", \"Maj\", \"Gov\", \"Sen\", \"Rep\",\n  \"etc\", \"e.g\", \"i.e\", \"Fig\", \"No\", \"Ave\", \"St\", \"Co\", \"Inc\", \"Ltd\", \"Vol\", \"Chap\", \"p\", \"pp\", \"vs\"\n];\n\n// Escape any special regex characters like '.' in 'e.g.'\nconst escapedAbbreviations = abbreviations.map(abbr => abbr.replace(/\\./g, '\\\\.'));\n\n// Construct the regex to match any of these abbreviations followed by a dot\nconst abbreviationPattern = `(${escapedAbbreviations.join('|')})\\./g`;\n\nlet processedText = text.replace(new RegExp(abbreviationPattern), `$1${abbreviationPlaceholder}`);\n```\n\nAlso, review the part `(...s)` in the original regex. If it's intended to match plural forms like `Figs.`, ensure those specific plural forms are added to the `abbreviations` array directly, rather than using a generic `s` which might lead to incorrect matches (e.g., `Mr.s`). If `e.g.` and `i.e.` are already in the main list, their separate inclusion at the end of the regex is redundant.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/transformers/stream.mjs",
+      "github_diff_position": 6,
+      "comment_text_md": "**My Confidence: High**\n\nThis change correctly fixes a typo. The original `line =+ STREAM_DELIMITER;` would not perform addition assignment as intended. `line += STREAM_DELIMITER;` correctly appends `STREAM_DELIMITER` to the `line` variable, which is crucial for ensuring the stream is properly formatted even during error handling. This is a good fix for a potential runtime issue.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/worker.mjs",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff, but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThe `/tts` endpoint has been removed. If this endpoint was previously used by clients, this represents a breaking change. Please confirm if this removal is intentional and if its functionality has been replaced by `/rawtts` or another endpoint, or if clients need to be updated. If it's replaced, consider adding a redirect or deprecation notice if applicable.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "src/worker.mjs",
+      "github_diff_position": 21,
+      "comment_text_md": "**My Confidence: High**\n\nThere's a syntax error on this line. `new new HttpError` should be `new HttpError`. This will cause a runtime error.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/tts/index.test.mjs",
+      "github_diff_position": 195,
+      "comment_text_md": "**My Confidence: High**\n\nThe embedded script defines `SENTENCE_FETCH_TIMEOUT_MS` and `FIRST_SENTENCE_TIMEOUT_MS`. However, the current `speakButton` click handler logic does not appear to utilize these timeouts to prevent the UI from hanging if the SSE stream stops sending data prematurely or the first chunk never arrives. This could lead to a poor user experience where the loading indicator remains indefinitely.\n\nConsider adding `setTimeout` calls to the `connectToEventSource` function or within the `speakButton` handler's `try` block. These timeouts should trigger an error message and reset the UI if no data is received within the specified duration.\n\nFor example, a timeout for the first sentence:\n```javascript\nlet firstChunkTimeout;\neventSource.onopen = () => {\n  // ...\n  firstChunkTimeout = setTimeout(() => {\n    if (audioQueue.length === 0 && !connectionErrorOccurred) {\n      showToast('Error: First audio chunk timed out.', 'error');\n      eventSource.close();\n      speakButton.disabled = false;\n      loadingIndicator.style.display = 'none';\n    }\n  }, FIRST_SENTENCE_TIMEOUT_MS);\n};\neventSource.onmessage = async (event) => {\n  // ...\n  clearTimeout(firstChunkTimeout); // Clear once first chunk arrives\n  // ...\n};\n```\nAdd corresponding tests to verify these timeout scenarios.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "test/tts/index.test.mjs",
+      "github_diff_position": 226,
+      "comment_text_md": "**My Confidence: High**\n\nThe `onmessage` handler correctly sorts `audioQueue` and `fullAudioBuffers` by `index`. However, the existing tests only simulate audio chunks arriving in sequential order (index 0, then 1). To ensure robustness, add a test case that simulates audio chunks arriving out of order (e.g., index 1 arrives before index 0) to verify that the sorting logic correctly reassembles and plays them in the intended sequence and that the final downloaded audio is also correctly ordered.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "error-handling"
+    },
+    {
+      "file_path": "tts/index.html",
+      "github_diff_position": 236,
+      "comment_text_md": "**My Confidence: High**\n\nThe check `if (!window.ORCHESTRATOR_WORKER_URL)` is problematic. The `ORCHESTRATOR_WORKER_URL` is now defined as a module-scoped `const` on line 6 of this hunk. This means `window.ORCHESTRATOR_WORKER_URL` will almost always be `undefined` unless explicitly set globally elsewhere.\n\nAs a result, this `if` condition will always evaluate to `true`, causing the `speakButton` to be disabled and an error toast to be shown, preventing the TTS functionality from ever working with the hardcoded URL. The `connectToEventSource` function already receives the correct `ORCHESTRATOR_WORKER_URL` from the module scope.\n\n**Suggestion:** Remove this `if` block entirely. Any validation of the `ORCHESTRATOR_WORKER_URL` should be handled within the `setupTTSClient` module itself, or by checking the module-scoped `ORCHESTRATOR_WORKER_URL` constant directly if necessary.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "tts/index.html",
+      "github_diff_position": 217,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `ORCHESTRATOR_WORKER_URL` is hardcoded to `'http://localhost:8787'`. While the comment mentions it should be configured at deployment, hardcoding it directly in the HTML makes deployment to different environments (e.g., staging, production) cumbersome and error-prone.\n\n**Suggestion:** Consider using a build-time variable injection (e.g., Webpack's `DefinePlugin`, Rollup's `replace` plugin) or fetching this URL from a dedicated configuration endpoint at runtime. This would allow for easier environment-specific deployments without modifying the source code.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "security"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 45,
+      "comment_text_md": "**My Confidence: High**\n\nThe `EventSource` API does not support custom `headers` for authentication. The `headers` option provided in the constructor will be ignored by the browser, leading to failed authentication if the backend relies on this header.\n\nTo pass an API key, you typically need to include it as a query parameter in the URL, or manage authentication via cookies. If `Authorization` header is strictly required, you might need to use `fetch` to get the stream and parse it manually, which is more complex than using `EventSource` directly.\n\n**Suggestion:** Modify the `sseUrl` to include the `apiKey` as a query parameter:\n\n```javascript\nconst sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}&apiKey=${encodeURIComponent(apiKey)}`;\nconst eventSource = new EventSource(sseUrl);\n// Remove the headers option\n```\n\nEnsure your backend is updated to expect the API key in the query parameter.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "security"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 84,
+      "comment_text_md": "**My Confidence: High**\n\nThe logic for assigning `sentenceIndex` to `words` is fragile and prone to errors. It relies on `data.text` (the sentence from the SSE stream) being split identically to how the original `text` was split into `words`.\n\nSpecifically, `words[i].text === sentenceWords[wordCursor]` can fail if the original `text.split(/\b(\\w+)\\b|\\s+/).filter(Boolean)` produces words with punctuation (e.g., \"Hello,\") while `data.text.split(...)` for a sentence like \"Hello\" produces \"Hello\".\n\nThis inconsistency will lead to incorrect `sentenceIndex` assignments, causing highlighting to be inaccurate or fail for certain words.\n\n**Suggestion:**\n1.  **Backend Enhancement:** The most robust solution is for the backend to provide more precise word-level information (e.g., start/end character offsets, or word indices within the original text) along with the audio chunks. This would allow for exact mapping.\n2.  **Frontend Refinement (if backend change is not possible):** If the backend cannot provide more detail, consider a more resilient matching strategy. For example, normalize words (lowercase, remove punctuation) before comparison, or use fuzzy matching. However, this is still a heuristic.\n\n```javascript\n// Example of a more robust (but still heuristic) comparison:\n// In eventSource.onmessage:\nif (data.text) {\n    const sentenceWordsNormalized = data.text.split(/\\b(\\w+)\\b|\\s+/).filter(Boolean).map(w => w.toLowerCase().replace(/[^a-z0-9]/g, ''));\n    let wordCursor = 0;\n    for (let i = 0; i < words.length; i++) {\n        if (!words[i].isSeparator) {\n            const currentWordNormalized = words[i].text.toLowerCase().replace(/[^a-z0-9]/g, '');\n            if (currentWordNormalized === sentenceWordsNormalized[wordCursor]) {\n                words[i].sentenceIndex = index;\n                wordCursor++;\n                if (wordCursor === sentenceWordsNormalized.length) break;\n            }\n        }\n    }\n}\n```\n\nThis still isn't perfect but might improve robustness for some cases.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 3,
+      "comment_text_md": "**My Confidence: High**\n\nThe variables `SENTENCE_FETCH_TIMEOUT_MS` and `FIRST_SENTENCE_TIMEOUT_MS` are declared but never used within the provided code. This constitutes dead code and can be removed to improve clarity and reduce bundle size.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "performance"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 2,
+      "comment_text_md": "**My Confidence: Medium**\n\nDirectly modifying the global `window` object (`window.ORCHESTRATOR_WORKER_URL`) can lead to potential naming conflicts with other scripts or make testing more difficult. While common in simple client-side scripts, it's generally better practice to encapsulate configuration.\n\n**Suggestion:** Pass `orchestratorWorkerUrl` directly to `connectToEventSource` as an argument, or store it in a local variable within the `setupTTSClient` closure if it's only used by functions returned from `setupTTSClient`.\n\n```javascript\nexport function setupTTSClient(orchestratorWorkerUrl) {\n    // ... other variables\n\n    const connectToEventSource = (text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea) => {\n        // ...\n        const sseUrl = `${orchestratorWorkerUrl}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}`;\n        // ...\n    };\n\n    return { connectToEventSource, showToast, bufferToWave };\n}\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "tts/ttsClient.mjs",
+      "github_diff_position": 33,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe word splitting logic `text.split(/\\b(\\w+)\\b|\\s+/).filter(Boolean)` is quite complex and might not cover all edge cases consistently, especially with varying punctuation or multiple spaces. This complexity is compounded by the fragile sentence-to-word mapping later in `onmessage`.\n\nWhile it attempts to preserve separators, consider if a simpler or more explicit tokenization strategy would be more maintainable and less prone to mismatches with the `data.text` from the SSE stream. For example, a simpler split by space and then a separate step to identify and handle punctuation, or using a dedicated NLP library if more advanced tokenization is needed.\n\nGiven the downstream dependency on this splitting for highlighting and progress, ensuring its robustness is key.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "error-handling"
+    }
+  ]
+}
