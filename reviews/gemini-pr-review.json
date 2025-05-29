@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-29T23:08:40.230473+00:00",
+    "timestamp_utc": "2025-05-29T23:16:13.872885+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -12,19 +12,51 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 230,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `initialize` method in `TTS_DURABLE_OBJECT` does not perform any actual initialization logic beyond setting a flag. Since it's called on every `fetch` request, it's redundant and can be removed, simplifying the Durable Object's lifecycle.\n\nConsider removing the `initialize` method and the `this.initialized` property entirely.",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "refactoring/design"
+      "github_diff_position": 344,
+      "comment_text_md": "**My Confidence: High**\n\nThe `handleRawTTS` function is designed as an external API endpoint, including authentication and worker selection logic. Calling it internally from `handleTtsInitiate` for each sentence chunk introduces redundancy and potential confusion.\n\n*   Each call to `handleRawTTS` will re-authenticate and increment the `ROUTER_COUNTER`, which is inefficient.\n*   The `request.url` passed to `handleRawTTS` will be the original `/api/tts-initiate` URL, which is then internally corrected to `/api/rawtts`. While this correction works, it's an indirect and less clear way to call an internal service.\n\n**Suggestion**: Extract the core logic for making the backend TTS call (worker selection, URL construction, fetch request) into a separate, dedicated helper function (e.g., `_callBackendTtsService`). Both `handleRawTTS` (for external requests) and `handleTtsInitiate` (for internal chunk processing) can then call this helper function. This would improve modularity, clarity, and potentially performance.\n\n```javascript\n// Proposed helper function\nasync function _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers) {\n    // ... (worker selection, backend URL construction, fetch logic)\n    // This function would return { audioContentBase64, mimeType } or throw HttpError\n}\n\nasync function handleRawTTS(request, env, backendServices, numSrcWorkers) {\n    // ... authentication and parameter parsing ...\n    try {\n        const { audioContentBase64, mimeType } = await _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers);\n        return new Response(JSON.stringify({ audioContentBase64, mimeType }), { /* ... */ });\n    } catch (e) { /* ... */ }\n}\n\nasync function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {\n    // ... authentication and splitting logic ...\n    const audioChunkPromises = sentences.map(async (sentence, index) => {\n        try {\n            const { audioContentBase64, mimeType } = await _callBackendTtsService(sentence, voiceId, model, apiKey, env, backendServices, numSrcWorkers);\n            return { index, audioContentBase64, mimeType, error: null };\n        } catch (e) {\n            return { index, audioContentBase64: null, mimeType: null, error: e.message };\n        }\n    });\n    // ... Promise.allSettled and storage ...\n}\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "security"
     },
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 156,
-      "comment_text_md": "**My Confidence: High**\n\nIn `handleRawTTS`, the `backendTtsUrl` is constructed using `new URL(request.url)`. When `handleRawTTS` is called internally by `handleTtsInitiate` (line 410), the `request.url` will be the original URL from the `/api/tts-initiate` endpoint. This means any query parameters present in the client's `/api/tts-initiate` request will be forwarded to the backend's `/api/rawtts` endpoint.\n\nFor example, if a client calls `/api/tts-initiate?debug=true`, the backend will receive a request for `/api/rawtts?debug=true`. This is likely unintended and could cause issues if the backend does not gracefully ignore unknown query parameters.\n\nTo fix this, ensure that only relevant parameters are forwarded to the backend. You could clear the search parameters before setting the pathname:\n\n```javascript\nconst backendTtsUrl = new URL(request.url);\nbackendTtsUrl.search = ''; // Clear existing search parameters\nbackendTtsUrl.pathname = '/api/rawtts';\n// ... rest of the code\n```\n\nAlternatively, if `handleRawTTS` is intended to be a pure proxy, it should explicitly define what parameters it accepts and forwards.",
-      "ai_confidence": "High",
+      "github_diff_position": 243,
+      "comment_text_md": "**My Confidence: Medium**\n\nIn `handleTtsChunk`, the check `chunkIndex >= job.audioChunks.length` assumes `job.audioChunks` is always an array. If `job.audioChunks` were `null`, `undefined`, or a non-array type due to a storage corruption or unexpected state, accessing `.length` would throw an error.\n\n**Suggestion**: Add a more robust check to ensure `job.audioChunks` is an array before accessing its length and elements.\n\nExample: `if (!job || !Array.isArray(job.audioChunks) || chunkIndex < 0 || chunkIndex >= job.audioChunks.length)`",
+      "ai_confidence": "Medium",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 246,
+      "comment_text_md": "**My Confidence: Low**\n\nThe comment `// Default to audio/mpeg if mimeType is not stored` on line 203 is inconsistent with the code `job.mimeType || 'audio/L16;rate=24000'`. The code defaults to `audio/L16;rate=24000`, not `audio/mpeg`.\n\n**Suggestion**: Update the comment to reflect the actual default MIME type used in the code, or change the default MIME type to `audio/mpeg` if that was the original intention.",
+      "ai_confidence": "Low",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 275,
+      "comment_text_md": "**My Confidence: High**\n\nThe progress bar update logic was moved from `playNextChunk` to `fetchAudioChunk`. This means the progress bar now reflects the progress of fetching and decoding audio chunks from the server, rather than the progress of audio playback. While this is a valid design choice for a 'loading' indicator, it changes the user experience. Users might expect the progress bar to track the actual audio playback position. Consider if this new behavior aligns with user expectations or if a separate playback progress indicator is needed.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "refactoring/design"
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 275,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe progress bar update logic was commented out in `playNextChunk`:\n\n```javascript\n// The progress bar is now updated only in fetchAudioChunk to reflect overall fetch/decode progress.\n// The following lines are commented out to prevent redundant updates.\n// const totalTextLength = words.map(w => w.text).join('').length;\n// const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= index).map(w => w.text).join('').length;\n// const progress = (playedTextLength / totalTextLength) * 100;\n// progressBar.style.width = `${progress}%`;\n```\n\nThis change means the progress bar only updates as chunks are *fetched and decoded*, not as they are *played*. If the goal is to show overall progress of the TTS generation, this is fine. However, if the user expects to see the progress of the audio *currently playing*, this might be misleading. For very long texts, there could be a significant delay between a chunk being fetched and it actually playing, making the progress bar appear 'stuck' even if audio is playing.\n\nConsider clarifying the purpose of this progress bar in the UI or adding a separate progress bar for audio playback if desired.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "performance"
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 275,
+      "comment_text_md": "**My Confidence: High**\n\nThe `fetchAudioChunk` function uses recursion (`fetchAudioChunk(chunkIndex + 1)`). For very long texts that result in a large number of audio chunks (e.g., hundreds or thousands), this recursive approach could potentially lead to a JavaScript call stack overflow. While unlikely for typical TTS use cases, it's a robustness concern.\n\nFor more robust handling of a potentially large number of chunks, consider refactoring this into an iterative loop (e.g., a `for` or `while` loop with `await`) rather than recursion.\n\nExample (pseudocode):\n```javascript\nconst fetchAllChunks = async (jobId, totalChunks, initialChunkIndex) => {\n  for (let chunkIndex = initialChunkIndex; chunkIndex < totalChunks; chunkIndex++) {\n    // ... existing fetch logic for a single chunk ...\n    await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, ...);\n    // ... decode, push to queue, update progress ...\n  }\n  // ... handle completion ...\n};\n\n// Call it like:\nfetchAllChunks(jobId, totalChunks, 0);\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "error-handling"
     }
   ]
 }
