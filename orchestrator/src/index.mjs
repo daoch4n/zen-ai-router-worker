@@ -271,7 +271,13 @@ const processQueue = async () => {
 
 
 
-                                const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+                                console.log(`Orchestrator: API Key being sent to backend: ${apiKey ? 'Present' : 'Missing'}`);
+                                 const headersToSend = {};
+                                 for (const [key, value] of newHeaders.entries()) {
+                                     headersToSend[key] = value;
+                                 }
+                                 console.log(`Orchestrator: Headers sent to backend: ${JSON.stringify(headersToSend)}`);
+                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
                                     method: 'POST',
 
                                     headers: {
