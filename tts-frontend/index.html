@@ -311,6 +311,10 @@
         <option value="zephyr">zephyr</option>
         <option value="zubenelgenubi">zubenelgenubi</option>
       </select>
+      <select id="splittingInput" style="display: none;">
+        <option value="sentence">Sentence by Sentence</option>
+        <option value="tokenCount">Sentence by Token Count (Stub)</option>
+      </select>
       <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
       <button id="speakButton">Speak</button>
     </div>
@@ -345,6 +349,7 @@
 
     document.addEventListener('DOMContentLoaded', () => {
       const apiKeyInput = document.getElementById('apiKeyInput');
+      const splittingInput = document.getElementById('splittingInput'); // Get the new splitting input
       const settingsCog = document.getElementById('settingsCog');
       const storedApiKey = localStorage.getItem('apiKey');
       const textInput = document.getElementById('textInput');
@@ -358,9 +363,11 @@
         apiKeyInput.value = storedApiKey;
         apiKeyInput.type = 'password';
         apiKeyInput.style.display = 'none';
+        splittingInput.style.display = 'none'; // Also hide splitting input if API key is stored
         settingsCog.style.display = 'inline-block';
       } else {
         apiKeyInput.style.display = 'block';
+        splittingInput.style.display = 'block'; // Show splitting input if API key is not stored
         settingsCog.style.display = 'inline-block';
       }
 
@@ -386,6 +393,7 @@
       settingsCog.addEventListener('click', () => {
         const isHidden = apiKeyInput.style.display === 'none';
         apiKeyInput.style.display = isHidden ? 'block' : 'none';
+        splittingInput.style.display = isHidden ? 'block' : 'none'; // Toggle splitting input visibility
         if (isHidden && apiKeyInput.value) {
           apiKeyInput.type = 'text';
         } else if (!isHidden) {
@@ -401,6 +409,7 @@
         const text = textInput.value;
         const voiceId = document.getElementById('voiceIdInput').value;
         const apiKey = document.getElementById('apiKeyInput').value;
+        const splitting = splittingInput.value; // Get the selected splitting option
         const messageDiv = document.getElementById('message');
         const downloadButtonLink = document.getElementById('downloadButton');
         const speakButton = document.getElementById('speakButton');
@@ -433,7 +442,7 @@
         textDisplayArea.style.display = 'block'; // Show text display
 
         try {
-          await connectToEventSource(text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea);
+          await connectToEventSource(text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting);
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
