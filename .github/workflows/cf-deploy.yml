@@ -227,7 +227,8 @@ jobs:
   deploy_preview:
     runs-on: ubuntu-latest
     name: Deploy Preview
-    if: false # Temporarily disabled
+    # if: github.event_name == 'pull_request' && (github.event.action == 'opened' || github.event.action == 'synchronize' || github.event.action == 'reopened') # Temporarily disabled
+    if: false
     permissions:
       contents: read
       pull-requests: write
