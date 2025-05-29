@@ -127,7 +127,11 @@ let sentences;
 if (splitting === 'tokenCount') {
     sentences = [optimizedText]; // Stub: Treat entire text as one "sentence" for token count splitting
     console.log("Orchestrator: Using 'Sentence by Token Count' splitting (stub).");
-} else {
+} else if (splitting === 'none') {
+    sentences = [optimizedText]; // No splitting, treat as a single sentence
+    console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
+}
+else {
     sentences = splitIntoSentences(optimizedText);
     console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text optimized and split into ${sentences.length} sentences.`);
 }
