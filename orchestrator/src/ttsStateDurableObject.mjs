@@ -6,23 +6,20 @@ export class TTSStateDurableObject {
         this.voiceId = "";
         this.currentSentenceIndex = 0;
         this.audioChunks = [];
-        this.lastError = null; // New field for error handling
-        this.errorTimestamp = null; // New field for error handling
-        this.initialised = false; // Will be set by loadState
+        this.lastError = null;
+        this.errorTimestamp = null;
+        this.initialised = false; // Initialise to false
 
-        // Load state in the constructor, ensuring it's only done once per instance
-        this.loadState().then(() => {
-            console.log("TTSStateDurableObject constructor: state loaded.");
-        }).catch(error => {
-            console.error("TTSStateDurableObject constructor: failed to load state:", error);
-            // Handle error during initial load, e.g., set a flag or state to indicate failure
-            this.initialised = false; // Ensure it's false if load fails
-        });
+        // Store the promise returned by loadState()
+        this.loadStatePromise = this.loadState(); // Removed .then() and .catch() here
     }
 
     async initialise(text, voiceId) {
-        if (this.initialised) {
-            console.log("TTSStateDurableObject already initialised.");
+        // Ensure initial load from storage is complete before proceeding
+        await this.loadStatePromise;
+
+        if (this.initialised && this.text === text && this.voiceId === voiceId) {
+            console.log("TTSStateDurableObject already initialised with same parameters.");
             return;
         }
 
@@ -32,48 +29,43 @@ export class TTSStateDurableObject {
         this.audioChunks = [];
         this.lastError = null; // Clear errors on initialization
         this.errorTimestamp = null; // Clear errors on initialization
-        this.initialised = true;
+        this.initialised = true; // Set local flag as we are explicitly initializing
 
         await this.state.storage.put("text", text);
         await this.state.storage.put("voiceId", voiceId);
         await this.state.storage.put("currentSentenceIndex", 0);
         await this.state.storage.put("audioChunks", []);
-        await this.state.storage.put("initialised", true);
-        await this.state.storage.put("lastError", null); // Persist cleared error
-        await this.state.storage.put("errorTimestamp", null); // Persist cleared error
+        await this.state.storage.put("initialised", true); // Persist initialised status
+        await this.state.storage.put("lastError", null);
+        await this.state.storage.put("errorTimestamp", null);
         console.log("TTSStateDurableObject initialised and state persisted.");
     }
 
     async loadState() {
-        // Only load if not already initialised to prevent redundant reads
-        if (this.initialised) {
-            console.log("TTSStateDurableObject state already in memory.");
-            return;
-        }
-
+        // Always attempt to load from storage. The race condition is handled by awaiting loadStatePromise.
         const [text, voiceId, currentSentenceIndex, audioChunks, initialised, lastError, errorTimestamp] = await this.state.storage.get([
             "text",
             "voiceId",
             "currentSentenceIndex",
             "audioChunks",
             "initialised",
-            "lastError", // Load new error field
-            "errorTimestamp" // Load new error field
+            "lastError",
+            "errorTimestamp"
         ]);
 
         this.text = text || "";
         this.voiceId = voiceId || "";
         this.currentSentenceIndex = currentSentenceIndex || 0;
         this.audioChunks = audioChunks || [];
-        this.initialised = initialised || false;
-        this.lastError = lastError || null; // Assign loaded error
-        this.errorTimestamp = errorTimestamp || null; // Assign loaded error
+        this.initialised = initialised || false; // Assign loaded initialised status
+        this.lastError = lastError || null;
+        this.errorTimestamp = errorTimestamp || null;
         console.log("TTSStateDurableObject state loaded.");
     }
 
     async updateProgress(sentenceIndex, audioChunkBase64, error = null) {
         this.currentSentenceIndex = sentenceIndex;
-        this.audioChunks[sentenceIndex] = audioChunkBase64; // Can be null if there was an error for this chunk
+        this.audioChunks[sentenceIndex] = audioChunkBase64;
 
         if (error) {
             this.lastError = error;
@@ -85,27 +77,29 @@ export class TTSStateDurableObject {
 
         await this.state.storage.put("currentSentenceIndex", this.currentSentenceIndex);
         await this.state.storage.put("audioChunks", this.audioChunks);
-        await this.state.storage.put("lastError", this.lastError); // Persist error status
-        await this.state.storage.put("errorTimestamp", this.errorTimestamp); // Persist error timestamp
+        await this.state.storage.put("lastError", this.lastError);
+        await this.state.storage.put("errorTimestamp", this.errorTimestamp);
         console.log(`TTSStateDurableObject progress updated for sentence ${sentenceIndex}.`);
     }
 
     async getJobState() {
         return {
-            initialised: this.initialised, // Include initialised status in state
+            initialised: this.initialised,
             text: this.text,
             voiceId: this.voiceId,
             currentSentenceIndex: this.currentSentenceIndex,
             audioChunks: this.audioChunks,
-            lastError: this.lastError, // Include error information
-            errorTimestamp: this.errorTimestamp // Include error information
+            lastError: this.lastError,
+            errorTimestamp: this.errorTimestamp
         };
     }
 
     async fetch(request) {
-        // State is now loaded in the constructor, so no need to await here
-        // If initial load failed, we might want to throw or return an error here
-        if (!this.initialised && (await this.state.storage.get("initialised")) === false) {
+        // Await the initial state load from the constructor
+        await this.loadStatePromise;
+
+        // Now, this.initialised will correctly reflect whether the object was initialized from storage.
+        if (!this.initialised) {
              console.error("TTSStateDurableObject not initialized, cannot process request.");
              return new Response("Durable Object not initialized.", { status: 500 });
         }
@@ -118,7 +112,7 @@ export class TTSStateDurableObject {
             await this.initialise(text, voiceId);
             return new Response("TTSStateDurableObject initialized.", { status: 200 });
         } else if (pathname === '/update-progress') {
-            const { sentenceIndex, audioChunkBase64, error } = await request.json(); // Expect 'error' from orchestrator
+            const { sentenceIndex, audioChunkBase64, error } = await request.json();
             await this.updateProgress(sentenceIndex, audioChunkBase64, error);
             return new Response("Progress updated.", { status: 200 });
         } else if (pathname === '/get-state') {
@@ -131,8 +125,10 @@ export class TTSStateDurableObject {
             this.voiceId = "";
             this.currentSentenceIndex = 0;
             this.audioChunks = [];
-            this.lastError = null; // Clear error on delete
-            this.errorTimestamp = null; // Clear error on delete
+            this.lastError = null;
+            this.errorTimestamp = null;
+            // Re-initialize loadStatePromise to ensure a fresh load if the DO instance is reused.
+            this.loadStatePromise = this.loadState();
             return new Response("State deleted.", { status: 200 });
         } else {
             return new Response("Not found", { status: 404 });
