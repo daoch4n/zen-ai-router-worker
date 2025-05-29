@@ -1,5 +1,5 @@
 import { RouterCounter } from './routerCounter.mjs';
-import { splitIntoSentences, optimizeTextForJson } from './utils/textProcessing.mjs';
+import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
 export { RouterCounter };
 
 export default {
@@ -59,23 +59,22 @@ async fetch(
 };
 
 async function handleTtsRequest(request, env, backendServices, numSrcWorkers, url) {
-  if (request.method !== 'GET') { // Change to GET as splitting is now a URL parameter
+  if (request.method !== 'GET') {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
   const text = url.searchParams.get('text');
   const voiceId = url.searchParams.get('voiceId');
-  const splitting = url.searchParams.get('splitting'); // Get splitting parameter
+  const splitting = url.searchParams.get('splitting');
   const apiKey = request.headers.get('Authorization')?.replace('Bearer ', '');
 
   if (!text || !voiceId || !apiKey) {
     return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
   }
 
-let jobId = url.searchParams.get('jobId'); // Check for jobId in URL
+let jobId = url.searchParams.get('jobId');
 
 if (!jobId) {
-    // Generate a new jobId if not provided
     jobId = crypto.randomUUID();
     console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
 } else {
@@ -85,18 +84,18 @@ if (!jobId) {
 const ttsStateId = env.TTS_STATE_DO.idFromName(jobId);
 const ttsStateStub = env.TTS_STATE_DO.get(ttsStateId);
 
-let jobCurrentSentenceIndex = 0; // Use a distinct variable name to avoid conflict
-let jobAudioChunks = []; // Use a distinct variable name to avoid conflict
+let jobCurrentSentenceIndex = 0;
+let jobAudioChunks = [];
 let jobAlreadyInitialised = false;
 
 try {
     const stateResponse = await ttsStateStub.fetch(new Request("https://dummy-url/get-state"));
     if (stateResponse.ok) {
         const state = await stateResponse.json();
-        if (state && state.initialised) { // Check state.initialised from the DO
+        if (state && state.initialised) {
             jobCurrentSentenceIndex = state.currentSentenceIndex;
             jobAudioChunks = state.audioChunks;
-            jobAlreadyInitialised = state.initialised; // Set based on DO's state
+            jobAlreadyInitialised = state.initialised;
             console.log(`Orchestrator: Loaded state for job ${jobId}. Resuming from sentence ${jobCurrentSentenceIndex}.`);
         }
     }
@@ -122,18 +121,52 @@ if (!jobAlreadyInitialised) {
     }
 }
 
-const optimizedText = optimizeTextForJson(text);
+const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
+const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
+
 let sentences;
 if (splitting === 'tokenCount') {
-    sentences = [optimizedText]; // Stub: Treat entire text as one "sentence" for token count splitting
-    console.log("Orchestrator: Using 'Sentence by Token Count' splitting (stub).");
+    const initialSentences = splitIntoSentences(text);
+    const batchedSentences = [];
+    let currentBatch = '';
+    let currentBatchLength = 0;
+
+    for (const sentence of initialSentences) {
+        const sentenceLength = getTextCharacterCount(sentence);
+
+        if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            // If a single sentence is too long, send it as its own batch
+            if (currentBatch.length > 0) {
+                batchedSentences.push(currentBatch.trim());
+                currentBatch = '';
+                currentBatchLength = 0;
+            }
+            batchedSentences.push(sentence.trim());
+        } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            // If adding the current sentence exceeds the limit, push the current batch
+            batchedSentences.push(currentBatch.trim());
+            currentBatch = sentence;
+            currentBatchLength = sentenceLength;
+        } else {
+            // Otherwise, add to the current batch
+            currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
+            currentBatchLength += sentenceLength;
+        }
+    }
+
+    // Add any remaining batch
+    if (currentBatch.length > 0) {
+        batchedSentences.push(currentBatch.trim());
+    }
+
+    sentences = batchedSentences.filter(s => s.length > 0);
+    console.log(`Orchestrator: Using 'Sentence by Token Count' splitting. Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_TOKEN_COUNT}.`);
 } else if (splitting === 'none') {
-    sentences = [optimizedText]; // No splitting, treat as a single sentence
+    sentences = [text];
     console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
-}
-else {
-    sentences = splitIntoSentences(optimizedText);
-    console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text optimized and split into ${sentences.length} sentences.`);
+} else {
+    sentences = splitIntoSentences(text);
+    console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text split into ${sentences.length} sentences.`);
 }
 
 // Adjust sentences and audioChunks if resuming
@@ -148,13 +181,12 @@ if (jobCurrentSentenceIndex > 0 && jobCurrentSentenceIndex < sentences.length) {
     sentences = sentences.slice(jobCurrentSentenceIndex);
 }
 
-const MAX_CONCURRENT_SENTENCE_FETCHES = 5; // Define a reasonable concurrency limit
+const MAX_CONCURRENT_SENTENCE_FETCHES = 5;
 const MAX_RETRIES = 3;
-const RETRY_INITIAL_DELAY_MS = 1000; // 1 second
+const RETRY_INITIAL_DELAY_MS = 1000;
 let activeFetches = 0;
 let fetchQueue = [];
 const sentenceFetchPromises = sentences.map((sentence, index) => {
-    // Adjust index for original sentence position
     const originalIndex = index + jobCurrentSentenceIndex;
     return new Promise((resolve, reject) => {
         fetchQueue.push({ sentence, index: originalIndex, resolve, reject });
@@ -164,11 +196,11 @@ const sentenceFetchPromises = sentences.map((sentence, index) => {
 const { readable, writable } = new TransformStream();
 const writer = writable.getWriter();
 const encoder = new TextEncoder();
-// Update sendSseMessage to include jobId
+
 const sendSseMessage = (data, event = 'message') => {
     let message = `event: ${event}\n`;
-    message += `id: ${data.index}\n`; // Add id field
-    message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`; // Include jobId in data
+    message += `id: ${data.index}\n`;
+    message += `data: ${JSON.stringify({ ...data, jobId })}\n\n`;
     writer.write(encoder.encode(message));
 };
 
@@ -202,9 +234,9 @@ const processQueue = async () => {
 
                 while (attempts <= MAX_RETRIES) {
                     try {
-                        const backendTtsUrl = new URL(request.url); // Start with original URL
-                                backendTtsUrl.pathname = '/rawtts'; // Or whatever the backend's actual TTS endpoint is
-                                backendTtsUrl.search = ''; // Remove search params if not needed by backend
+                        const backendTtsUrl = new URL(request.url);
+                                backendTtsUrl.pathname = '/rawtts';
+                                backendTtsUrl.search = '';
 
                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
                                     method: 'POST',
@@ -230,8 +262,8 @@ const processQueue = async () => {
                                 attempts++;
                                 if (attempts <= MAX_RETRIES) {
                                     await new Promise(res => setTimeout(res, delay));
-                                    delay *= 2; // Exponential backoff
-                                    continue; // Go to next attempt
+                                    delay *= 2;
+                                    continue;
                                 }
                             }
                             finalErrMsg = `Backend Error: ${rawErrorMessage}`;
@@ -240,33 +272,32 @@ const processQueue = async () => {
                         } else {
                             const data = await response.json();
                             result.audioContentBase64 = data.audioContentBase64;
-                            result.error = null; // Clear error on success
+                            result.error = null;
                         }
-                        break; // Exit retry loop on success or non-retryable error
+                        break;
                     } catch (e) {
                         finalErrMsg = `Fetch Exception: ${e.message}`;
                         console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
                         attempts++;
                         if (attempts <= MAX_RETRIES) {
                             await new Promise(res => setTimeout(res, delay));
-                            delay *= 2; // Exponential backoff
-                            continue; // Go to next attempt
+                            delay *= 2;
+                            continue;
                         }
                         console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
                         result.error = finalErrMsg;
-                        break; // Exit retry loop if max retries reached
+                        break;
                     }
                 }
             }
 
-            // Always update Durable Object state with progress or error before sending SSE and returning
             await ttsStateStub.fetch(new Request("https://dummy-url/update-progress", {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     sentenceIndex: index,
                     audioChunkBase64: result.audioContentBase64,
-                    error: result.error // Pass error status
+                    error: result.error
                 })
             }));
 
@@ -275,24 +306,22 @@ const processQueue = async () => {
             } else {
                 sendSseMessage({ audioChunk: result.audioContentBase64, index, mimeType: "audio/opus" });
             }
-            return result; // Resolve the promise with the final result
+            return result;
         })();
         outstandingPromises.add(currentPromise);
         
         currentPromise.finally(() => {
-            activeFetches--; // Decrement when promise settles
+            activeFetches--;
             outstandingPromises.delete(currentPromise);
-            processQueue(); // Attempt to process more from the queue
+            processQueue();
         });
 
-        currentPromise.then(resolve, reject); // Resolve/reject the original promise
+        currentPromise.then(resolve, reject);
     }
 };
 
-// Start processing the queue after initial setup
 processQueue();
 
-// Ensure all promises are settled before closing the stream
 Promise.allSettled(sentenceFetchPromises).then(() => {
     writer.write(encoder.encode('event: end\ndata: \n\n'));
     writer.close();
