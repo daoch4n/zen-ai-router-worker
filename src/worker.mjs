@@ -84,13 +84,6 @@ async function fetch(request, env) {
         return handleModels(apiKey)
           .catch(errHandler);
 
-      case pathname.endsWith("/tts"):
-        if (!(request.method === "POST")) {
-          throw new Error("Assertion failed: expected POST request");
-        }
-        return handleTTS(request, apiKey)
-          .catch(errHandler);
-
       case pathname.endsWith("/rawtts"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
@@ -99,7 +92,7 @@ async function fetch(request, env) {
           .catch(errHandler);
 
       default:
-        throw new HttpError("404 Not Found", 404);
+        throw new new HttpError("404 Not Found", 404);
     }
   } catch (err) {
     return errHandler(err);
