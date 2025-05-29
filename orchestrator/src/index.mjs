@@ -63,10 +63,14 @@ async function handleTtsRequest(request, env, backendServices, numSrcWorkers) {
     return new Response('Method Not Allowed', { status: 405 });
   }
 
-  const { text, voiceId, apiKey } = await request.json();
-
-  if (!text || !voiceId || !apiKey) {
-    return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
+  try {
+    const { text, voiceId, apiKey } = await request.json();
+    if (!text || !voiceId || !apiKey) {
+      return new Response('Missing required parameters: text, voiceId, or apiKey', { status: 400 });
+    }
+  } catch (error) {
+    console.error('Orchestrator: Error parsing request body:', error);
+    return new Response('Invalid JSON in request body', { status: 400 });
   }
 
 const url = new URL(request.url);
@@ -262,9 +266,14 @@ const processQueue = async () => {
             return result; // Resolve the promise with the final result
         })();
         outstandingPromises.add(currentPromise);
+        outstandingPromises.add(currentPromise);
+        currentPromise.finally(() => {
+            activeFetches--; // Decrement when promise settles
+            outstandingPromises.delete(currentPromise);
+            processQueue(); // Attempt to process more from the queue
+        });
+
         currentPromise.then(resolve, reject); // Resolve/reject the original promise
-        activeFetches--; // Decrement active fetches when promise settles
-        processQueue(); // Try to process more from the queue
     }
 };
 
