@@ -73,7 +73,7 @@
       font-size: 20px;
       /* Adjust size as needed */
       color: #555;
-      display: none;
+      display: inline-block; /* Changed from none to inline-block to ensure rendering */
       /* Hidden by default, shown by JS if API key is set */
     }
 
@@ -260,7 +260,7 @@
       line-height: 1.6;
       font-size: 1.1em;
       color: #333;
-      display: none;
+      display: inline-block; /* Changed from none to inline-block to ensure rendering */
       /* Hidden by default, shown when text is entered */
     }
 
@@ -277,6 +277,7 @@
 </head>
 
 <body>
+<div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
   <div class="top-input-bar">
     <div class="input-group">
       <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
@@ -311,7 +312,7 @@
         <option value="zephyr">zephyr</option>
         <option value="zubenelgenubi">zubenelgenubi</option>
       </select>
-      <select id="splittingInput" style="display: none;">
+      <select id="splittingInput" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
         <option value="sentence">Sentence by Sentence</option>
         <option value="tokenCount">Sentence by Token Count (Stub)</option>
         <option value="none">No Splitting</option>
@@ -322,15 +323,15 @@
   </div>
 
   <div class="container">
-    <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
-    <a id="downloadButton" download="audio.wav" style="display: none; margin-top: 15px;">
+    
+    <a id="downloadButton" download="audio.wav" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */ margin-top: 15px;">
       <button>Download WAV</button>
     </a>
-    <div id="loadingIndicator" style="display: none;">
+    <div id="loadingIndicator" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
       <div class="spinner"></div>
       <span id="loadingText">Connecting...</span>
     </div>
-    <div id="progressBarContainer" style="display: none;">
+    <div id="progressBarContainer" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
       <div id="progressBar"></div>
     </div>
     <div id="message" class="message"></div>
