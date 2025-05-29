@@ -132,7 +132,16 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         }
 
         const data = await response.json();
-        return new Response(JSON.stringify(data), {
+        let mimeType = response.headers.get('Content-Type');
+
+        if (data.mimeType) {
+            mimeType = data.mimeType;
+        } else if (!mimeType) {
+            mimeType = 'audio/mpeg'; // Consistent with handleTtsChunk default
+            console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
+        }
+
+        return new Response(JSON.stringify({ audioContentBase64: data.audioContentBase64, mimeType: mimeType }), {
             headers: { 'Content-Type': 'application/json' },
             status: 200
         });
@@ -226,8 +235,8 @@ export class TTS_DURABLE_OBJECT {
                 if (request.method !== 'POST') {
                     return new Response('Method Not Allowed', { status: 405 });
                 }
-                const { jobId, totalChunks, audioChunks } = await request.json();
-                await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks));
+                const { jobId, totalChunks, audioChunks, mimeType } = await request.json();
+                await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, mimeType));
                 console.log(`TTS_DURABLE_OBJECT: Stored job ${jobId} with ${totalChunks} chunks.`);
                 return new Response('OK', { status: 200 });
 
