@@ -104,7 +104,7 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
 
     const backendTtsUrl = new URL(request.url);
     backendTtsUrl.pathname = '/api/rawtts';
-    backendTtsUrl.searchParams.set('voiceName', voiceId);
+    
 
     const headersToSend = {
         'Content-Type': 'application/json',
@@ -117,7 +117,8 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
             headers: headersToSend,
             body: JSON.stringify({
                 text: text.trim(),
-                model: model
+                model: model,
+                voiceId: voiceId
             }),
         }));
 
@@ -323,10 +324,11 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers) {
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
                 console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
-            }
+            } else {
                 currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
                 currentBatchLength += sentenceLength;
                 console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
+            }
         }
 
         if (currentBatch.length > 0) {
