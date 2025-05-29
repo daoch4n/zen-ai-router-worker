@@ -41,7 +41,7 @@ export function setupTTSClient(orchestratorWorkerUrl) {
         }, duration);
     }
 
-    const connectToEventSource = (text, voiceId, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting) => {
+    const connectToEventSource = (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, progressBarContainer, progressBar, textDisplayArea, splitting) => {
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
             // Only consider actual words for highlighting, not spaces or punctuation alone
             if (word.match(/\b(\w+)\b/)) {
@@ -52,7 +52,7 @@ export function setupTTSClient(orchestratorWorkerUrl) {
         currentHighlightedWordIndex = 0;
         currentSentenceIndex = -1;
 
-        const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceId=${encodeURIComponent(voiceId)}&text=${encodeURIComponent(text)}&splitting=${encodeURIComponent(splitting)}`;
+        const sseUrl = `${window.ORCHESTRATOR_WORKER_URL}/api/tts-stream?voiceName=${encodeURIComponent(voiceName)}&text=${encodeURIComponent(text)}&splitting=${encodeURIComponent(splitting)}`;
         const eventSource = new EventSource(sseUrl, {
             headers: {
                 'Authorization': `Bearer ${apiKey}`
