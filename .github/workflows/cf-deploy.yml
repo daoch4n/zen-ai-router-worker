@@ -238,7 +238,7 @@ jobs:
             echo "Error: No Orchestrator Worker URL found from any attempt." >&2
             exit 1
           fi
-          sed -i "s|'{{ORCHESTRATOR_WORKER_URL_ACTUAL_VALUE}}'|'${ORCHESTRATOR_URL_TO_INJECT}'|" tts-frontend/index.html
+          sed -i "s|'{{ORCHESTRATOR_WORKER_URL_ACTUAL_VALUE}}'|\"${ORCHESTRATOR_URL_TO_INJECT}\"|" tts-frontend/index.html
 
       - name: Prepare Frontend for GitHub Pages
         run: |
