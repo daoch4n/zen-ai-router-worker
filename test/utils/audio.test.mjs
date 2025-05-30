@@ -2,7 +2,7 @@
  * Tests for audio utilities
  */
 import { describe, it, expect, beforeEach } from '@jest/globals';
-import { decodeBase64Audio, generateWavHeader } from '../../src/utils/audio.mjs';
+import { decodeBase64Audio, generateWavHeader, arrayBufferToBase64 } from '../../src/utils/audio.mjs';
 
 describe('audio utilities', () => {
   beforeEach(() => {
@@ -78,6 +78,69 @@ describe('audio utilities', () => {
     });
   });
 
+  describe('arrayBufferToBase64', () => {
+    it('should encode a small ArrayBuffer to base64', () => {
+      const buffer = new ArrayBuffer(5);
+      const view = new Uint8Array(buffer);
+      view[0] = 72; // H
+      view[1] = 101; // e
+      view[2] = 108; // l
+      view[3] = 108; // l
+      view[4] = 111; // o
+      const expectedBase64 = 'SGVsbG8='; // "Hello"
+      expect(arrayBufferToBase64(buffer)).toBe(expectedBase64);
+    });
+
+    it('should encode a small Uint8Array to base64', () => {
+      const uint8Array = new Uint8Array([72, 101, 108, 108, 111]); // "Hello"
+      const expectedBase64 = 'SGVsbG8='; // "Hello"
+      expect(arrayBufferToBase64(uint8Array)).toBe(expectedBase64);
+    });
+
+    it('should encode an empty ArrayBuffer to an empty base64 string', () => {
+      const buffer = new ArrayBuffer(0);
+      expect(arrayBufferToBase64(buffer)).toBe('');
+    });
+
+    it('should encode a large ArrayBuffer without "Maximum call stack size exceeded" error', () => {
+      // Create a large ArrayBuffer (e.g., 1MB)
+      const largeBufferSize = 1024 * 1024; // 1 MB
+      const largeBuffer = new ArrayBuffer(largeBufferSize);
+      const view = new Uint8Array(largeBuffer);
+      for (let i = 0; i < largeBufferSize; i++) {
+        view[i] = i % 256; // Fill with some data
+      }
+
+      // Expect no error and a non-empty string
+      let encodedString;
+      expect(() => {
+        encodedString = arrayBufferToBase64(largeBuffer);
+      }).not.toThrow();
+      expect(typeof encodedString).toBe('string');
+      expect(encodedString.length).toBeGreaterThan(0);
+
+      // Optionally, decode and verify a portion
+      const decoded = decodeBase64Audio(encodedString.substring(0, 100)); // Decode a small portion
+      expect(decoded[0]).toBe(0);
+      expect(decoded[1]).toBe(1);
+    });
+
+    it('should throw error for null input', () => {
+      expect(() => arrayBufferToBase64(null)).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+    });
+
+    it('should throw error for undefined input', () => {
+      expect(() => arrayBufferToBase64(undefined)).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+    });
+
+    it('should throw error for non-ArrayBuffer/Uint8Array input', () => {
+      expect(() => arrayBufferToBase64(123)).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+      expect(() => arrayBufferToBase64('string')).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+      expect(() => arrayBufferToBase64({})).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+      expect(() => arrayBufferToBase64([])).toThrow('Invalid input: must be a Uint8Array or ArrayBuffer.');
+    });
+  });
+
   describe('generateWavHeader', () => {
     it('should generate correct WAV header for standard parameters', () => {
       const dataLength = 1000;
@@ -107,6 +170,12 @@ describe('audio utilities', () => {
       expect(header[13]).toBe(0x6D); // 'm'
       expect(header[14]).toBe(0x74); // 't'
       expect(header[15]).toBe(0x20); // ' '
+
+      // Check Subchunk1 size (always 16 for PCM)
+      expect(header[16] | (header[17] << 8) | (header[18] << 16) | (header[19] << 24)).toBe(16);
+
+      // Check Audio format (1 for PCM)
+      expect(header[20] | (header[21] << 8)).toBe(1);
 
       // Check data signature
       expect(header[36]).toBe(0x64); // 'd'
