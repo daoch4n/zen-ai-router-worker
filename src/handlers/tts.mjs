@@ -165,13 +165,14 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
       throw new HttpError('Invalid response structure: no inline data found', 502);
     }
 
-    const { data: base64Audio, mimeType } = part.inlineData;
-    const sampleRate = parseSampleRate(mimeType);
+    const { data: base64Audio } = part.inlineData;
+    const hardcodedMimeType = 'audio/L16;rate=24000';
+    const hardcodedSampleRate = 24000;
 
     return {
       base64Audio,
-      mimeType,
-      sampleRate
+      mimeType: hardcodedMimeType,
+      sampleRate: hardcodedSampleRate
     };
 
   } catch (error) {
