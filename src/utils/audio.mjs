@@ -31,8 +31,10 @@ export function decodeBase64Audio(base64String) {
 }
 
 /**
- * Encodes an ArrayBuffer into a Base64 string.
- * This function is optimized for Cloudflare Workers, using `btoa` for efficient encoding.
+ * Encodes an ArrayBuffer into a Base64 string using `btoa`.
+ * This function manually converts the ArrayBuffer to a binary string
+ * before encoding. While `btoa` is efficient, this intermediate step
+ * might have performance implications for very large ArrayBuffers.
  *
  * @param {ArrayBuffer} buffer - The binary data to encode.
  * @returns {string} The Base64 encoded string.
@@ -44,11 +46,16 @@ export function arrayBufferToBase64(buffer) {
   }
 
   const bytes = new Uint8Array(buffer);
-  let binaryString = '';
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binaryString += String.fromCharCode(bytes[i]);
+  let base64 = '';
+  const chunkSize = 16384; // 16KB chunk size, common for avoiding call stack limits with apply
+
+  for (let i = 0; i < bytes.byteLength; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    // Apply String.fromCharCode to the chunk to create a binary string
+    // This is generally more efficient than concatenating in a loop for smaller chunks
+    base64 += btoa(String.fromCharCode.apply(null, chunk));
   }
-  return btoa(binaryString);
+  return base64;
 }
 /**
  * Decodes a Base64 encoded string into an ArrayBuffer.
