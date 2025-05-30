@@ -395,7 +395,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
       return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
     } else {
       // Asynchronous TTS generation for longer texts
-      const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
+      
       const jobId = uuidv4();
       const id = env.TTS_JOB_DURABLE_OBJECT.idFromName(jobId);
       const stub = env.TTS_JOB_DURABLE_OBJECT.get(id);
@@ -424,7 +424,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
           await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: orchestratorTimeoutMs })
+            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: result.orchestratorTimeoutMs })
           }));
         }).catch(async (error) => {
           console.error(`TTS job ${jobId} failed:`, error);
@@ -439,7 +439,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
       // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
       // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
       // Return 202 Accepted with the jobId
-      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs }), fixCors({
+      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs: result.orchestratorTimeoutMs }), fixCors({
         status: 202,
         headers: {
           'Content-Type': 'application/json',
