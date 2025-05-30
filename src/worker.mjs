@@ -12,6 +12,7 @@ import {
   handleTTS,
   handleRawTTS
 } from './handlers/index.mjs';
+import { TtsJobDurableObject } from './durable_objects/TtsJobDurableObject.mjs';
 
 import {
   getRandomApiKey,
@@ -88,7 +89,7 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleRawTTS(request, apiKey)
+        return handleRawTTS(request, env, event, apiKey)
           .catch(errHandler);
 
       default:
@@ -99,4 +100,4 @@ async function fetch(request, env) {
   }
 }
 
-export default { fetch };
+export default { fetch, TtsJobDurableObject };

@@ -2,6 +2,7 @@
  * Handler for Text-to-Speech (TTS) endpoint.
  * Processes TTS requests and integrates with Google's Generative AI TTS API.
  */
+import { v4 as uuidv4 } from 'uuid';
 import { fixCors } from '../utils/cors.mjs';
 import {
   errorHandler,
@@ -19,13 +20,8 @@ import {
   VOICE_NAME_PATTERNS
 } from '../constants/index.mjs';
 
-// A simple in-memory map to store processing jobs
-const processingJobs = new Map();
 
-// Simple unique ID generator
-function generateUniqueId() {
-  return Date.now().toString(36) + Math.random().toString(36).substring(2);
-}
+
 
 /**
  * Constructs the request body for Google Generative AI TTS API.
@@ -330,7 +326,7 @@ export async function handleTTS(request, apiKey) {
  * @returns {Promise<Response>} HTTP response with jobId or error information
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleRawTTS(request, apiKey) {
+export async function handleRawTTS(request, env, event, apiKey) {
   try {
     // Verify apiKey is provided (should be handled by worker, but defensive check)
     if (!apiKey) {
@@ -399,14 +395,45 @@ export async function handleRawTTS(request, apiKey) {
       return processAudioDataJSONResponse(base64Audio, mimeType);
     } else {
       // Asynchronous TTS generation for longer texts
-      const jobId = generateUniqueId();
-      const ttsPromise = callGoogleTTSAPI(
-        model.trim(),
-        googleApiRequestBody,
-        apiKey,
-        text.length // Pass character count for dynamic timeout
+      const jobId = uuidv4();
+      const id = env.TTS_JOB_DURABLE_OBJECT.idFromName(jobId);
+      const stub = env.TTS_JOB_DURABLE_OBJECT.get(id);
+
+      // Store initial job data in Durable Object
+      event.waitUntil(stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/init`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          text: text.trim(),
+          model: model.trim(),
+          voiceId: voiceName.trim(),
+          secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null,
+          status: 'processing'
+        })
+      })));
+
+      // Asynchronously call the TTS API and store the result
+      event.waitUntil(
+        callGoogleTTSAPI(
+          model.trim(),
+          googleApiRequestBody,
+          apiKey,
+          text.length // Pass character count for dynamic timeout
+        ).then(async (result) => {
+          await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ result: result.base64Audio })
+          }));
+        }).catch(async (error) => {
+          console.error(`TTS job ${jobId} failed:`, error);
+          await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/update-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ status: 'failed', error: error.message })
+          }));
+        })
       );
-      processingJobs.set(jobId, { promise: ttsPromise, status: 'processing' });
 
       // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
       // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
@@ -434,7 +461,7 @@ export async function handleRawTTS(request, apiKey) {
  * @returns {Promise<Response>} HTTP response with audio data or error information.
  * @throws {Error} When jobId is missing or job is not found/expired.
  */
-export async function handleTtsResult(request, apiKey) {
+export async function handleTtsResult(request, env, event, apiKey) {
   try {
     // Verify apiKey is provided (should be handled by worker, but defensive check)
     if (!apiKey) {
@@ -448,43 +475,38 @@ export async function handleTtsResult(request, apiKey) {
       throw new HttpError("jobId query parameter is required", 400);
     }
 
-    const job = processingJobs.get(jobId);
+    const id = env.TTS_JOB_DURABLE_OBJECT.idFromName(jobId);
+    const stub = env.TTS_JOB_DURABLE_OBJECT.get(id);
 
-    if (!job) {
-      throw new HttpError(`Job with ID ${jobId} not found or already completed/expired`, 404);
+    const jobStatusResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/status`));
+    if (!jobStatusResponse.ok) {
+      throw new HttpError(`Failed to retrieve job status for ID ${jobId}`, jobStatusResponse.status);
     }
+    const { status } = await jobStatusResponse.json();
 
-    // Check if the job is still processing
-    if (job.status === 'processing') {
-      // Attempt to resolve the promise to check if it's done without blocking
-      const result = await Promise.race([
-        job.promise,
-        new Promise(resolve => setTimeout(() => resolve('pending'), 50)) // Small delay to avoid blocking
-      ]);
-
-      if (result === 'pending') {
-        return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
-          status: 202,
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Processing-Job-Id': jobId,
-            'X-Processing-Status': 'processing'
-          }
-        }));
-      } else {
-        // Job has completed, update status and store results
-        job.audioContentBase64 = result.base64Audio;
-        job.mimeType = result.mimeType;
-        job.status = 'completed';
+    if (status === 'processing') {
+      return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
+        status: 202,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Processing-Job-Id': jobId,
+          'X-Processing-Status': 'processing'
+        }
+      }));
+    } else if (status === 'completed') {
+      const jobResultResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/result`));
+      if (!jobResultResponse.ok) {
+        throw new HttpError(`Failed to retrieve job result for ID ${jobId}`, jobResultResponse.status);
       }
-    }
+      const { result: audioContentBase64, mimeType } = await jobResultResponse.json();
 
-    // If job is completed or just completed
-    if (job.status === 'completed') {
-      processingJobs.delete(jobId); // Remove job after successful retrieval
-
-      // Return Base64 encoded audio in JSON format
-      return processAudioDataJSONResponse(job.audioContentBase64, job.mimeType);
+      return processAudioDataJSONResponse(audioContentBase64, mimeType);
+    } else if (status === 'failed') {
+      const jobResultResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/result`));
+      const { error } = await jobResultResponse.json();
+      throw new HttpError(`TTS job ${jobId} failed: ${error || 'Unknown error'}`, 500);
+    } else {
+      throw new HttpError(`Job with ID ${jobId} not found or in an unexpected state: ${status}`, 404);
     }
 
 
