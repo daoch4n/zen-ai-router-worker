@@ -223,7 +223,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 }
                 // Pass the calculated timeout to the polling function
                 const pollResult = await _pollForTtsResult(targetService, jobId, apiKey, timeoutMs);
-                return { success: true, ...pollResult };
+                return { success: true, ...pollResult, timeoutMs };
             } else if (response.ok) {
                 // Existing handling for successful fetch (2xx responses other than 202)
             } else { // response.status is not 2xx or 202
@@ -243,7 +243,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                         errorData = { message: await response.text() };
                     }
                     console.error(`Orchestrator: Backend TTS failed with non-retryable status ${response.status} or max retries reached. Error: ${errorData.message}`);
-                    return { success: false, index: chunkIndex, errorMessage: errorData.message || `Backend TTS failed with status ${response.status}`, status: response.status };
+                    return { success: false, index: chunkIndex, errorMessage: errorData.message || `Backend TTS failed with status ${response.status}`, status: response.status, timeoutMs: null };
                 }
             }
 
@@ -258,13 +258,13 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
             }
 
-            return { success: true, audioContentBase64: data.audioContentBase64, mimeType: mimeType };
+            return { success: true, audioContentBase64: data.audioContentBase64, mimeType: mimeType, timeoutMs };
 
         } catch (e) {
             
 
             if (e.name === 'AbortError') {
-                return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504 };
+                return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504, timeoutMs: null };
             }
 
             if (i < maxRetries) {
@@ -273,7 +273,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 await new Promise(resolve => setTimeout(resolve, delay));
             } else {
                 console.error(`Orchestrator: All retry attempts failed for backend TTS fetch. Last error:`, e);
-                return { success: false, index: chunkIndex, errorMessage: e.message || "Unknown error during backend TTS fetch." };
+                return { success: false, index: chunkIndex, errorMessage: e.message || "Unknown error during backend TTS fetch.", timeoutMs: null };
             }
         } finally {
             clearTimeout(timeoutId); // Ensure timeout is cleared on success or other exits
@@ -365,9 +365,9 @@ export class TTS_DURABLE_OBJECT {
                 if (request.method !== 'POST') {
                     return new Response('Method Not Allowed', { status: 405 });
                 }
-                const { jobId, totalChunks, mimeType, status, chunkLengths, sentenceMapping } = await request.json(); // Added sentenceMapping
+                const { jobId, totalChunks, mimeType, status, chunkLengths, sentenceMapping, orchestratorTimeoutMs } = await request.json();
                 const TTL_IN_MILLISECONDS = 7200000;
-                await this.storage.put(`${jobId}:metadata`, { totalChunks, mimeType, status, failedChunkIndices: [], chunkLengths, sentenceMapping }, { expirationTtl: TTL_IN_MILLISECONDS }); // Stored sentenceMapping
+                await this.storage.put(`${jobId}:metadata`, { totalChunks, mimeType, status, failedChunkIndices: [], chunkLengths, sentenceMapping, orchestratorTimeoutMs }, { expirationTtl: TTL_IN_MILLISECONDS });
                 console.log(`TTS_DURABLE_OBJECT: Stored metadata for job ${jobId}. Total chunks: ${totalChunks}.`);
                 return new Response('OK', { status: 200 });
 
@@ -438,7 +438,8 @@ export class TTS_DURABLE_OBJECT {
                     status: metadata.status,
                     failedChunkIndices: metadata.failedChunkIndices || [],
                     chunkLengths: metadata.chunkLengths || [],
-                    sentenceMapping: metadata.sentenceMapping || []
+                    sentenceMapping: metadata.sentenceMapping || [],
+                    orchestratorTimeoutMs: metadata.orchestratorTimeoutMs || null
                 };
 
                 console.log(`TTS_DURABLE_OBJECT: Retrieved job metadata for ${retrieveJobId}. Status: ${job.status}`);
@@ -606,7 +607,8 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
             mimeType: expectedMimeType,
             status: 'processing',
             chunkLengths,
-            sentenceMapping // Include sentenceMapping
+            sentenceMapping, // Include sentenceMapping
+            orchestratorTimeoutMs: overallOrchestratorTimeoutMs // Include overall timeout
         })
     }));
 
@@ -641,7 +643,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
                         }));
                         return { index, status: 'failed', error: `Failed to store chunk: ${await storeChunkResponse.text()}` };
                     }
-                    return { index, status: 'fulfilled', audioContentBase64: result.audioContentBase64, mimeType: result.mimeType };
+                    return { index, status: 'fulfilled', audioContentBase64: result.audioContentBase64, mimeType: result.mimeType, timeoutMs: result.timeoutMs };
                 } else {
                     console.error(`Orchestrator: Error generating chunk ${index} for job ${jobId}: ${result.errorMessage}`);
                     await stub.fetch(new Request("https://dummy-url/mark-chunk-failed", {
@@ -654,6 +656,8 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
             });
 
             const results = await Promise.all(chunkPromises); // Use Promise.all since _callBackendTtsService now returns structured result
+const allTimeouts = results.map(r => r.timeoutMs).filter(t => t !== null);
+            const overallOrchestratorTimeoutMs = allTimeouts.length > 0 ? Math.max(...allTimeouts) : null;
 
             const successfulChunks = results.filter(r => r.status === 'fulfilled');
             const failedChunks = results.filter(r => r.status === 'failed');
@@ -686,7 +690,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
         })()
     );
 
-    return new Response(JSON.stringify({ jobId, totalChunks, expectedMimeType, chunkLengths, sentenceMapping }), { // Include sentenceMapping in response
+    return new Response(JSON.stringify({ jobId, totalChunks, expectedMimeType, chunkLengths, sentenceMapping, orchestratorTimeoutMs: overallOrchestratorTimeoutMs }), { // Include sentenceMapping and overall timeout in response
         headers: { 'Content-Type': 'application/json' },
         status: 200
     });
