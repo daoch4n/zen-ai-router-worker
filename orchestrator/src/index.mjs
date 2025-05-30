@@ -241,7 +241,11 @@ export class TTS_DURABLE_OBJECT {
                     return new Response('Method Not Allowed', { status: 405 });
                 }
                 const { jobId, totalChunks, audioChunks, mimeType } = await request.json();
-                await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, mimeType));
+                // Set a Time To Live (TTL) for the stored TTS job data to ensure automatic cleanup.
+                // The TTL is set to 2 hours (7,200,000 milliseconds) to allow for job completion
+                // but prevent indefinite storage and accumulation of old data.
+                const TTL_IN_MILLISECONDS = 7200000; // 2 hours
+                await this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, mimeType), { expirationTtl: TTL_IN_MILLISECONDS });
                 console.log(`TTS_DURABLE_OBJECT: Stored job ${jobId} with ${totalChunks} chunks.`);
                 return new Response('OK', { status: 200 });
 
