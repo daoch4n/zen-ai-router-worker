@@ -5,9 +5,46 @@
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import { handleTTS, handleRawTTS } from '../../src/handlers/tts.mjs';
+import { TtsJobDurableObject } from '../../src/durable_objects/TtsJobDurableObject.mjs';
 
 // Mock the fetch function
 global.fetch = jest.fn();
+
+// Mock Durable Object storage and R2 bucket for TtsJobDurableObject tests
+const mockStorage = new Map();
+const mockR2Bucket = new Map();
+
+const mockState = {
+  storage: {
+    get: jest.fn(async (key) => mockStorage.get(key)),
+    put: jest.fn(async (key, value, options) => {
+      mockStorage.set(key, value);
+      // Simulate expiration if needed for more complex tests
+    }),
+    delete: jest.fn(async (key) => mockStorage.delete(key)),
+    // Add other storage methods if used by the DO and needed for tests
+  },
+};
+
+const mockEnv = {
+  TTS_AUDIO_BUCKET: {
+    put: jest.fn(async (key, value, options) => {
+      mockR2Bucket.set(key, { body: value, ...options });
+    }),
+    get: jest.fn(async (key) => {
+      const obj = mockR2Bucket.get(key);
+      if (obj) {
+        return {
+          arrayBuffer: async () => obj.body.buffer, // Return ArrayBuffer from Uint8Array
+          contentType: obj.contentType,
+        };
+      }
+      return null;
+    }),
+    // Add other R2 methods if used by the DO and needed for tests
+  },
+};
+
 
 describe('TTS Handler', () => {
   let mockApiKey;
@@ -895,5 +932,90 @@ describe('Raw TTS Handler', () => {
       expect(response.status).toBe(502);
       expect(await response.text()).toBe('Network error: Unable to connect to Google API');
     });
+  });
+});
+
+describe('TtsJobDurableObject - handleGetResult', () => {
+  let durableObject;
+  const jobId = 'test-job-id-123';
+  const mimeType = 'audio/mpeg';
+
+  beforeEach(() => {
+    // Clear mocks and reset storage/bucket before each test
+    mockStorage.clear();
+    mockR2Bucket.clear();
+    jest.clearAllMocks();
+    durableObject = new TtsJobDurableObject(mockState, mockEnv);
+  });
+
+  it('should retrieve and base64 encode large audio result from R2 without stack overflow', async () => {
+    // Create a large ArrayBuffer (e.g., 5MB)
+    const largeBufferSize = 5 * 1024 * 1024; // 5 MB
+    const largeUint8Array = new Uint8Array(largeBufferSize);
+    for (let i = 0; i < largeBufferSize; i++) {
+      largeUint8Array[i] = i % 256; // Fill with some data
+    }
+
+    // Simulate job data in DO storage
+    mockStorage.set(jobId, { status: 'completed', mimeType: mimeType });
+
+    // Simulate audio data in R2
+    await mockEnv.TTS_AUDIO_BUCKET.put(jobId, largeUint8Array, { contentType: mimeType });
+
+    const request = new Request(`https://example.com/tts-job/${jobId}/result`);
+    const response = await durableObject.fetch(request);
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(200);
+    expect(responseBody.jobId).toBe(jobId);
+    expect(responseBody.status).toBe('completed');
+    expect(responseBody.mimeType).toBe(mimeType);
+    expect(typeof responseBody.base64Audio).toBe('string');
+    expect(responseBody.base64Audio.length).toBeGreaterThan(0);
+
+    // Verify that the retrieved base64 audio can be decoded back to the original size
+    const decodedAudio = Uint8Array.from(atob(responseBody.base64Audio), c => c.charCodeAt(0));
+    expect(decodedAudio.byteLength).toBe(largeBufferSize);
+    // Optionally, verify content of a few bytes
+    expect(decodedAudio[0]).toBe(largeUint8Array[0]);
+    expect(decodedAudio[largeBufferSize - 1]).toBe(largeUint8Array[largeBufferSize - 1]);
+  });
+
+  it('should return 404 if job not found in DO storage', async () => {
+    const request = new Request(`https://example.com/tts-job/${jobId}/result`);
+    const response = await durableObject.fetch(request);
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(responseBody.error).toBe('Job not found');
+  });
+
+  it('should return 404 if audio result not found in R2', async () => {
+    // Simulate job data in DO storage, but no audio in R2
+    mockStorage.set(jobId, { status: 'completed', mimeType: mimeType });
+
+    const request = new Request(`https://example.com/tts-job/${jobId}/result`);
+    const response = await durableObject.fetch(request);
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(404);
+    expect(responseBody.error).toBe('Audio result not found in R2');
+  });
+
+  it('should return 500 if an error occurs during R2 fetch or base64 encoding', async () => {
+    // Simulate an error during R2 fetch
+    mockEnv.TTS_AUDIO_BUCKET.get.mockImplementationOnce(() => {
+      throw new Error('Simulated R2 error');
+    });
+
+    // Simulate job data in DO storage
+    mockStorage.set(jobId, { status: 'completed', mimeType: mimeType });
+
+    const request = new Request(`https://example.com/tts-job/${jobId}/result`);
+    const response = await durableObject.fetch(request);
+    const responseBody = await response.json();
+
+    expect(response.status).toBe(500);
+    expect(responseBody.error).toBe('Failed to retrieve audio result');
   });
 });
