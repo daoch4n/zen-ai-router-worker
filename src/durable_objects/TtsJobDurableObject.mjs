@@ -1,4 +1,4 @@
-import { arrayBufferToBase64 } from '../utils/audio.mjs';
+import { arrayBufferToBase64, base64ToArrayBuffer } from '../utils/audio.mjs';
 
 export class TtsJobDurableObject {
   constructor(state, env) {
@@ -115,7 +115,7 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       }
 
       // Decode Base64: Convert the base64Audio string into a Uint8Array
-      const audioBuffer = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
+      const audioBuffer = base64ToArrayBuffer(base64Audio);
 
       // Upload to R2: Use the R2 bucket binding to upload the binary audio data
       await this.env.TTS_AUDIO_BUCKET.put(jobId, audioBuffer, { contentType: mimeType });
