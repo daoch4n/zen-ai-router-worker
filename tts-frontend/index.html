@@ -993,6 +993,9 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
         ttsModelInput.value = storedTtsModel;
       }
       ttsModelInput.style.display = 'inline-block';
+ttsModelInput.addEventListener('change', (event) => {
+        localStorage.setItem('ttsModel', event.target.value);
+      });
  
       const storedVoiceId = localStorage.getItem('voiceId');
       if (storedVoiceId) {
@@ -1016,9 +1019,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
  
       settingsCog.addEventListener('click', () => {
         const isHidden = apiKeyInput.style.display === 'none';
-      document.getElementById('ttsModelInput').addEventListener('change', (event) => {
-        localStorage.setItem('ttsModel', event.target.value);
-      });
+      
         apiKeyInput.style.display = isHidden ? 'block' : 'none';
         splittingInput.style.display = isHidden ? 'block' : 'none'; // Toggle splitting input visibility
         if (isHidden && apiKeyInput.value) {
