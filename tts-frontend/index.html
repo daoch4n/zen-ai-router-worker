@@ -894,7 +894,11 @@ const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
         textDisplayArea.style.display = 'block'; // Show text display
 
         try {
-          const model = 'gemini-2.5-flash-preview-tts';
+          // MODIFICATION: Define the default TTS model as a configurable global variable
+      const DEFAULT_TTS_MODEL = 'gemini-2.5-flash-preview-tts'; // Change this value to switch models
+
+      // Use the configurable model
+      const model = DEFAULT_TTS_MODEL;
           await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
