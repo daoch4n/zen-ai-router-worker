@@ -262,6 +262,7 @@ class GeminiKeyManager:
                 if self.current_key_name != "GEMINI_API_KEY" or "GEMINI_API_KEY" in self.rate_limited_keys :
                     self.current_key = self.primary_key
                     self.current_key_name = "GEMINI_API_KEY"
+self.used_fallback_key = False
                     if len(self.rate_limited_keys) >= len(self.rotation_order):
                          logger.info("All keys have been tried and rate limited in this cycle. Clearing rate_limited_keys to try again.")
                          self.rate_limited_keys.clear()
