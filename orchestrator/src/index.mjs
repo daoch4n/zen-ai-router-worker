@@ -71,6 +71,10 @@ export default {
 
 const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"; // Updated model name
 
+// Constants for polling
+const POLLING_MAX_ATTEMPTS = 30; // Max polling attempts
+const POLLING_BASE_DELAY_MS = 1000; // 1 second base delay for polling
+
 async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
     if (request.method === 'OPTIONS') {
         return handleOPTIONS();
@@ -103,6 +107,65 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
     }
 }
+
+/**
+ * Polls the backend worker for the TTS result.
+ * @param {ServiceWorkerGlobalScope} targetService - The backend worker service.
+ * @param {string} jobId - The ID of the TTS job.
+ * @param {string} apiKey - The API key for authentication.
+ * @returns {Promise<{audioContentBase64: string, mimeType: string}>} The audio content and mime type.
+ * @throws {HttpError} If polling fails after max attempts or encounters a non-retryable error.
+ */
+async function _pollForTtsResult(targetService, jobId, apiKey) {
+    const pollingUrl = new URL(`/api/tts-result?jobId=${jobId}`, 'http://placeholder');
+    const headersToSend = {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`
+    };
+
+    for (let i = 0; i < POLLING_MAX_ATTEMPTS; i++) {
+        try {
+            console.log(`Orchestrator: Polling for TTS job ${jobId} (attempt ${i + 1}/${POLLING_MAX_ATTEMPTS})...`);
+            const response = await targetService.fetch(new Request(pollingUrl.toString(), {
+                method: 'GET',
+                headers: headersToSend,
+            }));
+
+            if (response.status === 200) {
+                console.log(`Orchestrator: TTS job ${jobId} completed successfully.`);
+                const data = await response.json();
+                const mimeType = response.headers.get('Content-Type') || 'audio/L16;rate=24000'; // Default if not provided
+                return { audioContentBase64: data.base64Audio, mimeType };
+            } else if (response.status === 404) {
+                console.warn(`Orchestrator: TTS job ${jobId} not yet ready or expired.`);
+                await new Promise(resolve => setTimeout(resolve, POLLING_BASE_DELAY_MS));
+            } else {
+                let errorData;
+                try {
+                    errorData = await response.json();
+                } catch (e) {
+                    errorData = { message: await response.text() };
+                }
+                console.error(`Orchestrator: Error polling for TTS job ${jobId}: ${errorData.message} (status: ${response.status})`);
+                // For other errors, we might still retry a few times or immediately fail
+                if (i < POLLING_MAX_ATTEMPTS - 1) {
+                    await new Promise(resolve => setTimeout(resolve, POLLING_BASE_DELAY_MS));
+                } else {
+                    throw new HttpError(errorData.message || `Backend error during polling: ${response.status}`, response.status);
+                }
+            }
+        } catch (e) {
+            console.error(`Orchestrator: Network error during TTS job ${jobId} polling: ${e.message}`);
+            if (i < POLLING_MAX_ATTEMPTS - 1) {
+                await new Promise(resolve => setTimeout(resolve, POLLING_BASE_DELAY_MS));
+            } else {
+                throw new HttpError(`Network error during polling: ${e.message}`, 502);
+            }
+        }
+    }
+    throw new HttpError(`TTS job ${jobId} timed out after ${POLLING_MAX_ATTEMPTS} attempts.`, 504);
+}
+
 async function _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers) {
     const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
     const stub = env.ROUTER_COUNTER.get(id);
@@ -123,7 +186,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
         'Authorization': `Bearer ${apiKey}`
     };
 
-    const maxRetries = 3; // Maximum number of retry attempts
+    const maxRetries = 3; // Maximum number of retry attempts for initial request failures
     const baseDelayMs = 100; // Base delay for exponential backoff in milliseconds
 
     for (let i = 0; i <= maxRetries; i++) {
@@ -138,9 +201,17 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 }),
             }));
 
-            if (!response.ok) {
+            if (response.status === 202) {
+                console.log(`Orchestrator: Backend worker accepted TTS job. Initiating polling.`);
+                const responseData = await response.json();
+                const jobId = responseData.jobId || response.headers.get('X-Processing-Job-Id');
+                if (!jobId) {
+                    throw new HttpError("202 response missing jobId", 500);
+                }
+                return await _pollForTtsResult(targetService, jobId, apiKey);
+            } else if (!response.ok) {
                 // Check for retryable status codes (e.g., 429 Too Many Requests, 5xx Server Errors)
-                // For this task, we'll consider all non-2xx as retryable for simplicity
+                // For this task, we'll consider all non-2xx (except 202) as retryable for simplicity
                 if (i < maxRetries) {
                     const delay = Math.pow(2, i) * baseDelayMs;
                     console.warn(`Orchestrator: Backend TTS fetch failed (status: ${response.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);

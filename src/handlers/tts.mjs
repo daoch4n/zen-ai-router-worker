@@ -19,6 +19,14 @@ import {
   VOICE_NAME_PATTERNS
 } from '../constants/index.mjs';
 
+// A simple in-memory map to store processing jobs
+const processingJobs = new Map();
+
+// Simple unique ID generator
+function generateUniqueId() {
+  return Date.now().toString(36) + Math.random().toString(36).substring(2);
+}
+
 /**
  * Constructs the request body for Google Generative AI TTS API.
  * Supports both single-speaker and multi-speaker configurations.
@@ -283,11 +291,12 @@ export async function handleTTS(request, apiKey) {
 /**
  * Processes raw text-to-speech requests by handling voice configuration,
  * text input validation, and audio generation through Google's API.
- * Returns raw audio data without base64 decoding or WAV header addition.
+ * Returns a 202 Accepted response immediately and starts the TTS job asynchronously.
+ * The actual audio data can be retrieved via a separate polling mechanism using the jobId.
  *
  * @param {Request} request - The incoming HTTP request containing TTS parameters
  * @param {string} apiKey - Google API key for Gemini access
- * @returns {Promise<Response>} HTTP response with raw audio data or error information
+ * @returns {Promise<Response>} HTTP response with jobId or error information
  * @throws {Error} When request validation fails or API call errors
  */
 export async function handleRawTTS(request, apiKey) {
@@ -350,23 +359,76 @@ export async function handleRawTTS(request, apiKey) {
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
 
-    // Call Google Generative AI API to generate audio
-    const { base64Audio, mimeType } = await callGoogleTTSAPI(
+    const jobId = generateUniqueId();
+
+    // Start the TTS generation asynchronously and store the promise
+    const ttsPromise = callGoogleTTSAPI(
       model.trim(),
       googleApiRequestBody,
       apiKey
     );
+    processingJobs.set(jobId, ttsPromise);
 
-    // Return the base64 audio data directly with the correct mimeType
-    return new Response(base64Audio, fixCors({
-      status: 200,
+    // Return 202 Accepted with the jobId
+    return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
+      status: 202,
       headers: {
-        'Content-Type': mimeType
+        'Content-Type': 'application/json',
+        'X-Processing-Job-Id': jobId // Custom header for easier access
       }
     }));
 
   } catch (err) {
     // Use centralized error handler for consistent error responses
+    return errorHandler(err, fixCors);
+  }
+}
+
+/**
+ * Handles requests to retrieve the result of an asynchronous TTS job.
+ *
+ * @param {Request} request - The incoming HTTP request containing the jobId.
+ * @param {string} apiKey - Google API key for Gemini access
+ * @returns {Promise<Response>} HTTP response with audio data or error information.
+ * @throws {Error} When jobId is missing or job is not found/expired.
+ */
+export async function handleTtsResult(request, apiKey) {
+  try {
+    // Verify apiKey is provided (should be handled by worker, but defensive check)
+    if (!apiKey) {
+      throw new HttpError("API key is required", 401);
+    }
+
+    const url = new URL(request.url);
+    const jobId = url.searchParams.get('jobId');
+
+    if (!jobId) {
+      throw new HttpError("jobId query parameter is required", 400);
+    }
+
+    const ttsPromise = processingJobs.get(jobId);
+
+    if (!ttsPromise) {
+      // If job not found, it might be completed and removed, or never existed
+      throw new HttpError(`Job with ID ${jobId} not found or already completed/expired`, 404);
+    }
+
+    // Wait for the promise to resolve
+    const { base64Audio, mimeType } = await ttsPromise;
+
+    // Remove the job from the map after it's done
+    processingJobs.delete(jobId);
+
+    return new Response(base64Audio, fixCors({
+      status: 200,
+      headers: {
+        'Content-Type': mimeType,
+        'X-Processing-Job-Id': jobId, // Include for consistency
+        'X-Processing-Status': 'completed' // Signal completion
+      }
+    }));
+
+  } catch (err) {
     return errorHandler(err, fixCors);
   }
 }
