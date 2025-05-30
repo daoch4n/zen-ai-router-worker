@@ -51,6 +51,28 @@ export class TtsJobDurableObject {
         });
       }
       const { text, model, voiceId } = await request.json();
+
+      if (!text || typeof text !== 'string' || text.trim() === '') {
+        return new Response(JSON.stringify({ error: 'Missing or invalid "text" field' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 400,
+        });
+      }
+
+      if (!model || typeof model !== 'string' || model.trim() === '') {
+        return new Response(JSON.stringify({ error: 'Missing or invalid "model" field' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 400,
+        });
+      }
+
+      if (!voiceId || typeof voiceId !== 'string' || voiceId.trim() === '') {
+        return new Response(JSON.stringify({ error: 'Missing or invalid "voiceId" field' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 400,
+        });
+      }
+
       const jobData = {
         jobId,
         text,
@@ -128,7 +150,7 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       await this.env.TTS_AUDIO_BUCKET.put(jobId, audioBuffer, { contentType: mimeType });
 
       // Update DO Storage: Remove base64Audio and keep mimeType in DO for retrieval
-      jobData.base64Audio = undefined; // Or delete jobData.base64Audio;
+      jobData.base64Audio = undefined;
       jobData.mimeType = mimeType;
       jobData.status = 'completed';
       await this.storage.put(jobId, jobData, { expirationTtl: this.TTL_SECONDS });
