@@ -179,7 +179,7 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       const arrayBuffer = await r2Object.arrayBuffer();
 
       // Encode to Base64 using the new utility function
-      const base64Audio = arrayBufferToBase64(arrayBuffer);
+      const base64Audio = await arrayBufferToBase64(arrayBuffer);
 
       return new Response(JSON.stringify({ jobId, status: jobData.status, base64Audio, mimeType: jobData.mimeType }), {
         headers: { 'Content-Type': 'application/json' },
