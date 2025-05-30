@@ -66,6 +66,13 @@ export class TtsJobDurableObject {
   async handleUpdateStatus(request, jobId) {
     try {
       const { status } = await request.json();
+const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
+      if (!allowedStatuses.includes(status)) {
+        return new Response(JSON.stringify({ error: 'Invalid status value' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 400,
+        });
+      }
       const jobData = await this.storage.get(jobId);
 
       if (!jobData) {
@@ -96,19 +103,27 @@ export class TtsJobDurableObject {
         return new Response('Job not found', { status: 404 });
       }
 
-      jobData.base64Audio = base64Audio;
+      // Decode Base64: Convert the base64Audio string into a Uint8Array
+      const audioBuffer = Uint8Array.from(atob(base64Audio), c => c.charCodeAt(0));
+
+      // Upload to R2: Use the R2 bucket binding to upload the binary audio data
+      await this.env.TTS_AUDIO_BUCKET.put(jobId, audioBuffer, { contentType: mimeType });
+
+      // Update DO Storage: Remove base64Audio and keep mimeType in DO for retrieval
+      jobData.base64Audio = undefined; // Or delete jobData.base64Audio;
       jobData.mimeType = mimeType;
       jobData.status = 'completed';
       await this.storage.put(jobId, jobData);
 
-      return new Response(JSON.stringify({ message: 'Job result stored', jobId }), {
+      return new Response(JSON.stringify({ message: 'Job result stored in R2', jobId }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200,
       });
     } catch (error) {
-      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+      console.error(`Failed to store audio in R2 for job ${jobId}:`, error);
+      return new Response(JSON.stringify({ error: 'Failed to store audio result' }), {
         headers: { 'Content-Type': 'application/json' },
-        status: 400,
+        status: 500,
       });
     }
   }
@@ -127,15 +142,35 @@ export class TtsJobDurableObject {
   }
 
   async handleGetResult(jobId) {
-    const jobData = await this.storage.get(jobId);
+    try {
+      const jobData = await this.storage.get(jobId);
 
-    if (!jobData) {
-      return new Response('Job not found', { status: 404 });
+      if (!jobData) {
+        return new Response('Job not found', { status: 404 });
+      }
+
+      // Fetch from R2
+      const r2Object = await this.env.TTS_AUDIO_BUCKET.get(jobId);
+      if (!r2Object) {
+        return new Response('Audio result not found in R2', { status: 404 });
+      }
+
+      // Convert R2 Object Body to ArrayBuffer
+      const arrayBuffer = await r2Object.arrayBuffer();
+
+      // Encode to Base64
+      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+
+      return new Response(JSON.stringify({ jobId, status: jobData.status, base64Audio, mimeType: jobData.mimeType }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    } catch (error) {
+      console.error(`Failed to retrieve audio from R2 for job ${jobId}:`, error);
+      return new Response(JSON.stringify({ error: 'Failed to retrieve audio result' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 500,
+      });
     }
-
-    return new Response(JSON.stringify({ jobId, status: jobData.status, base64Audio: jobData.base64Audio, mimeType: jobData.mimeType }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200,
-    });
   }
 }
