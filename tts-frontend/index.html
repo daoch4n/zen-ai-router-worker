@@ -401,8 +401,7 @@
   <script>
     function setupTTSClient(orchestratorWorkerUrl) {
       window.ORCHESTRATOR_WORKER_URL = orchestratorWorkerUrl; // Ensure this is configured
-      const SENTENCE_FETCH_TIMEOUT_MS = 15000;
-      const FIRST_SENTENCE_TIMEOUT_MS = 20000;
+      
 
       let audioContext;
       let audioQueue = [];
@@ -482,7 +481,7 @@
         const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
         const INITIAL_BACKOFF_MS = 500; // 2^n * 500ms
         const POLLING_INTERVAL_MS = 1500; // 1.5 seconds
-        const MAX_POLLING_TIME_MS = 30000; // 30 seconds
+        const MAX_POLLING_TIME_MS = 90000; // 90 seconds
 
         const delay = ms => new Promise(res => setTimeout(res, ms));
 
@@ -543,6 +542,8 @@
         // For now, it only prepares the state and clears previous SSE-related logic.
         try {
           loadingText.textContent = 'Initiating TTS request...';
+          const abortControllerInitiate = new AbortController();
+          const initiateTimeout = setTimeout(() => abortControllerInitiate.abort(), 15000); // 15 seconds timeout
           const response = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-initiate`, {
             method: 'POST',
             headers: {
@@ -554,8 +555,10 @@
               voiceId: voiceName,
               model: model,
               splittingPreference: splitting
-            })
+            }),
+            signal: abortControllerInitiate.signal
           });
+          clearTimeout(initiateTimeout);
 
           if (!response.ok) {
             const errorData = await response.json();
@@ -604,12 +607,23 @@
               try {
                 loadingText.textContent = `Fetching chunk ${chunkIndex + 1}/${totalChunks} (attempt ${retries + 1}/${MAX_RETRIES + 1})...`;
 
+                const abortControllerChunk = new AbortController();
+                // Assuming orchestratorTimeoutMs is available in a previous response or has a default
+                // For the initial chunk, we don't have it yet, so we'll use a default or assume it's part of the initiate response.
+                // Since the task implies it's per-chunk, I'll assume for the first chunk it's 0 and the +5000 applies.
+                // Later chunks might receive this info from the orchestrator. For now, we'll implement the logic assuming its presence.
+                const orchestratorDynamicTimeout = chunkData?.orchestratorTimeoutMs || 0; // Will be available in chunkData after first successful fetch
+                const dynamicChunkTimeout = Math.min(orchestratorDynamicTimeout + 5000, 80000); // Capped at 80 seconds
+                const chunkTimeout = setTimeout(() => abortControllerChunk.abort(), dynamicChunkTimeout);
+
                 const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
                   method: 'GET',
                   headers: {
                     'Authorization': `Bearer ${apiKey}`
-                  }
+                  },
+                  signal: abortControllerChunk.signal
                 });
+                clearTimeout(chunkTimeout);
 
                 if (chunkResponse.status === 202) { // 202 Accepted: Chunk is in progress
                   showToast(`Chunk ${chunkIndex + 1} is in progress. Polling...`, 'info');
@@ -686,8 +700,13 @@
                 }
 
               } catch (error) { // Catch network errors or errors thrown from polling logic
-                console.error(`Error fetching chunk ${chunkIndex + 1} (attempt ${retries + 1}):`, error);
-                showToast(`Error fetching chunk ${chunkIndex + 1}: ${error.message}. Retrying...`, 'warning');
+                if (error.name === 'AbortError') {
+                  console.error(`Chunk ${chunkIndex + 1} request timed out (attempt ${retries + 1}).`);
+                  showToast(`Error: Segment ${chunkIndex + 1} request timed out. Retrying...`, 'warning');
+                } else {
+                  console.error(`Error fetching chunk ${chunkIndex + 1} (attempt ${retries + 1}):`, error);
+                  showToast(`Error fetching chunk ${chunkIndex + 1}: ${error.message}. Retrying...`, 'warning');
+                }
                 retries++;
                 if (retries > MAX_RETRIES) {
                   // All retries failed for a transient error, skip this chunk
@@ -706,7 +725,7 @@
             }
 
             if (chunkData) {
-              await processAudioChunk(chunkData.audioBase64, chunkData.sentenceMapping, chunkIndex);
+              await processAudioChunk(chunkData.audioContentBase64, chunkData.sentenceMapping, chunkIndex);
             } else {
                 // If chunkData is null (due to skip/failure), still mark the segment as failed if not already
                 const segment = window.ttsJobData.segmentElements[chunkIndex];
@@ -733,8 +752,13 @@
           }
           
         } catch (error) {
-          console.error('Initial TTS Request Error:', error);
-          showToast(`Error initiating TTS: ${error.message}`, 'error');
+          if (error.name === 'AbortError') {
+            console.error('Initial TTS Request Timed Out:', error);
+            showToast('Error: Initial TTS request timed out after 15 seconds. Please try again.', 'error');
+          } else {
+            console.error('Initial TTS Request Error:', error);
+            showToast(`Error initiating TTS: ${error.message}`, 'error');
+          }
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
           overallProgressBarContainer.innerHTML = ''; // Clear segments on overall error
