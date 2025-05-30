@@ -30,7 +30,10 @@ export class TtsJobDurableObject {
       case `/tts-job/${jobId}/store-result`:
         return this.handleStoreResult(request, jobId);
       default:
-        return new Response('Not found', { status: 404 });
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
     }
   }
 
@@ -76,7 +79,10 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       const jobData = await this.storage.get(jobId);
 
       if (!jobData) {
-        return new Response('Job not found', { status: 404 });
+        return new Response(JSON.stringify({ error: 'Job not found' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
       }
 
       jobData.status = status;
@@ -100,7 +106,10 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       const jobData = await this.storage.get(jobId);
 
       if (!jobData) {
-        return new Response('Job not found', { status: 404 });
+        return new Response(JSON.stringify({ error: 'Job not found' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
       }
 
       // Decode Base64: Convert the base64Audio string into a Uint8Array
@@ -132,7 +141,10 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
     const jobData = await this.storage.get(jobId);
 
     if (!jobData) {
-      return new Response('Job not found', { status: 404 });
+      return new Response(JSON.stringify({ error: 'Job not found' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
     }
 
     return new Response(JSON.stringify({ jobId, status: jobData.status }), {
@@ -146,13 +158,19 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       const jobData = await this.storage.get(jobId);
 
       if (!jobData) {
-        return new Response('Job not found', { status: 404 });
+        return new Response(JSON.stringify({ error: 'Job not found' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
       }
 
       // Fetch from R2
       const r2Object = await this.env.TTS_AUDIO_BUCKET.get(jobId);
       if (!r2Object) {
-        return new Response('Audio result not found in R2', { status: 404 });
+        return new Response(JSON.stringify({ error: 'Audio result not found in R2' }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 404,
+    });
       }
 
       // Convert R2 Object Body to ArrayBuffer
