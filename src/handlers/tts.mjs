@@ -369,6 +369,8 @@ export async function handleRawTTS(request, apiKey) {
     );
     processingJobs.set(jobId, ttsPromise);
 
+// The jobId is included in both the JSON body and as an X-Processing-Job-Id header
+    // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
     // Return 202 Accepted with the jobId
     return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
       status: 202,
