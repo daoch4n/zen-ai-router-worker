@@ -39,7 +39,7 @@ import { handleOPTIONS } from './utils/cors.mjs';
  * @param {Object} env - Cloudflare Worker environment variables
  * @returns {Promise<Response>} HTTP response with CORS headers applied
  */
-async function fetch(request, env) {
+async function fetch(request, env, event) {
   if (request.method === "OPTIONS") {
     return handleOPTIONS();
   }
