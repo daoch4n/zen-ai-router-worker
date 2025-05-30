@@ -11,9 +11,11 @@ import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } fro
  * Transforms OpenAI-style request configuration parameters to Gemini API format.
  * Maps parameter names and handles special cases like response formatting and thinking configuration.
  * Uses responseJsonSchema for JSON schema response formats.
+ * Sets default values: temperature=0.1, top_p=0.9 when not provided.
  *
  * @param {Object} req - OpenAI request object containing configuration parameters
- * @param {number} [req.temperature] - Sampling temperature (0-2)
+ * @param {number} [req.temperature] - Sampling temperature (0-2), defaults to 0.1
+ * @param {number} [req.top_p] - Top-p sampling parameter (0-1), defaults to 0.9
  * @param {number} [req.max_tokens] - Maximum tokens to generate
  * @param {string} [req.reasoning_effort] - Reasoning effort level for thinking models
  * @param {Object} [req.response_format] - Desired response format specification
@@ -42,6 +44,13 @@ export const transformConfig = (req, thinkingConfig = null) => {
       }
     }
   }
+
+  // Set temperature if not provided
+  if (cfg.temperature === undefined) {
+    cfg.temperature = 0.1;
+  }
+  // Force ovveride topP
+  cfg.topP = 0.9;
 
   // Apply thinking configuration from model name parsing
   if (thinkingConfig) {
