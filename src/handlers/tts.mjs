@@ -424,7 +424,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
           await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType })
+            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: orchestratorTimeoutMs })
           }));
         }).catch(async (error) => {
           console.error(`TTS job ${jobId} failed:`, error);
@@ -499,9 +499,9 @@ export async function handleTtsResult(request, env, event, apiKey) {
       if (!jobResultResponse.ok) {
         throw new HttpError(`Failed to retrieve job result for ID ${jobId}`, jobResultResponse.status);
       }
-      const { base64Audio, mimeType } = await jobResultResponse.json();
+      const { base64Audio, mimeType, orchestratorTimeoutMs } = await jobResultResponse.json();
 
-      return processAudioDataJSONResponse(base64Audio, mimeType);
+      return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
     } else if (status === 'failed') {
       const jobResultResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/result`));
       const { error } = await jobResultResponse.json();
