@@ -46,11 +46,15 @@ export class TokenReducer {
    */
   applySpecificReplacements(text) {
     let result = text;
-    
+
     for (const replacement of this.config.specificReplacements) {
-      result = result.replace(new RegExp(replacement.original, 'g'), replacement.replacement);
+      // Use string replacement instead of regex to handle special characters and newlines
+      // This ensures exact string matching without regex interpretation
+      while (result.includes(replacement.original)) {
+        result = result.replace(replacement.original, replacement.replacement);
+      }
     }
-    
+
     return result;
   }
 
@@ -61,36 +65,36 @@ export class TokenReducer {
    */
   removeCommonWords(text) {
     let result = text;
-    
+
     // Split into sentences to preserve sentence boundaries
     const sentences = result.split(/([.!?]+)/);
-    
+
     for (let i = 0; i < sentences.length; i += 2) { // Process only sentence content, not punctuation
       if (sentences[i]) {
         let sentence = sentences[i];
-        
+
         // Apply common word removals, but preserve first and last words of sentences
         for (const word of this.config.commonWordRemovals) {
           // Don't remove if it's at the start of a sentence (after whitespace/punctuation)
           const startPattern = new RegExp(`^(\\s*)${word.trim()}\\s+`, 'gi');
           // Don't remove if it's at the end of a sentence (before punctuation)
           const endPattern = new RegExp(`\\s+${word.trim()}(\\s*[.!?]*)$`, 'gi');
-          
+
           // Remove from middle of sentences
           const middlePattern = new RegExp(word, 'gi');
-          
+
           // First preserve start and end, then remove from middle
           if (!startPattern.test(sentence) && !endPattern.test(sentence)) {
             sentence = sentence.replace(middlePattern, ' ');
           }
         }
-        
+
         // Clean up multiple spaces
         sentence = sentence.replace(/\s+/g, ' ').trim();
         sentences[i] = sentence;
       }
     }
-    
+
     return sentences.join('');
   }
 
@@ -120,13 +124,13 @@ export class TokenReducer {
 
     // Step 1: Apply specific replacements
     let result = this.applySpecificReplacements(text);
-    
+
     // Step 2: Remove common words
     result = this.removeCommonWords(result);
-    
+
     // Step 3: Clean up formatting
     result = this.cleanupFormatting(result);
-    
+
     return result;
   }
 
@@ -141,7 +145,7 @@ export class TokenReducer {
     const reducedLength = reduced?.length || 0;
     const savings = originalLength - reducedLength;
     const percentage = originalLength > 0 ? (savings / originalLength * 100).toFixed(1) : 0;
-    
+
     return {
       originalLength,
       reducedLength,
