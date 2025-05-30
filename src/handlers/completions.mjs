@@ -55,6 +55,7 @@ export async function handleCompletions(req, apiKey) {
     }
   }
 
+  req.top_p = 0.7;
   let body = await transformRequest(req, thinkingConfig);
 
   // Enable Google Search tool for search-capable models
