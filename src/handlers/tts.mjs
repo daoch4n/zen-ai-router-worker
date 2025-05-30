@@ -499,7 +499,7 @@ export async function handleTtsResult(request, env, event, apiKey) {
       if (!jobResultResponse.ok) {
         throw new HttpError(`Failed to retrieve job result for ID ${jobId}`, jobResultResponse.status);
       }
-      const { result: audioContentBase64, mimeType } = await jobResultResponse.json();
+      const { base64Audio, mimeType } = await jobResultResponse.json();
 
       return processAudioDataJSONResponse(audioContentBase64, mimeType);
     } else if (status === 'failed') {
