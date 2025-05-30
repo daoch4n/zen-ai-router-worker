@@ -89,14 +89,15 @@ export class TtsJobDurableObject {
 
   async handleStoreResult(request, jobId) {
     try {
-      const { result } = await request.json();
+      const { base64Audio, mimeType } = await request.json();
       const jobData = await this.storage.get(jobId);
 
       if (!jobData) {
         return new Response('Job not found', { status: 404 });
       }
 
-      jobData.result = result;
+      jobData.base64Audio = base64Audio;
+      jobData.mimeType = mimeType;
       jobData.status = 'completed';
       await this.storage.put(jobId, jobData);
 
@@ -132,7 +133,7 @@ export class TtsJobDurableObject {
       return new Response('Job not found', { status: 404 });
     }
 
-    return new Response(JSON.stringify({ jobId, status: jobData.status, result: jobData.result }), {
+    return new Response(JSON.stringify({ jobId, status: jobData.status, base64Audio: jobData.base64Audio, mimeType: jobData.mimeType }), {
       headers: { 'Content-Type': 'application/json' },
       status: 200,
     });
