@@ -8,3 +8,6 @@ node_modules
 /.repomix
 /repomix*
 /.env
+.roo/
+.roomodes
+.roomodes.json
