@@ -332,9 +332,9 @@ export class TTS_DURABLE_OBJECT {
                 if (request.method !== 'POST') {
                     return new Response('Method Not Allowed', { status: 405 });
                 }
-                const { jobId, totalChunks, mimeType, status } = await request.json(); 
+                const { jobId, totalChunks, mimeType, status, chunkLengths } = await request.json(); 
                 const TTL_IN_MILLISECONDS = 7200000; 
-                await this.storage.put(`${jobId}:metadata`, { totalChunks, mimeType, status, failedChunkIndices: [] }, { expirationTtl: TTL_IN_MILLISECONDS });
+                await this.storage.put(`${jobId}:metadata`, { totalChunks, mimeType, status, failedChunkIndices: [], chunkLengths }, { expirationTtl: TTL_IN_MILLISECONDS });
                 console.log(`TTS_DURABLE_OBJECT: Stored metadata for job ${jobId}. Total chunks: ${totalChunks}.`);
                 return new Response('OK', { status: 200 });
 
@@ -419,7 +419,8 @@ export class TTS_DURABLE_OBJECT {
                     mimeType: metadata.mimeType,
                     status: metadata.status,
                     audioChunks: audioChunks,
-                    failedChunkIndices: metadata.failedChunkIndices || [] 
+                    failedChunkIndices: metadata.failedChunkIndices || [],
+                    chunkLengths: metadata.chunkLengths || []
                 };
 
                 console.log(`TTS_DURABLE_OBJECT: Retrieved job ${retrieveJobId}. Status: ${job.status}`);
@@ -501,6 +502,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
     const MAX_TEXT_LENGTH_CHARACTER_COUNT = 1500;
 
     let sentences;
+    let chunkLengths = [];
     console.log(`Orchestrator: Starting text splitting with option: ${splittingPreference}`);
     if (splittingPreference === 'characterCount') {
         const initialSentences = splitIntoSentences(fullText);
@@ -514,13 +516,16 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
             if (sentenceLength > MAX_TEXT_LENGTH_CHARACTER_COUNT) {
                 if (currentBatch.length > 0) {
                     batchedSentences.push(currentBatch.trim());
+                    chunkLengths.push(currentBatchLength);
                     currentBatch = '';
                     currentBatchLength = 0;
                 }
                 batchedSentences.push(sentence.trim());
+                chunkLengths.push(sentenceLength);
                 console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
             } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_CHARACTER_COUNT) {
                 batchedSentences.push(currentBatch.trim());
+                chunkLengths.push(currentBatchLength);
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
                 console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
@@ -533,15 +538,21 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
 
         if (currentBatch.length > 0) {
             batchedSentences.push(currentBatch.trim());
+            chunkLengths.push(currentBatchLength);
         }
 
         sentences = batchedSentences.filter(s => s.length > 0);
+        // Ensure chunkLengths matches the filtered sentences array
+        // This is a simplification; a more robust solution would track lengths directly with batches
+        chunkLengths = sentences.map(s => getTextCharacterCount(s));
         console.log(`Orchestrator: Using 'Sentence by Character Count' splitting (character count used as a proxy for token count). Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_CHARACTER_COUNT}.`);
     } else if (splittingPreference === 'none') {
         sentences = [fullText];
+        chunkLengths = [getTextCharacterCount(fullText)];
         console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
     } else {
         sentences = splitIntoSentences(fullText);
+        chunkLengths = sentences.map(s => getTextCharacterCount(s));
         console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text split into ${sentences.length} sentences.`);
     }
 
@@ -558,7 +569,8 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
             jobId,
             totalChunks,
             mimeType: expectedMimeType,
-            status: 'processing' 
+            status: 'processing',
+            chunkLengths 
         })
     }));
 
@@ -637,7 +649,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
         })()
     );
     
-    return new Response(JSON.stringify({ jobId, totalChunks, expectedMimeType }), {
+    return new Response(JSON.stringify({ jobId, totalChunks, expectedMimeType, chunkLengths }), {
         headers: { 'Content-Type': 'application/json' },
         status: 200
     });
