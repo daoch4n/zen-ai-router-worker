@@ -263,6 +263,10 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
         } catch (e) {
             
 
+if (e instanceof HttpError) {
+                console.error(`Orchestrator: HttpError during backend TTS fetch: ${e.message} (status: ${e.status}).`);
+                return { success: false, index: chunkIndex, errorMessage: e.message, status: e.status, timeoutMs: null };
+            }
             if (e.name === 'AbortError') {
                 return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504, timeoutMs: null };
             }
@@ -598,6 +602,10 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
     const id = env.TTS_JOBS.idFromName(jobId);
     const stub = env.TTS_JOBS.get(id);
 
+// Calculate overallOrchestratorTimeoutMs based on the max character count of all chunks
+    const maxCharacterCount = chunkLengths.length > 0 ? Math.max(...chunkLengths) : 0;
+    const backendCalculatedTimeoutForMax = Math.min(5000 + (maxCharacterCount * 35), 70000);
+    const overallOrchestratorTimeoutMs = Math.min(backendCalculatedTimeoutForMax + 5000, 75000);
     const storeMetadataResponse = await stub.fetch(new Request("https://dummy-url/store-metadata", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -656,8 +664,7 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
             });
 
             const results = await Promise.all(chunkPromises); // Use Promise.all since _callBackendTtsService now returns structured result
-const allTimeouts = results.map(r => r.timeoutMs).filter(t => t !== null);
-            const overallOrchestratorTimeoutMs = allTimeouts.length > 0 ? Math.max(...allTimeouts) : null;
+
 
             const successfulChunks = results.filter(r => r.status === 'fulfilled');
             const failedChunks = results.filter(r => r.status === 'failed');
