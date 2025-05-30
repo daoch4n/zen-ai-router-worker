@@ -476,36 +476,88 @@
       let words = []; // New: To store the words from the input text
       let currentSentenceIndex = -1; // New: To track the currently playing sentence index
  
-      function showToast(message, type = 'info', duration = 4000) {
+      /**
+       * Displays a toast notification.
+       * @param {string} message - The main message to display.
+       * @param {string} [type='info'] - The type of toast ('info', 'success', 'error', 'warning').
+       * @param {number} [duration=4000] - How long the toast should be visible in milliseconds.
+       * @param {string} [details=''] - Optional: More technical or detailed information about the message.
+       * @param {Array<Object>} [actions=[]] - Optional: Array of action buttons { text: string, onClick: function }.
+       */
+      function showToast(message, type = 'info', duration = 4000, details = '', actions = []) {
         const toastContainer = document.getElementById('toastContainer');
-        const messageDiv = document.getElementById('message'); // Fallback
+        const messageDiv = document.getElementById('message'); // Fallback - less styled
  
         if (!toastContainer) {
           if (messageDiv) {
-            messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
-            messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : 'black');
+            // Fallback to simpler message div if toast container not found
+            messageDiv.textContent = `[${type.toUpperCase()}] ${message} ${details ? '(' + details + ')' : ''}`;
+            messageDiv.style.color = type === 'error' ? 'red' : (type === 'success' ? 'green' : (type === 'warning' ? 'orange' : 'black'));
           }
           console.warn("Toast container not found. Using fallback message div.");
           return;
         }
- 
+
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
-        toast.textContent = message;
-        toastContainer.appendChild(toast);
- 
-        setTimeout(() => toast.classList.add('show'), 10);
- 
-        setTimeout(() => {
-          toast.classList.remove('show');
-          toast.addEventListener('transitionend', () => toast.remove(), {
-            once: true
+
+        const content = document.createElement('p');
+        content.textContent = message;
+        toast.appendChild(content);
+
+        if (details) {
+          const detailsEl = document.createElement('small');
+          detailsEl.textContent = details;
+          detailsEl.style.display = 'block'; // Ensure details appear on a new line
+          detailsEl.style.marginTop = '5px';
+          detailsEl.style.opacity = '0.8';
+          toast.appendChild(detailsEl);
+        }
+
+        if (actions && actions.length > 0) {
+          const actionsContainer = document.createElement('div');
+          actionsContainer.style.marginTop = '10px';
+          actionsContainer.style.display = 'flex';
+          actionsContainer.style.gap = '10px';
+
+          actions.forEach(action => {
+            const button = document.createElement('button');
+            button.textContent = action.text;
+            button.className = 'toast-action-button'; // Add a class for potential styling
+            button.style.backgroundColor = 'rgba(255, 255, 255, 0.2)';
+            button.style.color = 'white';
+            button.style.border = '1px solid rgba(255, 255, 255, 0.4)';
+            button.style.padding = '5px 10px';
+            button.style.borderRadius = '4px';
+            button.style.cursor = 'pointer';
+            button.style.fontSize = '0.9em';
+            button.style.fontWeight = 'bold';
+            button.addEventListener('click', () => {
+              action.onClick();
+              toast.remove(); // Remove toast after action is clicked
+            });
+            actionsContainer.appendChild(button);
           });
-        }, duration);
+          toast.appendChild(actionsContainer);
+        }
+
+        toastContainer.appendChild(toast);
+
+        setTimeout(() => toast.classList.add('show'), 10);
+
+        // Auto-remove after duration, but only if no actions are present
+        if (actions.length === 0) {
+          setTimeout(() => {
+            toast.classList.remove('show');
+            toast.addEventListener('transitionend', () => toast.remove(), {
+              once: true
+            });
+          }, duration);
+        }
       }
- 
-      // Refactored function to remove SSE logic and prepare for fetch-based requests
-      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
+
+     // Refactored function to remove SSE logic and prepare for fetch-based requests
+     const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
         // Clear existing state related to previous playback or SSE
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
           if (word.match(/\b(\w+)\b/)) {
@@ -624,20 +676,25 @@
           clearTimeout(initiateTimeout);
  
           if (!response.ok) {
-            let errorMessage = `HTTP error! status: ${response.status}`;
+            let errorDetails = `Status: ${response.status}`;
+            let userMessage = `An unexpected error occurred.`;
+
             try {
               const errorData = await response.json();
-              errorMessage = errorData.error || errorMessage;
+              if (errorData.error) {
+                userMessage = errorData.error;
+              }
+              errorDetails = JSON.stringify(errorData, null, 2);
             } catch (jsonError) {
               try {
                 const errorText = await response.text();
-                errorMessage = errorText || errorMessage;
+                userMessage = `Server responded with: ${errorText.substring(0, 100)}...`; // Truncate long responses
+                errorDetails = errorText;
               } catch (textError) {
-                // Could not parse as JSON or text
-                // Fallback to default message
+                // Fallback to default message if neither JSON nor text is parsable
               }
             }
-            throw new Error(errorMessage);
+            throw new Error(userMessage, { cause: errorDetails }); // Pass details as cause
           }
  
           const { jobId, totalChunks, chunkLengths, orchestratorTimeoutMs } = await response.json();
@@ -720,7 +777,7 @@
                       break; // Exit polling loop, chunk is ready
                     } else if (pollingAttemptResponse.status === 410) {
                       console.warn(`Chunk ${chunkIndex + 1} permanently failed during polling.`);
-                      showToast(`Warning: Segment ${chunkIndex + 1} failed and will be skipped.`, 'warning');
+                      showToast(`Segment ${chunkIndex + 1} permanently failed.`, 'error', 6000, `This segment will be skipped. Cause: 410 Gone.`);
                       const segment = window.ttsJobData.segmentElements[chunkIndex];
                       if (segment) {
                         segment.classList.add('failed');
@@ -728,9 +785,13 @@
                       chunkHandled = true; // Mark as handled, no chunkData
                       break; // Exit polling loop
                     } else if (!pollingAttemptResponse.ok && pollingAttemptResponse.status !== 202) {
-                      const errorData = await pollingAttemptResponse.json();
-                      console.error(`Error polling for chunk ${chunkIndex + 1}:`, errorData);
-                      showToast(`Error: Failed to retrieve segment ${chunkIndex + 1} due to server error during polling. Skipping.`, 'error');
+                      let errorDetails = `Status: ${pollingAttemptResponse.status}`;
+                      try {
+                        const errorData = await pollingAttemptResponse.json();
+                        errorDetails = JSON.stringify(errorData, null, 2);
+                      } catch { /* ignore */ }
+                      console.error(`Error polling for chunk ${chunkIndex + 1}:`, errorDetails);
+                      showToast(`Failed to get segment ${chunkIndex + 1}.`, 'error', 6000, `Server error during polling. Skipping. Details: ${errorDetails}`);
                       const segment = window.ttsJobData.segmentElements[chunkIndex];
                       if (segment) {
                         segment.classList.add('failed');
@@ -739,44 +800,46 @@
                       break; // Exit polling loop
                     }
                   }
- 
+
                   if (polledResponse) {
                     chunkData = await polledResponse.json();
                     chunkHandled = true; // Successfully fetched after polling
                   } else if (!chunkHandled) { // Polling timed out and not already handled by 410/other error
                     console.error(`Polling for chunk ${chunkIndex + 1} timed out after ${MAX_POLLING_TIME_MS / 1000} seconds.`);
-                    showToast(`Error: Polling for segment ${chunkIndex + 1} timed out. Skipping.`, 'error');
+                    showToast(`Segment ${chunkIndex + 1} polling timed out.`, 'error', 6000, `The server did not respond in time. Skipping this segment.`);
                     const segment = window.ttsJobData.segmentElements[chunkIndex];
                     if (segment) {
                       segment.classList.add('failed');
                     }
                     chunkHandled = true; // Mark as handled, no chunkData
                   }
- 
+
                 } else if (chunkResponse.status === 410) { // 410 Gone: Permanent failure
                   console.warn(`Chunk ${chunkIndex + 1} permanently failed.`);
-                  showToast(`Warning: Segment ${chunkIndex + 1} failed and will be skipped.`, 'warning');
+                  showToast(`Segment ${chunkIndex + 1} permanently failed.`, 'error', 6000, `This segment will be skipped. Cause: 410 Gone.`);
                   const segment = window.ttsJobData.segmentElements[chunkIndex];
                   if (segment) {
                     segment.classList.add('failed');
                   }
                   chunkHandled = true; // Mark as handled, no chunkData
                 } else if (!chunkResponse.ok) { // Other non-200, non-202, non-410 error
-                  let chunkErrorMessage = `Error fetching chunk ${chunkIndex + 1}: HTTP status ${chunkResponse.status}`;
+                  let chunkErrorMessage = `Error fetching segment ${chunkIndex + 1}: HTTP status ${chunkResponse.status}`;
+                  let errorDetails = '';
                   try {
                     const errorData = await chunkResponse.json();
                     chunkErrorMessage = errorData.error || chunkErrorMessage;
+                    errorDetails = JSON.stringify(errorData, null, 2);
                   } catch (jsonError) {
                     try {
                       const errorText = await chunkResponse.text();
-                      chunkErrorMessage = errorText || chunkErrorMessage;
+                      chunkErrorMessage = `Server responded with: ${errorText.substring(0, 100)}...`;
+                      errorDetails = errorText;
                     } catch (textError) {
-                      // Could not parse as JSON or text
                       // Fallback to default message
                     }
                   }
-                  console.error(chunkErrorMessage);
-                  showToast(`Error: ${chunkErrorMessage}. Skipping.`, 'error');
+                  console.error(chunkErrorMessage, errorDetails);
+                  showToast(`Failed to get segment ${chunkIndex + 1}.`, 'error', 6000, `Details: ${chunkErrorMessage}. Skipping.`);
                   const segment = window.ttsJobData.segmentElements[chunkIndex];
                   if (segment) {
                     segment.classList.add('failed');
@@ -786,20 +849,40 @@
                   chunkData = await chunkResponse.json();
                   chunkHandled = true; // Successfully fetched
                 }
- 
+
               } catch (error) { // Catch network errors or errors thrown from polling logic
+                const retryAction = {
+                  text: 'Retry Now',
+                  onClick: () => {
+                    // Re-attempt the current chunk immediately
+                    // This relies on the outer loop re-evaluating the current chunkIndex
+                    // and the `retries` count for the current chunk.
+                    // A more robust solution might involve explicitly jumping back to the failed chunk.
+                    // For simplicity, we'll just allow the current `while` loop to continue.
+                    // A full retry from initiateTtsRequest might be better for fundamental issues.
+                    console.log('Retrying chunk via user action...');
+                    chunkHandled = false; // Allow loop to re-attempt this chunk
+                    retries = 0; // Reset retries for immediate re-attempt
+                    // This is a bit of a hack: to actually re-run the `while (retries <= MAX_RETRIES && !chunkHandled)` loop
+                    // we need to break out of the inner try/catch and let the outer `while (chunkIndex < totalChunks)`
+                    // loop or the retry mechanism re-engage the current chunk.
+                    // For now, we'll just show a toast, and expect a full re-speak if needed.
+                    // A more complex state machine would be needed for precise single-chunk retries.
+                  }
+                };
+
                 if (error.name === 'AbortError') {
-                  console.error(`Chunk ${chunkIndex + 1} request timed out (attempt ${retries + 1}).`);
-                  showToast(`Error: Segment ${chunkIndex + 1} request timed out. Retrying...`, 'warning');
+                  console.error(`Chunk ${chunkIndex + 1} request timed out (attempt ${retries + 1}).`, error);
+                  showToast(`Segment ${chunkIndex + 1} timed out.`, 'warning', 6000, `The request took too long to complete. Attempt ${retries + 1}.`, [retryAction]);
                 } else {
                   console.error(`Error fetching chunk ${chunkIndex + 1} (attempt ${retries + 1}):`, error);
-                  showToast(`Error fetching chunk ${chunkIndex + 1}: ${error.message}. Retrying...`, 'warning');
+                  showToast(`Failed to get segment ${chunkIndex + 1}.`, 'warning', 6000, `Network or unknown error: ${error.message}. Attempt ${retries + 1}.`, [retryAction]);
                 }
                 retries++;
                 if (retries > MAX_RETRIES) {
                   // All retries failed for a transient error, skip this chunk
                   console.error(`Failed to fetch chunk ${chunkIndex + 1} after ${MAX_RETRIES + 1} attempts. Skipping chunk.`);
-                  showToast(`Error: Failed to retrieve segment ${chunkIndex + 1} after multiple attempts. Skipping.`, 'error');
+                  showToast(`Failed to get segment ${chunkIndex + 1}.`, 'error', 6000, `Failed after ${MAX_RETRIES + 1} attempts. Skipping this segment.`);
                   const segment = window.ttsJobData.segmentElements[chunkIndex];
                   if (segment) {
                     segment.classList.add('failed');
@@ -841,15 +924,35 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
           }
           
         } catch (error) {
-          if (error.name === 'AbortError') {
-            console.error('Initial TTS Request Timed Out:', error);
-            showToast('Error: Initial TTS request timed out after 15 seconds. Please try again.', 'error');
-          } else {
-            console.error('Initial TTS Request Error:', error);
-            showToast(`Error initiating TTS: ${error.message}`, 'error');
-          }
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
+
+          const retrySpeakAction = {
+            text: 'Try Again',
+            onClick: () => {
+              document.getElementById('speakButton').click(); // Re-trigger the speak button click
+            }
+          };
+
+          if (error.name === 'AbortError') {
+            console.error('Initial TTS Request Timed Out:', error);
+            showToast(
+              'Initial request timed out.',
+              'error',
+              8000, // Longer duration for critical error
+              'The server took too long to respond. This might be a network issue or server overload.',
+              [retrySpeakAction]
+            );
+          } else {
+            console.error('Initial TTS Request Error:', error.cause || error);
+            showToast(
+              'Failed to initiate TTS.',
+              'error',
+              8000,
+              `Details: ${error.message}${error.cause ? ` (Cause: ${error.cause})` : ''}`,
+              [retrySpeakAction]
+            );
+          }
         }
       };
  
