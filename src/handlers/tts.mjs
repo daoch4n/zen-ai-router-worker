@@ -172,7 +172,8 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
     return {
       base64Audio,
       mimeType: hardcodedMimeType,
-      sampleRate: hardcodedSampleRate
+      sampleRate: hardcodedSampleRate,
+      orchestratorTimeoutMs: timeoutMs
     };
 
   } catch (error) {
@@ -203,8 +204,8 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
  * @param {string} mimeType - MIME type of the audio.
  * @returns {Response} HTTP Response containing the JSON encoded audio data.
  */
-function processAudioDataJSONResponse(audioContentBase64, mimeType) {
-  return new Response(JSON.stringify({ audioContentBase64, mimeType }), fixCors({
+function processAudioDataJSONResponse(audioContentBase64, mimeType, orchestratorTimeoutMs) {
+  return new Response(JSON.stringify({ audioContentBase64, mimeType, orchestratorTimeoutMs }), fixCors({
     status: 200,
     headers: {
       'Content-Type': 'application/json'
@@ -257,7 +258,6 @@ export async function handleTTS(request, apiKey) {
     }
 
     // Enhanced validation using new validation functions
-
     // Validate text length and format (includes byte-length checking)
     validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
 
@@ -282,7 +282,7 @@ export async function handleTTS(request, apiKey) {
     });
 
     // Call Google Generative AI API to generate audio
-    const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
+    const { base64Audio, mimeType, sampleRate, orchestratorTimeoutMs } = await callGoogleTTSAPI(
       model.trim(),
       googleApiRequestBody,
       apiKey,
@@ -359,7 +359,6 @@ export async function handleRawTTS(request, env, event, apiKey) {
     }
 
     // Enhanced validation using new validation functions
-
     // Validate text length and format (includes byte-length checking)
     validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
 
@@ -386,16 +385,17 @@ export async function handleRawTTS(request, env, event, apiKey) {
     // Determine if TTS generation should be immediate or asynchronous
     if (text.length <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {
       // Immediate TTS generation for shorter texts
-      const { base64Audio, mimeType } = await callGoogleTTSAPI(
+      const { base64Audio, mimeType, orchestratorTimeoutMs } = await callGoogleTTSAPI(
         model.trim(),
         googleApiRequestBody,
         apiKey,
         text.length // Pass character count for dynamic timeout
       );
       // Return Base64 encoded audio in JSON format
-      return processAudioDataJSONResponse(base64Audio, mimeType);
+      return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
     } else {
       // Asynchronous TTS generation for longer texts
+      const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
       const jobId = uuidv4();
       const id = env.TTS_JOB_DURABLE_OBJECT.idFromName(jobId);
       const stub = env.TTS_JOB_DURABLE_OBJECT.get(id);
@@ -424,7 +424,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
           await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ result: result.base64Audio })
+            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType })
           }));
         }).catch(async (error) => {
           console.error(`TTS job ${jobId} failed:`, error);
@@ -439,7 +439,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
       // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
       // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
       // Return 202 Accepted with the jobId
-      return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
+      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs }), fixCors({
         status: 202,
         headers: {
           'Content-Type': 'application/json',
