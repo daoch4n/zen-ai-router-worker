@@ -186,6 +186,7 @@
       margin-top: 10px;
       overflow: hidden;
       display: flex; /* Make it a flex container */
+      position: relative; /* Ensure this is relative for absolute children */
     }
 
     .progress-segment {
@@ -224,12 +225,16 @@
     }
 
     #playbackProgressBarContainer {
-      width: 80%;
-      background-color: #e0e0e0;
+      position: absolute; /* Added */
+      left: 0;           /* Added */
+      top: 0;            /* Added */
+      width: 100%;       /* Changed from 80% */
+      height: 100%;      /* Changed from 10px */
+      background-color: transparent; /* Changed from #e0e0e0 */
       border-radius: 5px;
-      height: 10px;
-      margin-top: 10px;
+      /* margin-top: 10px; */ /* Removed */
       overflow: hidden;
+      z-index: 2;        /* Added */
     }
 
     #playbackProgressBar {
@@ -238,6 +243,8 @@
       background-color: #28a745; /* Green color for playback */
       border-radius: 5px;
       transition: width 0.1s ease-out;
+      position: absolute; /* Added */
+      top: 0;             /* Added */
     }
     
 
@@ -386,11 +393,9 @@
     </div>
     <label>Overall Progress:</label>
     <div id="overallProgressBarContainer" style="display: block;">
-    </div>
- 
-    <label for="playbackProgressBar">Audio Playback Progress:</label>
-    <div id="playbackProgressBarContainer" style="display: block;">
-      <div id="playbackProgressBar"></div>
+      <div id="playbackProgressBarContainer" style="display: block;">
+        <div id="playbackProgressBar"></div>
+      </div>
     </div>
     <div id="message" class="message"></div>
     <div id="toastContainer" class="toast-container"></div>
@@ -444,7 +449,7 @@
       }
  
       // Refactored function to remove SSE logic and prepare for fetch-based requests
-      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
+      const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
         // Clear existing state related to previous playback or SSE
         words = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
           if (word.match(/\b(\w+)\b/)) {
@@ -474,7 +479,7 @@
  
         loadingText.textContent = 'Playing...';
         overallProgressBarContainer.style.display = 'block';
-        overallProgressBar.style.width = '0%';
+        
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
  
@@ -498,7 +503,7 @@
               fullAudioBuffers.push(buffer);
               audioQueue.push({ buffer, index: currentChunkIndex, sentenceMapping });
               if (!currentSource) {
-                playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
+                playNextChunk(textDisplayArea, playbackProgressBar, playbackProgressBarContainer);
               }
  
               // Update word sentence indices
@@ -769,7 +774,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
         }
       };
  
-      const playNextChunk = (textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer) => {
+      const playNextChunk = (textDisplayArea, playbackProgressBar, playbackProgressBarContainer) => {
         if (audioQueue.length > 0) {
           const { buffer, index } = audioQueue.shift();
  
@@ -791,12 +796,12 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
           }
  
           // Position playbackProgressBar over the active segment
-          playbackProgressBarContainer.style.display = 'block';
-          playbackProgressBarContainer.style.position = 'absolute';
-          playbackProgressBarContainer.style.left = `${currentSegment.offsetLeft}px`;
-          playbackProgressBarContainer.style.width = `${currentSegment.offsetWidth}px`;
-          playbackProgressBarContainer.style.top = `${currentSegment.offsetTop}px`; // Align with segment
-          playbackProgressBarContainer.style.height = `${currentSegment.offsetHeight}px`; // Match segment height
+          playbackProgressBarContainer.style.display = 'block'; // Keep this to show/hide the container
+          // Removed: playbackProgressBarContainer.style.position = 'absolute';
+          playbackProgressBar.style.left = `${currentSegment.offsetLeft}px`;
+          playbackProgressBar.style.width = `${currentSegment.offsetWidth}px`;
+          // Removed: playbackProgressBarContainer.style.top = `${currentSegment.offsetTop}px`;
+          // Removed: playbackProgressBarContainer.style.height = `${currentSegment.offsetHeight}px`;
           playbackProgressBar.style.width = '0%'; // Reset for new chunk
  
           playStartTime = audioContext.currentTime;
@@ -840,7 +845,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
             }
  
             if (audioQueue.length > 0) {
-              playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
+              playNextChunk(textDisplayArea, playbackProgressBar, playbackProgressBarContainer);
             } else {
               currentSource = null;
               clearAllHighlights(textDisplayArea);
@@ -954,7 +959,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
       const textDisplayArea = document.getElementById('textDisplayArea');
       const loadingText = document.getElementById('loadingText');
       const overallProgressBarContainer = document.getElementById('overallProgressBarContainer');
-      const overallProgressBar = document.getElementById('overallProgressBar');
+      
       const playbackProgressBarContainer = document.getElementById('playbackProgressBarContainer');
       const playbackProgressBar = document.getElementById('playbackProgressBar');
       
@@ -1043,7 +1048,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
         loadingIndicator.style.display = 'flex';
         loadingText.textContent = 'Connecting...';
         overallProgressBarContainer.style.display = 'none';
-        overallProgressBar.style.width = '0%';
+        
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
         textDisplayArea.style.display = 'none'; // Hide text display initially
@@ -1070,7 +1075,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
  
       // Use the configurable model
       const model = document.getElementById('ttsModelInput').value;
-          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
+          await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
           showToast(`Error: ${error.message}`, 'error');
@@ -1078,7 +1083,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
           overallProgressBarContainer.style.display = 'none';
-          overallProgressBar.style.width = '0%';
+          
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
         }
