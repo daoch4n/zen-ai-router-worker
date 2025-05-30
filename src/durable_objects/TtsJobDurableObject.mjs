@@ -42,6 +42,14 @@ export class TtsJobDurableObject {
 
   async handleInitJob(request, jobId) {
     try {
+// Check if a job with this ID already exists
+      const existingJob = await this.storage.get(jobId);
+      if (existingJob) {
+        return new Response(JSON.stringify({ error: 'Job with this ID already exists' }), {
+          headers: { 'Content-Type': 'application/json' },
+          status: 409, // Conflict
+        });
+      }
       const { text, model, voiceId } = await request.json();
       const jobData = {
         jobId,
