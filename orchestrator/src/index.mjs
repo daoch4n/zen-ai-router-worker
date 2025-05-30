@@ -560,6 +560,9 @@ async function handleTtsInitiate(request, env, backendServices, numSrcWorkers, c
 
             const results = await Promise.allSettled(chunkPromises);
 
+// Design Decision: Current behavior (fail all on any chunk failure) is deemed appropriate.
+            // A single chunk failure invalidates the entire process to maintain data integrity
+            // and prevent partial or corrupted audio delivery to the client.
             const failedChunks = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && r.value.error));
             if (failedChunks.length > 0) {
                 console.error(`Orchestrator: ${failedChunks.length} chunks failed during asynchronous TTS generation for job ${jobId}.`);
