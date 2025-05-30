@@ -1,6 +1,6 @@
 import { RouterCounter } from './routerCounter.mjs';
 import { fixCors } from './utils/cors.mjs';
-import { HttpError } from './utils/error.mjs';
+import { HttpError, errorHandler } from './utils/error.mjs';
 import { handleOPTIONS } from './utils/cors.mjs';
 import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
 export { RouterCounter };
@@ -14,6 +14,7 @@ export default {
   ) {
     const url = new URL(request.url);
     console.log(`Orchestrator: Incoming request: ${request.method} ${url.pathname}`);
+    try {
 
     const backendServices = Object.keys(env)
       .filter(key => key.startsWith("BACKEND_SERVICE_"))
@@ -57,16 +58,14 @@ export default {
         return new Response("Failed to select target worker for routing.", { status: 500 });
       }
 
-      try {
-        const response = await targetService.fetch(request);
-        console.log(`Orchestrator: Response status from target worker: ${response.status}`);
-        return response;
-      } catch (error) {
-        console.error(`Orchestrator: Error during fetch to target service ${targetService}:`, error);
-        return new Response("Service Unavailable: Target worker failed or is unreachable.", { status: 503 });
-      }
-    }
-  },
+      const response = await targetService.fetch(request);
+      console.log(`Orchestrator: Response status from target worker: ${response.status}`);
+      return response;
+    } // Closes the 'else' block from line 44
+  } catch (e) { // Closes the 'try' block from line 17
+    return errorHandler(e, fixCors, request);
+  }
+}, // Closes the 'fetch' method definition, comma for 'export default' object
 };
 
 const DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"; // Updated model name
@@ -93,20 +92,14 @@ async function handleRawTTS(request, env, backendServices, numSrcWorkers) {
         return new Response('Missing required parameters: text, voiceId, or model', { status: 400 });
     }
 
-    try {
-        // For rawTTS, the characterCount for timeout calculation would be text.length
-        const characterCount = getTextCharacterCount(text);
-        const { audioContentBase64, mimeType } = await _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers, undefined, characterCount);
+    // For rawTTS, the characterCount for timeout calculation would be text.length
+    const characterCount = getTextCharacterCount(text);
+    const { audioContentBase64, mimeType } = await _callBackendTtsService(text, voiceId, model, apiKey, env, backendServices, numSrcWorkers, undefined, characterCount);
 
-        return new Response(JSON.stringify({ audioContentBase64, mimeType }), {
-            headers: { 'Content-Type': 'application/json' },
-            status: 200
-        });
-    } catch (e) {
-        console.error(`Orchestrator: Error during raw TTS fetch:`, e);
-        const status = e instanceof HttpError ? e.status : 500;
-        return new Response(`Error processing raw TTS: ${e.message}`, { status: status });
-    }
+    return new Response(JSON.stringify({ audioContentBase64, mimeType }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200
+    });
 }
 
 /**
@@ -296,59 +289,52 @@ async function handleTtsChunk(request, env) {
     const chunkIndex = parseInt(searchParams.get('chunkIndex'), 10);
 
     if (!jobId || isNaN(chunkIndex)) {
-        return new Response('Missing or invalid parameters: jobId or chunkIndex', { status: 400 });
+        throw new HttpError('Missing or invalid parameters: jobId or chunkIndex', 400);
     }
 
-    try {
-        const id = env.TTS_JOBS.idFromName(jobId);
-        const stub = env.TTS_JOBS.get(id);
+    const id = env.TTS_JOBS.idFromName(jobId);
+    const stub = env.TTS_JOBS.get(id);
 
-        const metadataResponse = await stub.fetch(new Request(`https://dummy-url/retrieve?jobId=${jobId}`));
-        if (!metadataResponse.ok) {
-            console.error(`Orchestrator: Failed to retrieve TTS job metadata ${jobId} from Durable Object: ${await metadataResponse.text()}`);
-            return new Response('Failed to retrieve TTS job metadata.', { status: metadataResponse.status });
-        }
-        const jobMetadata = await metadataResponse.json();
+    const metadataResponse = await stub.fetch(new Request(`https://dummy-url/retrieve?jobId=${jobId}`));
+    if (!metadataResponse.ok) {
+        console.error(`Orchestrator: Failed to retrieve TTS job metadata ${jobId} from Durable Object: ${await metadataResponse.text()}`);
+        throw new HttpError('Failed to retrieve TTS job metadata.', metadataResponse.status);
+    }
+    const jobMetadata = await metadataResponse.json();
 
-        if (!jobMetadata || chunkIndex < 0 || chunkIndex >= jobMetadata.totalChunks) {
-            return new Response('Chunk not found or invalid chunkIndex', { status: 404 });
-        }
+    if (!jobMetadata || chunkIndex < 0 || chunkIndex >= jobMetadata.totalChunks) {
+        throw new HttpError('Chunk not found or invalid chunkIndex', 404);
+    }
 
-        // Step 1: Check Metadata for Failed Chunks
-        if (jobMetadata.failedChunkIndices && jobMetadata.failedChunkIndices.includes(chunkIndex)) {
-            console.log(`Orchestrator: Chunk ${chunkIndex} for job ${jobId} is permanently failed.`);
-            return new Response('Chunk permanently failed', { status: 410 });
-        }
+    // Step 1: Check Metadata for Failed Chunks
+    if (jobMetadata.failedChunkIndices && jobMetadata.failedChunkIndices.includes(chunkIndex)) {
+        console.log(`Orchestrator: Chunk ${chunkIndex} for job ${jobId} is permanently failed.`);
+        throw new HttpError('Chunk permanently failed', 410);
+    }
 
-        // Step 2: Attempt Chunk Retrieval
-        const chunkResponse = await stub.fetch(new Request(`https://dummy-url/retrieve-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`));
+    // Step 2: Attempt Chunk Retrieval
+    const chunkResponse = await stub.fetch(new Request(`https://dummy-url/retrieve-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`));
 
-        // Step 3: Handle DO Response
-        if (chunkResponse.status === 200) {
-            console.log(`Orchestrator: Successfully retrieved chunk ${chunkIndex} for job ${jobId}.`);
-            const audioContentBase64 = await chunkResponse.text();
-            const mimeType = jobMetadata.mimeType || 'audio/L16;rate=24000';
-            const sentenceMapping = jobMetadata.sentenceMapping || []; // Retrieve sentenceMapping
+    // Step 3: Handle DO Response
+    if (chunkResponse.status === 200) {
+        console.log(`Orchestrator: Successfully retrieved chunk ${chunkIndex} for job ${jobId}.`);
+        const audioContentBase64 = await chunkResponse.text();
+        const mimeType = jobMetadata.mimeType || 'audio/L16;rate=24000';
+        const sentenceMapping = jobMetadata.sentenceMapping || []; // Retrieve sentenceMapping
 
-            // Filter sentenceMapping to only include entries for the current chunk
-            const relevantSentenceMapping = sentenceMapping.filter(item => item.chunkIndex === chunkIndex);
+        // Filter sentenceMapping to only include entries for the current chunk
+        const relevantSentenceMapping = sentenceMapping.filter(item => item.chunkIndex === chunkIndex);
 
-            return new Response(JSON.stringify({ audioContentBase64, mimeType, index: chunkIndex, status: jobMetadata.status, sentenceMapping: relevantSentenceMapping }), {
-                headers: { 'Content-Type': 'application/json' },
-                status: 200
-            });
-        } else if (chunkResponse.status === 202) {
-            console.log(`Orchestrator: Chunk ${chunkIndex} for job ${jobId} not yet available, polling required.`);
-            return new Response('Chunk not yet available', { status: 202 });
-        } else {
-            console.error(`Orchestrator: Failed to retrieve chunk ${chunkIndex} for job ${jobId}: ${await chunkResponse.text()} (status: ${chunkResponse.status})`);
-            return new Response('Failed to retrieve TTS chunk.', { status: 500 });
-        }
-
-    } catch (e) {
-        console.error(`Orchestrator: Error handling TTS chunk request:`, e);
-        const status = e instanceof HttpError ? e.status : 500;
-        return new Response(`Error retrieving TTS chunk: ${e.message}`, { status: status });
+        return new Response(JSON.stringify({ audioContentBase64, mimeType, index: chunkIndex, status: jobMetadata.status, sentenceMapping: relevantSentenceMapping }), {
+            headers: { 'Content-Type': 'application/json' },
+            status: 200
+        });
+    } else if (chunkResponse.status === 202) {
+        console.log(`Orchestrator: Chunk ${chunkIndex} for job ${jobId} not yet available, polling required.`);
+        return new Response('Chunk not yet available', { status: 202 });
+    } else {
+        console.error(`Orchestrator: Failed to retrieve chunk ${chunkIndex} for job ${jobId}: ${await chunkResponse.text()} (status: ${chunkResponse.status})`);
+        throw new HttpError('Failed to retrieve TTS chunk.', 500);
     }
 }
 

@@ -20,20 +20,17 @@ import {
   VOICE_NAME_PATTERNS
 } from '../constants/index.mjs';
 
-
-
-
 /**
  * Constructs the request body for Google Generative AI TTS API.
  * Supports both single-speaker and multi-speaker configurations.
  *
  * @param {Object} params - Parameters for TTS request
  * @param {string} params.text - Text to synthesize
- * @param {string} params.voiceName - Primary voice name
+ * @param {string} params.voiceId - Primary voice ID
  * @param {string|null} params.secondVoiceName - Secondary voice name (optional)
  * @returns {Object} Google API request body structure
  */
-function constructGoogleTTSRequestBody({ text, voiceName, secondVoiceName }) {
+function constructGoogleTTSRequestBody({ text, voiceId, secondVoiceName }) {
   // Base request structure with contents array
   const requestBody = {
     contents: [
@@ -60,7 +57,7 @@ function constructGoogleTTSRequestBody({ text, voiceName, secondVoiceName }) {
           speaker: "Speaker 1",
           voiceConfig: {
             prebuiltVoiceConfig: {
-              voiceName: voiceName
+              voiceName: voiceId
             }
           }
         },
@@ -78,7 +75,7 @@ function constructGoogleTTSRequestBody({ text, voiceName, secondVoiceName }) {
     // Single-speaker configuration
     requestBody.generationConfig.speechConfig.voiceConfig = {
       prebuiltVoiceConfig: {
-        voiceName: voiceName
+        voiceName: voiceId
       }
     };
   }
@@ -198,11 +195,10 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, timeoutMs) {
  *
  * @param {string} audioContentBase64 - Base64 encoded audio data.
  * @param {string} mimeType - MIME type of the audio.
- * @param {number} orchestratorTimeoutMs - The timeout used for the orchestrator.
  * @returns {Response} HTTP Response containing the JSON encoded audio data.
  */
-function processAudioDataJSONResponse(audioContentBase64, mimeType, orchestratorTimeoutMs) {
-  return new Response(JSON.stringify({ audioContentBase64, mimeType, orchestratorTimeoutMs }), fixCors({
+function processAudioDataJSONResponse(audioContentBase64, mimeType) {
+  return new Response(JSON.stringify({ audioContentBase64, mimeType }), fixCors({
     status: 200,
     headers: {
       'Content-Type': 'application/json'
@@ -226,61 +222,56 @@ export async function handleTTS(request, apiKey) {
       throw new HttpError("API key is required", 401);
     }
 
-    // Parse query parameters for voice configuration
-    const url = new URL(request.url);
-    const voiceName = url.searchParams.get('voiceName');
-    const secondVoiceName = url.searchParams.get('secondVoiceName');
-
-    // Parse JSON request body for text and model
+    // Parse JSON request body for text, model, and voice configuration
     let requestBody;
     try {
       requestBody = await request.json();
     } catch (jsonError) {
       throw new HttpError("Invalid JSON in request body", 400);
     }
-
-    const { text, model } = requestBody;
-
+ 
+    const { text, model, voiceId, secondVoiceName } = requestBody;
+ 
     // Validate required fields
-    if (!voiceName) {
-      throw new HttpError("voiceName query parameter is required", 400);
+    if (!voiceId) {
+      throw new HttpError("voiceId field is required in request body", 400);
     }
-
+ 
     if (!text) {
       throw new HttpError("text field is required in request body", 400);
     }
-
+ 
     if (!model) {
       throw new HttpError("model field is required in request body", 400);
     }
-
+ 
     // Enhanced validation using new validation functions
     // Validate text length and format (includes byte-length checking)
     validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
-
+ 
     // Validate model format
     if (typeof model !== 'string' || model.trim().length === 0) {
       throw new HttpError("model must be a non-empty string", 400);
     }
-
-    // Validate voice name format using pattern matching
-    validateVoiceName(voiceName, VOICE_NAME_PATTERNS);
-
+ 
+    // Validate voice ID format using pattern matching
+    validateVoiceName(voiceId, VOICE_NAME_PATTERNS);
+ 
     // Validate secondVoiceName if provided
     if (secondVoiceName !== null) {
       validateVoiceName(secondVoiceName, VOICE_NAME_PATTERNS);
     }
-
+ 
     // Construct Google Generative AI TTS request body
     const googleApiRequestBody = constructGoogleTTSRequestBody({
       text: text.trim(),
-      voiceName: voiceName.trim(),
+      voiceId: voiceId.trim(),
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
-
+ 
     // Calculate dynamic timeout with a cap of 70 seconds
     const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
-
+ 
     // Call Google Generative AI API to generate audio
     const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
       model.trim(),
@@ -288,28 +279,9 @@ export async function handleTTS(request, apiKey) {
       apiKey,
       orchestratorTimeoutMs // Pass calculated timeout
     );
-
-    // Decode base64 audio data to binary PCM data
-    const pcmAudioData = decodeBase64Audio(base64Audio);
-
-    // Calculate the length of PCM data for WAV header
-    const dataLength = pcmAudioData.length;
-
-    // Generate WAV header with parsed sample rate, mono channel, 16 bits per sample
-    const wavHeader = generateWavHeader(dataLength, sampleRate, 1, 16);
-
-    // Concatenate WAV header and PCM audio data
-    const wavFileData = new Uint8Array(wavHeader.length + pcmAudioData.length);
-    wavFileData.set(wavHeader, 0);
-    wavFileData.set(pcmAudioData, wavHeader.length);
-
-    // Return the complete WAV file as binary response
-    return new Response(wavFileData, fixCors({
-      status: 200,
-      headers: {
-        'Content-Type': 'audio/wav'
-      }
-    }));
+ 
+    // Return Base64 encoded audio in JSON format
+    return processAudioDataJSONResponse(base64Audio, mimeType);
   } catch (err) {
     // Use centralized error handler for consistent error responses
     return errorHandler(err, fixCors);
@@ -341,50 +313,50 @@ export async function handleRawTTS(request, env, event, apiKey) {
     } catch (jsonError) {
       throw new HttpError("Invalid JSON in request body", 400);
     }
-
-    // Extract voiceName and secondVoiceName from the request body
-    const { text, model, voiceName, secondVoiceName } = requestBody;
-
+ 
+    // Extract voiceId and secondVoiceName from the request body
+    const { text, model, voiceId, secondVoiceName } = requestBody;
+ 
     // Validate required fields
-    if (!voiceName) {
-      throw new HttpError("voiceName field is required in request body", 400);
+    if (!voiceId) {
+      throw new HttpError("voiceId field is required in request body", 400);
     }
-
+ 
     if (!text) {
       throw new HttpError("text field is required in request body", 400);
     }
-
+ 
     if (!model) {
       throw new HttpError("model field is required in request body", 400);
     }
-
+ 
     // Enhanced validation using new validation functions
     // Validate text length and format (includes byte-length checking)
     validateTextLength(text, TTS_LIMITS.MAX_TEXT_BYTES, TTS_LIMITS.MIN_TEXT_LENGTH);
-
+ 
     // Validate model format
     if (typeof model !== 'string' || model.trim().length === 0) {
       throw new HttpError("model must be a non-empty string", 400);
     }
-
-    // Validate voice name format using pattern matching
-    validateVoiceName(voiceName, VOICE_NAME_PATTERNS);
-
+ 
+    // Validate voice ID format using pattern matching
+    validateVoiceName(voiceId, VOICE_NAME_PATTERNS);
+ 
     // Validate secondVoiceName if provided
     if (secondVoiceName !== null) {
       validateVoiceName(secondVoiceName, VOICE_NAME_PATTERNS);
     }
-
+ 
     // Construct Google Generative AI TTS request body
     const googleApiRequestBody = constructGoogleTTSRequestBody({
       text: text.trim(),
-      voiceName: voiceName.trim(),
+      voiceId: voiceId.trim(),
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
-
+ 
     // Calculate dynamic timeout with a cap of 70 seconds for orchestrator
     const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
-
+ 
     // Determine if TTS generation should be immediate or asynchronous
     if (text.length <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {
       // Immediate TTS generation for shorter texts
@@ -395,14 +367,14 @@ export async function handleRawTTS(request, env, event, apiKey) {
         orchestratorTimeoutMs // Pass calculated timeout
       );
       // Return Base64 encoded audio in JSON format
-      return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
+      return processAudioDataJSONResponse(base64Audio, mimeType);
     } else {
       // Asynchronous TTS generation for longer texts
       
       const jobId = uuidv4();
       const id = env.TTS_JOB_DURABLE_OBJECT.idFromName(jobId);
       const stub = env.TTS_JOB_DURABLE_OBJECT.get(id);
-
+ 
       // Store initial job data in Durable Object
       event.waitUntil(stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/init`, {
         method: 'POST',
@@ -410,12 +382,12 @@ export async function handleRawTTS(request, env, event, apiKey) {
         body: JSON.stringify({
           text: text.trim(),
           model: model.trim(),
-          voiceId: voiceName.trim(),
+          voiceId: voiceId.trim(),
           secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null,
           status: 'processing'
         })
       })));
-
+ 
       // Asynchronously call the TTS API and store the result
       event.waitUntil(
         callGoogleTTSAPI(
@@ -427,7 +399,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
           await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: orchestratorTimeoutMs })
+            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType })
           }));
         }).catch(async (error) => {
           console.error(`TTS job ${jobId} failed:`, error);
@@ -438,11 +410,11 @@ export async function handleRawTTS(request, env, event, apiKey) {
           }));
         })
       );
-
+ 
       // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
       // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
       // Return 202 Accepted with the jobId
-      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs: orchestratorTimeoutMs }), fixCors({
+      return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
         status: 202,
         headers: {
           'Content-Type': 'application/json',
@@ -502,9 +474,8 @@ export async function handleTtsResult(request, env, event, apiKey) {
       if (!jobResultResponse.ok) {
         throw new HttpError(`Failed to retrieve job result for ID ${jobId}`, jobResultResponse.status);
       }
-      const { base64Audio, mimeType, orchestratorTimeoutMs } = await jobResultResponse.json();
-
-      return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
+      const { base64Audio, mimeType } = await jobResultResponse.json();
+      return processAudioDataJSONResponse(base64Audio, mimeType);
     } else if (status === 'failed') {
       const jobResultResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/result`));
       const { error } = await jobResultResponse.json();

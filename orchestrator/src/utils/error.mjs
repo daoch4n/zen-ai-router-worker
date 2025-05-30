@@ -1,3 +1,5 @@
+import { logger } from './logger.mjs';
+
 /**
  * Error handling utilities for HTTP request processing.
  * Provides custom error types and centralized error response handling.
@@ -128,7 +130,10 @@ export function validateVoiceName(voiceName, patterns) {
  * @param {Function} fixCors - Function to apply CORS headers to response
  * @returns {Response} HTTP response with error message and appropriate status
  */
-export const errorHandler = (err, fixCors) => {
-  console.error(err);
+export const errorHandler = (err, fixCors, request = null) => {
+  logger.error(err, "Unhandled error during request processing", {
+    url: request ? request.url : 'N/A',
+    method: request ? request.method : 'N/A',
+  });
   return new Response(err.message, fixCors({ status: err.status ?? 500 }));
 };
