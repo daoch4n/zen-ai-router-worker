@@ -224,20 +224,26 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 // Pass the calculated timeout to the polling function
                 const pollResult = await _pollForTtsResult(targetService, jobId, apiKey, timeoutMs);
                 return { success: true, ...pollResult };
-            } else if (!response.ok) {
-                if (i < maxRetries) {
+            } else if (response.ok) {
+                // Existing handling for successful fetch (2xx responses other than 202)
+            } else { // response.status is not 2xx or 202
+                const RETRYABLE_STATUSES = [429, 500, 502, 503, 504]; // Define transient, retryable HTTP status codes
+
+                if (RETRYABLE_STATUSES.includes(response.status) && i < maxRetries) {
                     const delay = Math.pow(2, i) * baseDelayMs;
                     console.warn(`Orchestrator: Backend TTS fetch failed (status: ${response.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                     continue;
                 } else {
+                    // Non-retryable HTTP error or max retries reached for a retryable error
                     let errorData;
                     try {
                         errorData = await response.json();
                     } catch (e) {
                         errorData = { message: await response.text() };
                     }
-                    return { success: false, index: chunkIndex, errorMessage: errorData.message || `Backend TTS failed after retries with status ${response.status}` };
+                    console.error(`Orchestrator: Backend TTS failed with non-retryable status ${response.status} or max retries reached. Error: ${errorData.message}`);
+                    return { success: false, index: chunkIndex, errorMessage: errorData.message || `Backend TTS failed with status ${response.status}`, status: response.status };
                 }
             }
 
