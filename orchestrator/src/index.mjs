@@ -123,42 +123,63 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
         'Authorization': `Bearer ${apiKey}`
     };
 
-    try {
-        const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
-            method: 'POST',
-            headers: headersToSend,
-            body: JSON.stringify({
-                text: text.trim(),
-                model: model,
-                voiceId: voiceId
-            }),
-        }));
+    const maxRetries = 3; // Maximum number of retry attempts
+    const baseDelayMs = 100; // Base delay for exponential backoff in milliseconds
 
-        if (!response.ok) {
-            let errorData;
-            try {
-                errorData = await response.json();
-            } catch (e) {
-                errorData = { message: await response.text() };
+    for (let i = 0; i <= maxRetries; i++) {
+        try {
+            const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+                method: 'POST',
+                headers: headersToSend,
+                body: JSON.stringify({
+                    text: text.trim(),
+                    model: model,
+                    voiceId: voiceId
+                }),
+            }));
+
+            if (!response.ok) {
+                // Check for retryable status codes (e.g., 429 Too Many Requests, 5xx Server Errors)
+                // For this task, we'll consider all non-2xx as retryable for simplicity
+                if (i < maxRetries) {
+                    const delay = Math.pow(2, i) * baseDelayMs;
+                    console.warn(`Orchestrator: Backend TTS fetch failed (status: ${response.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    continue; // Continue to the next retry attempt
+                } else {
+                    let errorData;
+                    try {
+                        errorData = await response.json();
+                    } catch (e) {
+                        errorData = { message: await response.text() };
+                    }
+                    throw new HttpError(errorData.message || `Backend error: ${response.status}`, response.status);
+                }
             }
-            throw new HttpError(errorData.message || `Backend error: ${response.status}`, response.status);
+
+            console.log(`Orchestrator: Backend TTS fetch successful after ${i + 1} attempt(s).`);
+            const data = await response.json();
+            let mimeType = response.headers.get('Content-Type');
+
+            if (data.mimeType) {
+                mimeType = data.mimeType;
+            } else if (!mimeType) {
+                mimeType = 'audio/L16;rate=24000'; 
+                console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
+            }
+
+            return { audioContentBase64: data.audioContentBase64, mimeType: mimeType };
+
+        } catch (e) {
+            if (i < maxRetries) {
+                const delay = Math.pow(2, i) * baseDelayMs;
+                console.warn(`Orchestrator: Error during backend TTS fetch: ${e.message}. Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            } else {
+                console.error(`Orchestrator: All retry attempts failed for backend TTS fetch. Last error:`, e);
+                throw e; // Re-throw the error to be handled by the caller
+            }
         }
-
-        const data = await response.json();
-        let mimeType = response.headers.get('Content-Type');
-
-        if (data.mimeType) {
-            mimeType = data.mimeType;
-        } else if (!mimeType) {
-            mimeType = 'audio/L16;rate=24000'; 
-            console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
-        }
-
-        return { audioContentBase64: data.audioContentBase64, mimeType: mimeType };
-
-    } catch (e) {
-        console.error(`Orchestrator: Error during raw TTS fetch:`, e);
-        throw e; // Re-throw the error to be handled by the caller
     }
 }
 async function handleTtsChunk(request, env) {
