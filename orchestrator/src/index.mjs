@@ -157,7 +157,6 @@ async function _pollForTtsResult(targetService, jobId, apiKey, timeoutMs) {
             }
         }
     } catch (e) {
-        clearTimeout(timeoutId); // Ensure timeout is cleared
         if (e.name === 'AbortError') {
             throw new HttpError(`TTS job ${jobId} polling timed out after ${timeoutMs}ms.`, 504);
         }
