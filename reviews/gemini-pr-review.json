@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Refactor: Implement Asynchronous TTS with Durable Objects",
-    "timestamp_utc": "2025-05-30T19:58:51.353663+00:00",
+    "timestamp_utc": "2025-05-30T20:25:32.194657+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used_status": "primary",
@@ -11,127 +11,120 @@
   },
   "review_comments": [
     {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 668,
-      "comment_text_md": "**My Confidence: High**\n\nThe `orchestratorTimeoutMs` returned in the initial response from `/api/tts-initiate` will always be `null` or `undefined`. This is because the variable `overallOrchestratorTimeoutMs` is declared and assigned a value *inside* the `ctx.waitUntil` block (line 615), which executes asynchronously *after* the `return new Response(...)` statement (line 625).\n\nTo fix this, calculate an estimated `orchestratorTimeoutMs` *before* the `ctx.waitUntil` block, based on the maximum character count of any chunk (or total text length), and include that in the immediate response. The `orchestratorTimeoutMs` stored in the Durable Object (within `ctx.waitUntil`) can remain as the more precise, post-processing value.\n\n```javascript\n// Proposed change in handleTtsInitiate, before ctx.waitUntil:\nconst maxCharCountInAnyChunk = Math.max(...chunkLengths);\n// Using the max possible timeout for a single chunk as an estimate for the client\nconst estimatedClientTimeoutMs = Math.min(5000 + (maxCharCountInAnyChunk * 35), 70000) + 5000;\n\n// ...\n\n// In the return statement for handleTtsInitiate (around line 625):\nreturn new Response(JSON.stringify({\n    jobId, totalChunks, expectedMimeType, chunkLengths, sentenceMapping,\n    orchestratorTimeoutMs: estimatedClientTimeoutMs // Use the estimated value here\n}), {\n    headers: { 'Content-Type': 'application/json' },\n    status: 200\n});\n```",
+      "file_path": ".github/workflows/gemini-pr-review.py",
+      "github_diff_position": 65,
+      "comment_text_md": "**My Confidence: High**\n\nThe `used_fallback_key` flag is not reset to `False` when the key rotation logic falls back to the primary key. This can lead to incorrect status reporting in the summary comment, as `used_fallback_key` might remain `True` even if the primary key is currently active and functional after a full rotation cycle. Consider resetting this flag in the `else` block where `self.current_key` is set back to `self.primary_key`.\n\n```python\n            else:\n                logger.warning(\"All available API keys are rate limited or unavailable. Resetting to primary key if primary was also rate-limited.\")\n                if self.current_key_name != \"GEMINI_API_KEY\" or \"GEMINI_API_KEY\" in self.rate_limited_keys :\n                    self.current_key = self.primary_key\n                    self.current_key_name = \"GEMINI_API_KEY\"\n                    self.used_fallback_key = False # Add this line\n                    if len(self.rate_limited_keys) >= len(self.rotation_order):\n                         logger.info(\"All keys have been tried and rate limited in this cycle. Clearing rate_limited_keys to try again.\")\n                         self.rate_limited_keys.clear()\n\n                self.all_keys_rate_limited = True\n                return False\n```",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
+      "detected_severity_heuristic": "high",
       "detected_category_heuristic": "concurrency"
     },
     {
       "file_path": "orchestrator/src/index.mjs",
       "github_diff_position": 163,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `clearTimeout(timeoutId)` call is present in both the `catch` block (line 120) and the `finally` block (line 122) within `_pollForTtsResult` (and similarly in `_callBackendTtsService` at line 218). Calling it in the `finally` block is sufficient, as it guarantees the timeout is cleared regardless of whether the promise resolves successfully or rejects. The `clearTimeout` in the `catch` block is redundant and can be removed for cleaner code.",
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `clearTimeout(timeoutId)` call is present in both the `catch` block (line 120) and the `finally` block (line 122) within `_pollForTtsResult`. Calling it in the `finally` block is sufficient, as it guarantees the timeout is cleared regardless of whether the promise resolves successfully or rejects. The `clearTimeout` in the `catch` block is redundant and can be removed for cleaner code.\n\nThis was noted in a previous review comment and has been partially addressed in `_callBackendTtsService` but remains in `_pollForTtsResult`.",
       "ai_confidence": "Medium",
       "detected_severity_heuristic": "medium",
       "detected_category_heuristic": "concurrency"
     },
     {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 255,
-      "comment_text_md": "**My Confidence: Medium**\n\nIn `_callBackendTtsService`, the `_pollForTtsResult` function explicitly throws `HttpError` (e.g., for timeout or backend errors during polling). However, the `_callBackendTtsService`'s `catch (e)` block handles all errors generically. While it correctly returns `{ success: false, ... }`, it might be beneficial to specifically check `if (e instanceof HttpError)` to propagate the original status code and message more directly, rather than potentially wrapping it in \"Unknown error during backend TTS fetch.\" or just `e.message`. This would provide more precise error reporting to the caller of `_callBackendTtsService`.\n\n```javascript\n// Proposed change in _callBackendTtsService catch block (around line 212):\n} catch (e) {\n    clearTimeout(timeoutId); // Ensure timeout is cleared\n\n    if (e instanceof HttpError) {\n        console.error(`Orchestrator: HttpError during backend TTS fetch: ${e.message} (status: ${e.status}).`);\n        return { success: false, index: chunkIndex, errorMessage: e.message, status: e.status, timeoutMs: null };\n    }\n\n    if (e.name === 'AbortError') {\n        return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504, timeoutMs: null };\n    }\n\n    if (i < maxRetries) {\n        const delay = Math.pow(2, i) * baseDelayMs;\n        console.warn(`Orchestrator: Error during backend TTS fetch: ${e.message}. Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);\n        await new Promise(resolve => setTimeout(resolve, delay));\n    } else {\n        console.error(`Orchestrator: All retry attempts failed for backend TTS fetch. Last error:`, e);\n        return { success: false, index: chunkIndex, errorMessage: e.message || \"Unknown error during backend TTS fetch.\", timeoutMs: null };\n    }\n}\n```",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": ".github/workflows/gemini-pr-review.py",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 3, Line 223), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe addition of `self._lock = threading.Lock()` and its consistent use across `GeminiKeyManager` methods (`get_current_key`, `get_current_key_name`, `rotate_key`, `is_rate_limit_error`) is a critical improvement for thread safety. This effectively prevents race conditions when multiple parallel workers interact with the key manager, ensuring that shared state (like `current_key`, `rate_limited_keys`, and various flags) is accessed and modified atomically. This is a well-implemented solution for concurrent access.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "critical",
-      "detected_category_heuristic": "concurrency",
-      "invalidPosition": true
-    },
-    {
-      "file_path": ".github/workflows/gemini-pr-review.py",
-      "github_diff_position": 1689,
-      "comment_text_md": "**My Confidence: High**\n\nThe introduction of `gemini_rate_limit_lock` and `gemini_api_interaction_lock` is a robust approach to managing concurrency for API calls. The `gemini_rate_limit_lock` ensures that the `LAST_GEMINI_REQUEST_TIME` is updated safely, preventing multiple threads from bypassing the rate limit simultaneously. More importantly, the `gemini_api_interaction_lock` around `Client.configure` and `gemini_model.generate_content` is crucial. Since `Client.configure` likely modifies a global state for the API key, and `generate_content` makes the actual call, this lock prevents race conditions where one thread might overwrite another's API key configuration or make a call with an outdated key. This significantly enhances the stability and correctness of parallel API interactions.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "critical",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": ".github/workflows/gemini-pr-review.py",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 13, Line 809), but I think it's important feedback:**\n\n**My Confidence: High**\n\nRefactoring `analyze_code` to use `concurrent.futures.ThreadPoolExecutor` is a significant architectural improvement that enables parallel processing of files. This will greatly enhance the performance of the review script, especially for pull requests with many modified files. The use of `_analyze_file_task` to encapsulate the per-file logic is a good separation of concerns, making the parallelization clean and manageable.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "performance",
-      "invalidPosition": true
-    },
-    {
       "file_path": "src/constants/index.mjs",
-      "github_diff_position": 6,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `IMMEDIATE_TEXT_LENGTH_THRESHOLD` value (500) is a critical parameter for balancing synchronous and asynchronous TTS processing. It's recommended to validate this threshold through performance testing. The optimal value should be determined by profiling the TTS service's latency for various text lengths to ensure efficient resource utilization and optimal user experience.",
+      "github_diff_position": 4,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `IMMEDIATE_TEXT_LENGTH_THRESHOLD` value (500) is a critical parameter for balancing synchronous and asynchronous TTS processing. While the constant has been added, the previous comment's concern about its validation remains. It's highly recommended to validate this threshold through performance testing. The optimal value should be determined by profiling the TTS service's latency for various text lengths to ensure efficient resource utilization and optimal user experience.",
       "ai_confidence": "Medium",
       "detected_severity_heuristic": "critical",
       "detected_category_heuristic": "performance"
     },
     {
       "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
-      "github_diff_position": 40,
-      "comment_text_md": "**My Confidence: High**\n\nThe `handleInitJob` method currently overwrites an existing job if called with the same `jobId`. This could lead to unintended data loss or state resets if a job is already in progress or completed. Consider adding a check to see if a job with the given `jobId` already exists before initializing it. If it exists, you might want to return an error (e.g., 409 Conflict) or handle it based on the desired idempotency for job creation.\n\nExample (returning 409 if job exists):\n```javascript\n  async handleInitJob(request, jobId) {\n    try {\n      const existingJob = await this.storage.get(jobId);\n      if (existingJob) {\n        return new Response(JSON.stringify({ error: 'Job already exists' }), {\n          headers: { 'Content-Type': 'application/json' },\n          status: 409,\n        });\n      }\n      // ... rest of your initialization logic\n    } catch (error) {\n      // ...\n    }\n  }\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "critical",
-      "detected_category_heuristic": "bug"
-    },
-    {
-      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
-      "github_diff_position": 31,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `jobData` object initialized in `handleInitJob` includes a `result: null` field. However, this `result` field is never updated or utilized anywhere else in the Durable Object's logic (e.g., in `handleStoreResult` or `handleGetResult`). It seems vestigial. Consider removing it from the `jobData` structure to keep the schema clean and avoid confusion.",
+      "github_diff_position": 70,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `result: null` field in `jobData` within `handleInitJob` still appears to be unused. Since the actual audio result is now stored in R2 and referenced via `mimeType` (and `base64Audio` is explicitly removed from DO storage), this field is vestigial. Removing it would keep the job data schema cleaner and prevent confusion.",
       "ai_confidence": "Medium",
       "detected_severity_heuristic": "low",
       "detected_category_heuristic": "refactoring/design"
     },
     {
-      "file_path": "src/handlers/tts.mjs",
-      "github_diff_position": 67,
-      "comment_text_md": "**My Confidence: High**\n\nThe `mimeType` and `sampleRate` are now hardcoded to `audio/L16;rate=24000` and `24000` respectively, overriding the values returned by Google's API and making the `parseSampleRate` function redundant. If Google's TTS API can return different audio formats or sample rates, this change could lead to incorrect `mimeType` reporting to the client or incompatibility issues. Please confirm if this hardcoding is intentional and if the system is designed to only handle this specific format from the API, or if it's an oversight. If it's intentional, consider removing the unused `parseSampleRate` function.",
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 66,
+      "comment_text_md": "**My Confidence: High**\n\nIn `handleInitJob`, the `request.json()` call only validates if the body is valid JSON. It does not ensure that required fields like `text`, `model`, and `voiceId` are present. If these fields are missing from the request body, they will be `undefined` in `jobData`, but the job will still be initialized with a 200 OK status. This could lead to issues downstream when processing the job.\n\nConsider adding explicit checks for these fields:\n\n```javascript\n  const { text, model, voiceId } = await request.json();\n  if (!text || !model || !voiceId) {\n    return new Response(JSON.stringify({ error: 'Missing required fields: text, model, or voiceId' }), {\n      headers: { 'Content-Type': 'application/json' },\n      status: 400,\n    });\n  }\n  // ... rest of your logic\n```",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
     },
     {
-      "file_path": "src/handlers/tts.mjs",
-      "github_diff_position": 306,
-      "comment_text_md": "**My Confidence: High**\n\nThe `orchestratorTimeoutMs` variable is used in the `JSON.stringify` call for the 202 Accepted response, but it's only defined within the `callGoogleTTSAPI().then(...)` block, which executes asynchronously. This will cause a `ReferenceError` when the `new Response(...)` line is executed.\n\nTo fix this, calculate `orchestratorTimeoutMs` at the beginning of the `handleRawTTS` function, as it only depends on `text.length`, and then use this pre-calculated value in both the `callGoogleTTSAPI` call and the 202 response:\n\n```javascript\n// ... inside handleRawTTS, before the if/else block\nconst characterCount = text.length;\nconst orchestratorTimeoutMs = Math.min(5000 + (characterCount * 35), 70000); // Calculate once\n\nif (characterCount <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {\n  const { base64Audio, mimeType } = await callGoogleTTSAPI(\n    model.trim(),\n    googleApiRequestBody,\n    apiKey,\n    characterCount // Pass character count\n  );\n  return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs); // Use calculated timeout\n} else {\n  // ...\n  event.waitUntil(\n    callGoogleTTSAPI(\n      model.trim(),\n      googleApiRequestBody,\n      apiKey,\n      characterCount // Pass character count\n    ).then(async (result) => {\n      await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {\n        method: 'POST',\n        headers: { 'Content-Type': 'application/json' },\n        body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: orchestratorTimeoutMs }) // Use calculated timeout\n      }));\n    }).catch(async (error) => {\n      // ...\n    })\n  );\n  return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs }), fixCors({ // Use calculated timeout\n    status: 202,\n    headers: {\n      'Content-Type': 'application/json',\n      'X-Processing-Job-Id': jobId\n    }\n  }));\n}\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": "src/handlers/tts.mjs",
-      "github_diff_position": 142,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `handleRawTTS` function now expects `voiceName` and `secondVoiceName` to be provided in the request body instead of as URL query parameters. This is a breaking change for any existing clients that might be using this endpoint. Please ensure this change is communicated to consumers of this API, or consider maintaining backward compatibility if feasible.",
-      "ai_confidence": "Medium",
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 140,
+      "comment_text_md": "**My Confidence: Low**\n\nIn `handleStoreResult`, `jobData.base64Audio = undefined;` is used to effectively remove the `base64Audio` property from the stored `jobData`. While this works, using `delete jobData.base64Audio;` is semantically clearer for explicitly removing a property from an object.\n\n```javascript\n  // Update DO Storage: Remove base64Audio and keep mimeType in DO for retrieval\n  delete jobData.base64Audio; // More explicit removal\n  jobData.mimeType = mimeType;\n  jobData.status = 'completed';\n```",
+      "ai_confidence": "Low",
       "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": "src/handlers/tts.mjs",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 9, Line 176), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nIn `handleTtsResult`, the `orchestratorTimeoutMs` is included in the 200 OK response when the job is `completed`, but it's omitted from the 202 Accepted response when the job is `processing`. The `orchestratorTimeoutMs` is a property of the job itself (the maximum expected processing time) and is determined at job creation. It would be beneficial for clients to receive this value even when the job is still processing, as it provides an expectation for how long to poll. Consider including `orchestratorTimeoutMs` in the 202 response for `processing` status as well, which would require storing it in the Durable Object during job initialization.",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "performance",
-      "invalidPosition": true
+      "detected_category_heuristic": "bug"
     },
     {
       "file_path": "src/utils/audio.mjs",
-      "github_diff_position": 38,
-      "comment_text_md": "**My Confidence: High**\n\nThe `arrayBufferToBase64` function uses `FileReader`, which is a browser API and is not available in Cloudflare Workers. This function will cause a runtime error in the Worker environment.\n\nFor encoding `ArrayBuffer` to Base64 in Cloudflare Workers, you typically need to convert the `ArrayBuffer` to a binary string (e.g., using `Uint8Array` and `String.fromCharCode` or `TextDecoder` if applicable) and then use `btoa()`. Be mindful of potential `Maximum call stack size exceeded` errors for very large `ArrayBuffer`s when using `String.fromCharCode.apply` directly; you might need to process in chunks.\n\nConsider an alternative implementation like this (for arbitrary binary data, potentially needing chunking for very large buffers):\n\n```javascript\nexport function arrayBufferToBase64(buffer) {\n  if (!(buffer instanceof ArrayBuffer)) {\n    throw new Error('Invalid input: must be an ArrayBuffer.');\n  }\n  const bytes = new Uint8Array(buffer);\n  let binaryString = '';\n  for (let i = 0; i < bytes.byteLength; i++) {\n    binaryString += String.fromCharCode(bytes[i]);\n  }\n  return btoa(binaryString);\n}\n```\n\nNote: The above example might still hit performance/memory limits for extremely large buffers due to string concatenation. For production, a more robust chunking approach or `TextDecoder` (if the data is text) might be necessary, but this illustrates the general approach without `FileReader`.",
+      "github_diff_position": 44,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `arrayBufferToBase64` function correctly addresses the previous feedback by avoiding `FileReader`. However, the current implementation, which builds a `binaryString` using `+= String.fromCharCode(bytes[i])` in a loop, can be inefficient for very large `ArrayBuffer` inputs. Repeated string concatenation can lead to performance degradation and increased memory usage. While `btoa` itself is efficient, the string preparation step could be a bottleneck for extremely large audio files. For typical audio chunk sizes, this might be acceptable, but for very large buffers, consider alternatives if performance becomes an issue.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "performance"
+    },
+    {
+      "file_path": "src/utils/audio.mjs",
+      "github_diff_position": 59,
+      "comment_text_md": "**My Confidence: High**\n\nThe JSDoc for `base64ToArrayBuffer` mentions \"using a Blob/FileReader approach if available in the environment\". `Blob` and `FileReader` APIs are not available in the Cloudflare Workers environment. This part of the comment is misleading and should be removed to avoid confusion. The implementation correctly avoids these APIs.",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "bug"
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "general"
     },
     {
       "file_path": "src/worker.mjs",
       "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 1, Line 91), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe `handleRawTTS` function is now called with `event` as an argument. However, the `fetch` function signature is `async function fetch(request, env)`, which does not include an `event` parameter. This means `event` will be `undefined` when passed to `handleRawTTS`, likely causing a runtime error or unexpected behavior if `handleRawTTS` attempts to use it.\n\nIf `event` was intended to be the `ExecutionContext` (often named `ctx`), then the `fetch` function signature should be updated to `async function fetch(request, env, ctx)` and `ctx` should be passed. If `event` is not needed, it should be removed from the `handleRawTTS` call.\n\n```javascript\n// Option 1: If ExecutionContext (ctx) is needed\nasync function fetch(request, env, ctx) {\n  // ...\n  return handleRawTTS(request, env, ctx, apiKey)\n    .catch(errHandler);\n  // ...\n}\n\n// Option 2: If event/ctx is not needed by handleRawTTS\nasync function fetch(request, env) {\n  // ...\n  return handleRawTTS(request, env, apiKey)\n    .catch(errHandler);\n  // ...\n}\n```",
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 2, Line 89), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThe previous comment regarding the `fetch` function signature and passing the `event` object has been addressed. The `fetch` function now correctly accepts `event` and it is passed to `handleRawTTS`.\n\nPlease ensure that `handleRawTTS` correctly utilizes both `env` and `event` (which typically represents the `ExecutionContext` in Cloudflare Workers). Specifically, if `handleRawTTS` interacts with Durable Objects or performs asynchronous operations that need to extend the lifetime of the request, `event.waitUntil()` should be used.\n\nExample (conceptual, assuming `handleRawTTS` can access `event`):\n```javascript\nasync function handleRawTTS(request, env, event, apiKey) {\n  // ...\n  const durableObjectId = env.TTS_JOB_DO.idFromName(\"some-job-id\");\n  const durableObjectStub = env.TTS_JOB_DO.get(durableObjectId);\n\n  // If an async operation needs to complete after the response is sent\n  event.waitUntil(durableObjectStub.someAsyncOperation());\n  // ...\n}\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 2, Line 372), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThe `<select id=\"ttsModelInput\">` element is placed outside the main `top-input-bar` and `container` divs. This unusual placement might lead to unexpected layout issues or make styling more difficult. Consider placing it logically within either the `top-input-bar` (if it's a primary input) or the `container` (if it's part of the main content controls) for better structure and maintainability.\n\n```html\n  <div class=\"top-input-bar\">\n    <div class=\"input-group\">\n      <!-- ... existing inputs ... -->\n      <select id=\"ttsModelInput\">\n        <option value=\"gemini-2.5-flash-preview-tts\">gemini-2.5-flash-preview-tts</option>\n        <option value=\"other-model-1\">Other Model 1</option>\n        <option value=\"other-model-2\">Other Model 2</option>\n      </select>\n      <button id=\"speakButton\">Speak</button>\n    </div>\n  </div>\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "refactoring/design",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 5, Line 579), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThere's a bug in the `bufferToWave` function call within the `initiateTtsRequest` function. The `reduce` method is used to sum `val.length`, but `val` is an object `{ buffer, index }`, so `val.length` will be `undefined`. You should be summing `val.buffer.length` to get the total number of samples.\n\nThis will likely result in a corrupted or unplayable WAV file. Please change:\n`fullAudioBuffers.reduce((acc, val) => acc + val.length, 0)`\n\nTo:\n`fullAudioBuffers.reduce((acc, val) => acc + val.buffer.length, 0)`",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 7, Line 899), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe `bufferToWave` function incorrectly uses `setUint32` for the `block-align` and `bits-per-sample` fields in the WAV header. These fields are defined as `WORD` (16-bit unsigned integer) in the WAV file format specification. Using `setUint32` will write 4 bytes instead of 2, leading to an invalid WAV header and potentially unplayable audio files.\n\nChange:\n`setUint32(numOfChan * 2); // block-align`\nTo:\n`setUint16(numOfChan * 2);`\n\nAnd:\n`setUint32(16); // 16-bit (each sample uses 2 bytes)`\nTo:\n`setUint16(16);`",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 686,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `processAudioChunk` function's `audioContext.decodeAudioData` call is not individually error-handled. If decoding a specific audio chunk fails (e.g., due to corrupted data), the error will propagate to the outer `try...catch` block in `initiateTtsRequest`, which will stop the entire chunk fetching loop. This means subsequent valid chunks won't be processed or played.\n\nConsider wrapping the `decodeAudioData` call in its own `try...catch` block within `processAudioChunk`. If decoding fails, you can mark that specific segment as failed (e.g., `segment.classList.add('failed')`) and log the error, but allow the `initiateTtsRequest` loop to continue fetching and processing other chunks. This would make the application more resilient to individual chunk failures.\n\n```javascript\n        const processAudioChunk = async (audioBase64, sentenceMapping, currentChunkIndex) => {\n          // ... decoding logic ...\n          return new Promise((resolve, reject) => {\n            audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {\n              // ... success logic ...\n              resolve();\n            }, (error) => {\n              console.error(`Error decoding audio chunk ${currentChunkIndex}:`, error);\n              const currentSegment = window.ttsJobData.segmentElements[currentChunkIndex];\n              if (currentSegment) {\n                currentSegment.classList.remove('active');\n                currentSegment.classList.add('failed');\n              }\n              showToast(`Error: Failed to decode audio for segment ${currentChunkIndex + 1}. Skipping playback for this segment.`, 'error');\n              resolve(); // Resolve even on error to allow subsequent chunks to process\n            });\n          });\n        };\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 6, Line 840), but I think it's important feedback:**\n\n**My Confidence: Low**\n\nWhen all audio chunks have finished playing, `overallProgressBarContainer.innerHTML = '';` is called, which immediately clears the entire segmented progress bar. This might be a bit abrupt from a user experience perspective, as the visual indication of the completed process disappears instantly.\n\nConsider keeping the `overallProgressBarContainer` visible for a short duration after completion (e.g., 1-2 seconds) or until a new TTS request is initiated. This provides a clearer visual cue that the entire operation has finished successfully.",
+      "ai_confidence": "Low",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general",
       "invalidPosition": true
     }
   ]
