@@ -429,35 +429,19 @@ export class TTS_DURABLE_OBJECT {
                 if (!metadata) {
                     return new Response('Job metadata not found', { status: 404 });
                 }
-
-                const chunkKeys = [];
-                for (let i = 0; i < metadata.totalChunks; i++) {
-                    chunkKeys.push(`${retrieveJobId}:chunk:${i}`);
-                }
-                const rawChunks = await this.storage.get(chunkKeys);
-
-                const audioChunks = [];
-                for(let i=0; i<metadata.totalChunks; i++) {
-                    const chunkData = rawChunks[`${retrieveJobId}:chunk:${i}`];
-                    if (chunkData) {
-                        audioChunks[i] = chunkData;
-                    } else {
-                        audioChunks[i] = null;
-                    }
-                }
-
+                
+                // Remove chunk fetching and return only metadata
                 const job = {
                     jobId: retrieveJobId,
                     totalChunks: metadata.totalChunks,
                     mimeType: metadata.mimeType,
                     status: metadata.status,
-                    audioChunks: audioChunks,
                     failedChunkIndices: metadata.failedChunkIndices || [],
                     chunkLengths: metadata.chunkLengths || [],
-                    sentenceMapping: metadata.sentenceMapping || [] // Retrieve sentenceMapping
+                    sentenceMapping: metadata.sentenceMapping || []
                 };
 
-                console.log(`TTS_DURABLE_OBJECT: Retrieved job ${retrieveJobId}. Status: ${job.status}`);
+                console.log(`TTS_DURABLE_OBJECT: Retrieved job metadata for ${retrieveJobId}. Status: ${job.status}`);
                 return new Response(JSON.stringify(job), {
                     headers: { 'Content-Type': 'application/json' },
                     status: 200
