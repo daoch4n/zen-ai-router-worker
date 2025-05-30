@@ -580,7 +580,8 @@
             chunkLengths: chunkLengths,
             totalTextLength: chunkLengths.reduce((sum, length) => sum + length, 0),
             cumulativeCompletedLength: 0,
-            segmentElements: [] // To store references to created segment divs
+            segmentElements: [], // To store references to created segment divs
+            orchestratorTimeoutMs: orchestratorTimeoutMs // Store the initial orchestrator timeout
           };
  
           // Initial rendering of segmented progress bar
@@ -619,7 +620,7 @@
                 // For the initial chunk, we don't have it yet, so we'll use a default or assume it's part of the initiate response.
                 // Since the task implies it's per-chunk, I'll assume for the first chunk it's 0 and the +5000 applies.
                 // Later chunks might receive this info from the orchestrator. For now, we'll implement the logic assuming its presence.
-                const orchestratorDynamicTimeout = chunkData?.orchestratorTimeoutMs || 0; // Will be available in chunkData after first successful fetch
+                const orchestratorDynamicTimeout = window.ttsJobData.orchestratorTimeoutMs || 0;
                 const dynamicChunkTimeout = Math.min(orchestratorDynamicTimeout + 20000, 80000); // Capped at 80 seconds
                 const chunkTimeout = setTimeout(() => abortControllerChunk.abort(), dynamicChunkTimeout);
  
