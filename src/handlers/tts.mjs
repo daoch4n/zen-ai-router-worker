@@ -184,6 +184,29 @@ async function callGoogleTTSAPI(model, requestBody, apiKey) {
     throw new HttpError(`Unexpected error during API call: ${error.message}`, 500);
   }
 }
+/**
+ * Processes audio data (base64) into a WAV file and returns an HTTP 200 Response.
+ *
+ * @param {string} base64Audio - Base64 encoded audio data.
+ * @param {string} mimeType - MIME type of the audio.
+ * @param {number} sampleRate - Sample rate of the audio.
+ * @returns {Response} HTTP Response containing the WAV audio file.
+ */
+function processAudioData(base64Audio, mimeType, sampleRate) {
+  const pcmAudioData = decodeBase64Audio(base64Audio);
+  const dataLength = pcmAudioData.length;
+  const wavHeader = generateWavHeader(dataLength, sampleRate, 1, 16);
+  const wavFileData = new Uint8Array(wavHeader.length + pcmAudioData.length);
+  wavFileData.set(wavHeader, 0);
+  wavFileData.set(pcmAudioData, wavHeader.length);
+
+  return new Response(wavFileData, fixCors({
+    status: 200,
+    headers: {
+      'Content-Type': 'audio/wav'
+    }
+  }));
+}
 
 /**
  * Processes text-to-speech requests by handling voice configuration,
@@ -359,26 +382,36 @@ export async function handleRawTTS(request, apiKey) {
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
 
-    const jobId = generateUniqueId();
+    // Determine if TTS generation should be immediate or asynchronous
+    if (text.length <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {
+      // Immediate TTS generation for shorter texts
+      const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
+        model.trim(),
+        googleApiRequestBody,
+        apiKey
+      );
+      return processAudioData(base64Audio, mimeType, sampleRate);
+    } else {
+      // Asynchronous TTS generation for longer texts
+      const jobId = generateUniqueId();
+      const ttsPromise = callGoogleTTSAPI(
+        model.trim(),
+        googleApiRequestBody,
+        apiKey
+      );
+      processingJobs.set(jobId, { promise: ttsPromise, status: 'processing' });
 
-    // Start the TTS generation asynchronously and store the promise
-    const ttsPromise = callGoogleTTSAPI(
-      model.trim(),
-      googleApiRequestBody,
-      apiKey
-    );
-    processingJobs.set(jobId, ttsPromise);
-
-// The jobId is included in both the JSON body and as an X-Processing-Job-Id header
-    // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
-    // Return 202 Accepted with the jobId
-    return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
-      status: 202,
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Processing-Job-Id': jobId // Custom header for easier access
-      }
-    }));
+      // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
+      // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
+      // Return 202 Accepted with the jobId
+      return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
+        status: 202,
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Processing-Job-Id': jobId // Custom header for easier access
+        }
+      }));
+    }
 
   } catch (err) {
     // Use centralized error handler for consistent error responses
@@ -408,27 +441,45 @@ export async function handleTtsResult(request, apiKey) {
       throw new HttpError("jobId query parameter is required", 400);
     }
 
-    const ttsPromise = processingJobs.get(jobId);
+    const job = processingJobs.get(jobId);
 
-    if (!ttsPromise) {
-      // If job not found, it might be completed and removed, or never existed
+    if (!job) {
       throw new HttpError(`Job with ID ${jobId} not found or already completed/expired`, 404);
     }
 
-    // Wait for the promise to resolve
-    const { base64Audio, mimeType } = await ttsPromise;
+    // Check if the job is still processing
+    if (job.status === 'processing') {
+      // Attempt to resolve the promise to check if it's done without blocking
+      const result = await Promise.race([
+        job.promise,
+        new Promise(resolve => setTimeout(() => resolve('pending'), 50)) // Small delay to avoid blocking
+      ]);
 
-    // Remove the job from the map after it's done
-    processingJobs.delete(jobId);
-
-    return new Response(base64Audio, fixCors({
-      status: 200,
-      headers: {
-        'Content-Type': mimeType,
-        'X-Processing-Job-Id': jobId, // Include for consistency
-        'X-Processing-Status': 'completed' // Signal completion
+      if (result === 'pending') {
+        return new Response(JSON.stringify({ jobId, status: 'processing' }), fixCors({
+          status: 202,
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Processing-Job-Id': jobId,
+            'X-Processing-Status': 'processing'
+          }
+        }));
+      } else {
+        // Job has completed, update status and process audio
+        job.base64Audio = result.base64Audio;
+        job.mimeType = result.mimeType;
+        job.sampleRate = result.sampleRate;
+        job.status = 'completed';
       }
-    }));
+    }
+
+    // If job is completed or just completed
+    if (job.status === 'completed') {
+      processingJobs.delete(jobId); // Remove job after successful retrieval
+
+      return processAudioData(job.base64Audio, job.mimeType, job.sampleRate);
+    }
+
 
   } catch (err) {
     return errorHandler(err, fixCors);

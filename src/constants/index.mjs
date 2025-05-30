@@ -111,6 +111,8 @@ export const TTS_LIMITS = Object.freeze({
   MIN_TEXT_LENGTH: 1,
   /** Maximum text length in characters (conservative estimate for multi-byte safety) */
   MAX_TEXT_LENGTH: 4000,
+/** Threshold for text length to trigger immediate (synchronous) TTS generation */
+  IMMEDIATE_TEXT_LENGTH_THRESHOLD: 500,
 });
 
 /**
