@@ -501,7 +501,7 @@ export async function handleTtsResult(request, env, event, apiKey) {
       }
       const { base64Audio, mimeType } = await jobResultResponse.json();
 
-      return processAudioDataJSONResponse(audioContentBase64, mimeType);
+      return processAudioDataJSONResponse(base64Audio, mimeType);
     } else if (status === 'failed') {
       const jobResultResponse = await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/result`));
       const { error } = await jobResultResponse.json();
