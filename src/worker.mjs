@@ -69,6 +69,7 @@ async function fetch(request, env) {
           .catch(errHandler);
 
       case pathname.endsWith("/embeddings"):
+      case pathname.endsWith("/embed"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
