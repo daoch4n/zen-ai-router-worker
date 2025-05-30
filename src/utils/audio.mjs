@@ -31,31 +31,24 @@ export function decodeBase64Audio(base64String) {
 }
 
 /**
- * Encodes an ArrayBuffer into a Base64 string using FileReader.
- * This function handles large inputs by leveraging the browser's FileReader API,
- * which is more robust for large binary data than direct string conversions.
+ * Encodes an ArrayBuffer into a Base64 string.
+ * This function is optimized for Cloudflare Workers, using `btoa` for efficient encoding.
  *
  * @param {ArrayBuffer} buffer - The binary data to encode.
- * @returns {Promise<string>} A Promise that resolves with the Base64 encoded string.
+ * @returns {string} The Base64 encoded string.
+ * @throws {Error} When input is not an ArrayBuffer.
  */
-export async function arrayBufferToBase64(buffer) {
-  return new Promise((resolve, reject) => {
-    if (!(buffer instanceof ArrayBuffer)) {
-      return reject(new Error('Invalid input: must be an ArrayBuffer.'));
-    }
+export function arrayBufferToBase64(buffer) {
+  if (!(buffer instanceof ArrayBuffer)) {
+    throw new Error('Invalid input: must be an ArrayBuffer.');
+  }
 
-    const blob = new Blob([buffer]);
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const dataUrl = event.target.result;
-      const base64 = dataUrl.split(',')[1];
-      resolve(base64);
-    };
-    reader.onerror = (error) => {
-      reject(new Error(`FileReader error: ${error.target.error}`));
-    };
-    reader.readAsDataURL(blob);
-  });
+  const bytes = new Uint8Array(buffer);
+  let binaryString = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binaryString += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binaryString);
 }
 /**
  * Decodes a Base64 encoded string into an ArrayBuffer.
