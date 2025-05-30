@@ -9,19 +9,19 @@ on:
   pull_request_target:
     types: [closed]
   workflow_dispatch: # Added to allow manual triggering
+
 jobs:
-  deploy:
+  # Job 1: Prepare deployment data (API keys, worker count)
+  prepare_deployment_data:
     runs-on: ubuntu-latest
-    name: Deploy
-    if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
-    permissions:
-      contents: read
-      id-token: write # Required for OIDC token to deploy to GitHub Pages
-      pages: write # Required to deploy to GitHub Pages
+    outputs:
+      worker_indices: ${{ steps.prep_api_data.outputs.worker_indices }} # New output for matrix
+      api_keys_as_json_array_string: ${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}
+      all_api_keys_count: ${{ steps.prep_api_data.outputs.all_api_keys_count }}
     steps:
       - uses: actions/checkout@v4
-      - name: Install Wrangler
-        run: npm install -g wrangler
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
       - name: Prepare API Key Data
         id: prep_api_data
         env:
@@ -39,6 +39,14 @@ jobs:
           local_api_keys_count=${#API_KEYS_ARRAY[@]}
           echo "Successfully parsed ${local_api_keys_count} keys."
           echo "all_api_keys_count=${local_api_keys_count}" >> $GITHUB_OUTPUT
+
+          # Generate worker indices for matrix
+          WORKER_INDICES="[]"
+          if [ "${local_api_keys_count}" -gt 0 ]; then
+            WORKER_INDICES=$(jq -n '[range(0;'$local_api_keys_count')]')
+          fi
+          echo "worker_indices=${WORKER_INDICES}" >> $GITHUB_OUTPUT
+
           if [ "${local_api_keys_count}" -gt 0 ]; then
             API_KEYS_AS_JSON_ARRAY_STRING=$(printf "%s\n" "${API_KEYS_ARRAY[@]}" | jq -R . | jq -s .)
           else
@@ -48,66 +56,89 @@ jobs:
           echo "${API_KEYS_AS_JSON_ARRAY_STRING}" >> $GITHUB_OUTPUT
           echo "EOF_KEYS_JSON" >> $GITHUB_OUTPUT
 
-      - name: Ensure wrangler.toml for src Workers (Production)
+  # Job 2: Deploy individual src workers in parallel
+  deploy_src_worker:
+    runs-on: ubuntu-latest
+    needs: prepare_deployment_data
+    strategy:
+      fail-fast: false # Allow other workers to deploy even if one fails
+      matrix:
+        worker_index: ${{ fromJSON(needs.prepare_deployment_data.outputs.worker_indices) }}
+    name: Deploy src Worker ${{ matrix.worker_index }}
+    permissions:
+      contents: read
+      id-token: write # Required for OIDC token to deploy to GitHub Pages
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      PASS: ${{ secrets.PASS }}
+      API_KEYS_JSON_FROM_OUTPUT: ${{ needs.prepare_deployment_data.outputs.api_keys_as_json_array_string }}
+      WORKER_INDEX: ${{ matrix.worker_index }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Wrangler
+        run: npm install -g wrangler
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      - name: Deploy src Worker
         run: |
-          cp wrangler.toml.example wrangler.toml
-          echo "Copied wrangler.toml.example to wrangler.toml:"
-          cat wrangler.toml
-
-      - name: Deploy Dynamic src Workers (Production)
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          PASS: ${{ secrets.PASS }}
-          API_KEYS_JSON_FROM_OUTPUT: ${{ steps.prep_api_data.outputs.api_keys_as_json_array_string }}
-        run: |
-          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
           API_KEYS_JSON_STRING="$API_KEYS_JSON_FROM_OUTPUT"
           if [ -z "$API_KEYS_JSON_STRING" ]; then
             echo "Error: API_KEYS_JSON_FROM_OUTPUT was empty!" >&2
             exit 1
           fi
           if ! mapfile -t API_KEYS_ARRAY < <(jq -r '.[]' <<< "$API_KEYS_JSON_STRING"); then
-            echo "Error: Could not re-parse api_keys_as_json_array_string from previous step." >&2
+            echo "Error: Could not re-parse api_keys_as_json_array_string." >&2
             echo "The string content will not be displayed." >&2
             exit 1
           fi
-          if [ "${#API_KEYS_ARRAY[@]}" -ne "${TOTAL_KEYS}" ]; then
-            echo "Warning: Key count mismatch after re-parsing. Expected ${TOTAL_KEYS}, got ${#API_KEYS_ARRAY[@]}." >&2
-          fi
-          echo "Successfully rehydrated ${#API_KEYS_ARRAY[@]} API keys for deployment."
-          KEYS_PER_WORKER=1
-          NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
+
+          WORKER_NAME="zen-ai-router-worker-${WORKER_INDEX}"
           ESCAPED_PASS=$(printf "%q" "${PASS}")
           echo "::add-mask::${ESCAPED_PASS}"
-          for i in $(seq 0 $((NUM_WORKERS - 1))); do
-            WORKER_NAME="zen-ai-router-worker-${i}"
-            START_INDEX=$((i * KEYS_PER_WORKER))
-            END_INDEX=$((START_INDEX + KEYS_PER_WORKER - 1))
-            WORKER_VARS="--var PASS:${ESCAPED_PASS}"
-            CURRENT_WORKER_END_INDEX=$((END_INDEX < TOTAL_KEYS ? END_INDEX : TOTAL_KEYS - 1))
-            for ((j=START_INDEX; j<=CURRENT_WORKER_END_INDEX; j++)); do
-              if [ "${j}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[j]}" ]; then
-                KEY_INDEX=$((j - START_INDEX + 1))
-                ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[j]}")
-                echo "::add-mask::${ESCAPED_API_KEY}"
-                WORKER_VARS="${WORKER_VARS} --var KEY${KEY_INDEX}:${ESCAPED_API_KEY}"
-              fi
-            done
-            # The wrangler deploy command will implicitly use wrangler.toml from the root
-            # if --config is not specified.
-            wrangler deploy "src/worker.mjs" \
-              --name "${WORKER_NAME}" \
-              --compatibility-date "2024-05-01" \
-              --compatibility-flags nodejs_compat \
-              ${WORKER_VARS}
-          done
 
+          WORKER_VARS="--var PASS:${ESCAPED_PASS}"
+          if [ "${WORKER_INDEX}" -lt "${#API_KEYS_ARRAY[@]}" ] && [ -n "${API_KEYS_ARRAY[WORKER_INDEX]}" ]; then
+            ESCAPED_API_KEY=$(printf "%q" "${API_KEYS_ARRAY[WORKER_INDEX]}")
+            echo "::add-mask::${ESCAPED_API_KEY}"
+            WORKER_VARS="${WORKER_VARS} --var KEY1:${ESCAPED_API_KEY}" # Always KEY1 as only one key per worker
+          else
+            echo "Error: API Key not found for worker index ${WORKER_INDEX}. This worker will be deployed without an API key." >&2
+            # Consider if this should be a hard error (exit 1) or allowed to continue
+          fi
+          
+          # Ensure wrangler.toml for src Workers (Production) - copy here for each parallel job
+          cp wrangler.toml.example wrangler.toml
+          echo "Copied wrangler.toml.example to wrangler.toml for worker ${WORKER_NAME}:"
+          cat wrangler.toml
+
+          wrangler deploy "src/worker.mjs" \
+            --name "${WORKER_NAME}" \
+            --compatibility-date "2024-05-01" \
+            --compatibility-flags nodejs_compat \
+            ${WORKER_VARS}
+
+  # Job 3: Deploy Orchestrator and Frontend
+  deploy_orchestrator_and_frontend:
+    runs-on: ubuntu-latest
+    needs: [deploy_src_worker, prepare_deployment_data] # Depends on all src workers being deployed successfully and data from prepare_deployment_data
+    name: Deploy Orchestrator and Frontend
+    if: (github.event_name == 'push' && github.ref == 'refs/heads/master') || github.event_name == 'repository_dispatch' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      id-token: write # Required for OIDC token to deploy to GitHub Pages
+      pages: write # Required to deploy to GitHub Pages
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Wrangler
+        run: npm install -g wrangler
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+      
       - name: Generate Orchestrator Config (with DO Migration)
         id: generate_orchestrator_config_with_migration # Step ID
         run: |
-          echo "Generating orchestrator/wrangler.toml WITH RouterCounter migration..."
-          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
+          TOTAL_KEYS=${{ needs.prepare_deployment_data.outputs.all_api_keys_count }} # Get from prepare_deployment_data
           KEYS_PER_WORKER=1
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
@@ -121,7 +152,6 @@ jobs:
           CONFIG_CONTENT+="[[migrations]]\n"
           CONFIG_CONTENT+="tag = \"v1-router-counter-initial-sqlite-setup\"\n"
           CONFIG_CONTENT+="new_sqlite_classes = [\"RouterCounter\"]\n\n"
-
           for i in $(seq 0 $((NUM_WORKERS - 1))); do
             CONFIG_CONTENT+="[[services]]\n"
             CONFIG_CONTENT+="binding = \"BACKEND_SERVICE_${i}\"\n"
@@ -156,7 +186,7 @@ jobs:
         if: steps.deploy_orchestrator_attempt_1.outcome == 'failure' # Only run if first attempt failed
         run: |
           echo "First orchestrator deployment failed. Generating orchestrator/wrangler.toml WITHOUT RouterCounter new_sqlite_classes migration..."
-          TOTAL_KEYS=${{ steps.prep_api_data.outputs.all_api_keys_count }}
+          TOTAL_KEYS=${{ needs.prepare_deployment_data.outputs.all_api_keys_count }} # Get from prepare_deployment_data
           KEYS_PER_WORKER=1
           NUM_WORKERS=$(( (TOTAL_KEYS + KEYS_PER_WORKER - 1) / KEYS_PER_WORKER ))
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
@@ -167,7 +197,6 @@ jobs:
           CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
           CONFIG_CONTENT+="class_name = \"RouterCounter\"\n\n"
           # NO MIGRATIONS for new_sqlite_classes = ["RouterCounter"] here
-
           for i in $(seq 0 $((NUM_WORKERS - 1))); do
             CONFIG_CONTENT+="[[services]]\n"
             CONFIG_CONTENT+="binding = \"BACKEND_SERVICE_${i}\"\n"
