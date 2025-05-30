@@ -212,7 +212,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
                 signal: controller.signal // Apply the AbortController signal
             }));
 
-            clearTimeout(timeoutId); // Clear the timeout if the fetch completes before the timeout
+            
 
             if (response.status === 202) {
                 console.log(`Orchestrator: Backend worker accepted TTS job. Initiating polling.`);
@@ -261,7 +261,7 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
             return { success: true, audioContentBase64: data.audioContentBase64, mimeType: mimeType };
 
         } catch (e) {
-            clearTimeout(timeoutId); // Ensure timeout is cleared even if an error occurs
+            
 
             if (e.name === 'AbortError') {
                 return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504 };
