@@ -121,20 +121,29 @@ function parseSampleRate(mimeType) {
  * @param {string} model - The Gemini model to use for TTS generation
  * @param {Object} requestBody - The constructed request body for Google API
  * @param {string} apiKey - Google API key for authentication
+ * @param {number} characterCount - Number of characters in the text to synthesize for timeout calculation
  * @returns {Promise<Object>} Object containing base64 audio data, mimeType, and sampleRate
  * @throws {HttpError} When API call fails or response is invalid
  */
-async function callGoogleTTSAPI(model, requestBody, apiKey) {
+async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
   // Construct the full Google API endpoint URL
   const url = `${BASE_URL}/${API_VERSION}/models/${model}:generateContent`;
+
+  // Calculate dynamic timeout with a cap of 70 seconds
+  const timeoutMs = Math.min(5000 + (characterCount * 35), 70000);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     // Make the fetch request to Google's API
     const response = await fetch(url, {
       method: 'POST',
       headers: makeHeaders(apiKey, { 'Content-Type': 'application/json' }),
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: controller.signal // Apply the AbortController signal
     });
+
+    clearTimeout(timeoutId); // Clear the timeout if the fetch completes before the timeout
 
     // Handle non-200 responses using enhanced error processing
     if (!response.ok) {
@@ -170,6 +179,12 @@ async function callGoogleTTSAPI(model, requestBody, apiKey) {
     };
 
   } catch (error) {
+    clearTimeout(timeoutId); // Ensure timeout is cleared even if an error occurs
+
+    // Handle AbortError specifically for fetch timeouts
+    if (error.name === 'AbortError') {
+      throw new HttpError(`API call timed out after ${timeoutMs}ms`, 504); // 504 Gateway Timeout
+    }
     // Re-throw HttpErrors as-is
     if (error instanceof HttpError) {
       throw error;
@@ -185,25 +200,17 @@ async function callGoogleTTSAPI(model, requestBody, apiKey) {
   }
 }
 /**
- * Processes audio data (base64) into a WAV file and returns an HTTP 200 Response.
+ * Processes audio data (base64) and returns an HTTP 200 JSON Response.
  *
- * @param {string} base64Audio - Base64 encoded audio data.
+ * @param {string} audioContentBase64 - Base64 encoded audio data.
  * @param {string} mimeType - MIME type of the audio.
- * @param {number} sampleRate - Sample rate of the audio.
- * @returns {Response} HTTP Response containing the WAV audio file.
+ * @returns {Response} HTTP Response containing the JSON encoded audio data.
  */
-function processAudioData(base64Audio, mimeType, sampleRate) {
-  const pcmAudioData = decodeBase64Audio(base64Audio);
-  const dataLength = pcmAudioData.length;
-  const wavHeader = generateWavHeader(dataLength, sampleRate, 1, 16);
-  const wavFileData = new Uint8Array(wavHeader.length + pcmAudioData.length);
-  wavFileData.set(wavHeader, 0);
-  wavFileData.set(pcmAudioData, wavHeader.length);
-
-  return new Response(wavFileData, fixCors({
+function processAudioDataJSONResponse(audioContentBase64, mimeType) {
+  return new Response(JSON.stringify({ audioContentBase64, mimeType }), fixCors({
     status: 200,
     headers: {
-      'Content-Type': 'audio/wav'
+      'Content-Type': 'application/json'
     }
   }));
 }
@@ -281,7 +288,8 @@ export async function handleTTS(request, apiKey) {
     const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
       model.trim(),
       googleApiRequestBody,
-      apiKey
+      apiKey,
+      text.length // Pass character count for dynamic timeout
     );
 
     // Decode base64 audio data to binary PCM data
@@ -329,12 +337,7 @@ export async function handleRawTTS(request, apiKey) {
       throw new HttpError("API key is required", 401);
     }
 
-    // Parse query parameters for voice configuration
-    const url = new URL(request.url);
-    const voiceName = url.searchParams.get('voiceName');
-    const secondVoiceName = url.searchParams.get('secondVoiceName');
-
-    // Parse JSON request body for text and model
+    // Parse JSON request body for text, model, and voice configuration
     let requestBody;
     try {
       requestBody = await request.json();
@@ -342,11 +345,12 @@ export async function handleRawTTS(request, apiKey) {
       throw new HttpError("Invalid JSON in request body", 400);
     }
 
-    const { text, model } = requestBody;
+    // Extract voiceName and secondVoiceName from the request body
+    const { text, model, voiceName, secondVoiceName } = requestBody;
 
     // Validate required fields
     if (!voiceName) {
-      throw new HttpError("voiceName query parameter is required", 400);
+      throw new HttpError("voiceName field is required in request body", 400);
     }
 
     if (!text) {
@@ -385,19 +389,22 @@ export async function handleRawTTS(request, apiKey) {
     // Determine if TTS generation should be immediate or asynchronous
     if (text.length <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {
       // Immediate TTS generation for shorter texts
-      const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
+      const { base64Audio, mimeType } = await callGoogleTTSAPI(
         model.trim(),
         googleApiRequestBody,
-        apiKey
+        apiKey,
+        text.length // Pass character count for dynamic timeout
       );
-      return processAudioData(base64Audio, mimeType, sampleRate);
+      // Return Base64 encoded audio in JSON format
+      return processAudioDataJSONResponse(base64Audio, mimeType);
     } else {
       // Asynchronous TTS generation for longer texts
       const jobId = generateUniqueId();
       const ttsPromise = callGoogleTTSAPI(
         model.trim(),
         googleApiRequestBody,
-        apiKey
+        apiKey,
+        text.length // Pass character count for dynamic timeout
       );
       processingJobs.set(jobId, { promise: ttsPromise, status: 'processing' });
 
@@ -465,10 +472,9 @@ export async function handleTtsResult(request, apiKey) {
           }
         }));
       } else {
-        // Job has completed, update status and process audio
-        job.base64Audio = result.base64Audio;
+        // Job has completed, update status and store results
+        job.audioContentBase64 = result.base64Audio;
         job.mimeType = result.mimeType;
-        job.sampleRate = result.sampleRate;
         job.status = 'completed';
       }
     }
@@ -477,7 +483,8 @@ export async function handleTtsResult(request, apiKey) {
     if (job.status === 'completed') {
       processingJobs.delete(jobId); // Remove job after successful retrieval
 
-      return processAudioData(job.base64Audio, job.mimeType, job.sampleRate);
+      // Return Base64 encoded audio in JSON format
+      return processAudioDataJSONResponse(job.audioContentBase64, job.mimeType);
     }
 
 
