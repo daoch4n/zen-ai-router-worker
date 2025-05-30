@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-29T23:57:35.952059+00:00",
+    "timestamp_utc": "2025-05-30T00:02:12.422952+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -12,11 +12,11 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 225,
-      "comment_text_md": "**My Confidence: Low**\n\nThe `TTS_DURABLE_OBJECT` includes a `/delete` endpoint, which is good for managing stored TTS jobs. However, there doesn't appear to be any automatic cleanup mechanism implemented in the orchestrator (e.g., in `handleTtsChunk` after all chunks are served, or a time-based expiry for jobs). This could lead to Durable Objects accumulating old TTS job data indefinitely. Consider implementing a TTL on the stored jobs within the Durable Object, or a separate cleanup process to remove jobs after they are completed or expire.",
-      "ai_confidence": "Low",
+      "github_diff_position": 281,
+      "comment_text_md": "**My Confidence: High**\n\n### Addressed Previous Review Comment: Automatic Cleanup for TTS Jobs\n\nThis pull request successfully addresses the previous review comment regarding the lack of an automatic cleanup mechanism for TTS jobs stored in the Durable Object.\n\nThe `TTS_DURABLE_OBJECT` now implements a Time To Live (TTL) of 2 hours (`TTL_IN_MILLISECONDS = 7200000`) for stored TTS job data. This is applied when a job is stored via the `/store` endpoint:\n\n```javascript\nawait this.storage.put(jobId, new TTSJob(jobId, totalChunks, audioChunks, mimeType), { expirationTtl: TTL_IN_MILLISECONDS });\n```\n\nThis ensures that old TTS job data will not accumulate indefinitely, preventing potential storage issues and improving resource management. This is a significant and well-implemented improvement.",
+      "ai_confidence": "High",
       "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "refactoring/design"
+      "detected_category_heuristic": "performance"
     }
   ]
 }
