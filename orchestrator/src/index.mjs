@@ -134,7 +134,7 @@ async function _pollForTtsResult(targetService, jobId, apiKey) {
             if (response.status === 200) {
                 console.log(`Orchestrator: TTS job ${jobId} completed successfully.`);
                 const data = await response.json();
-                const mimeType = response.headers.get('Content-Type') || 'audio/L16;rate=24000'; // Default if not provided
+                const mimeType = 'audio/L16;rate=24000'; // Default if not provided
                 return { audioContentBase64: data.base64Audio, mimeType };
             } else if (response.status === 404) {
                 console.warn(`Orchestrator: TTS job ${jobId} not yet ready or expired.`);
