@@ -3,7 +3,7 @@
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
     "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-30T00:25:53.959616+00:00",
+    "timestamp_utc": "2025-05-30T01:11:49.618869+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
@@ -11,28 +11,36 @@
   },
   "review_comments": [
     {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 17,
-      "comment_text_md": "**My Confidence: High**\n\nThe comment `/* Corrected position of closing brace */` on this line is a change description rather than a code comment. It's best practice to remove such comments from the final code, as they refer to previous states of the file and can become confusing over time. This issue was previously noted and remains unaddressed.",
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 145,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `_pollForTtsResult` function retrieves `mimeType` from `response.headers.get('Content-Type')` or defaults to `audio/L16;rate=24000`. For consistency and robustness, consider having the backend worker always include `mimeType` in its JSON response for both direct (200) and polling results. Then, `_pollForTtsResult` could extract it from `data.mimeType` first, similar to how `_callBackendTtsService` handles it for direct 200 responses.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "error-handling"
+    },
+    {
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 179,
+      "comment_text_md": "**My Confidence: High**\n\nThe new TTS flow, particularly within `_callBackendTtsService` and `_pollForTtsResult`, assumes a specific API contract with the backend TTS worker. Specifically, the backend's `/api/rawtts` endpoint is expected to respond with either a direct audio result (HTTP 200) or a job ID for asynchronous polling (HTTP 202). Furthermore, the backend must also expose a `/api/tts-result` endpoint for fetching polling results. Ensure the backend worker's implementation aligns with these expectations for the system to function correctly, as this is a critical integration point.",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
+      "detected_severity_heuristic": "critical",
       "detected_category_heuristic": "general"
     },
     {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 537,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `DEFAULT_TTS_MODEL` is still hardcoded within the JavaScript file. While defining it as a `const` improves maintainability by centralizing the value, it doesn't address the previous suggestion of making it configurable (e.g., via a UI dropdown or a global JavaScript configuration variable) if there's a possibility of supporting different TTS models in the future. This would enhance flexibility without requiring code changes for model switching.",
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 148,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `_pollForTtsResult` function currently retries on any non-200 or non-404 HTTP status code from the backend. While retries are beneficial for transient issues (e.g., 5xx errors, rate limits), retrying on permanent client-side errors (e.g., 400 Bad Request, 401 Unauthorized, 403 Forbidden) is generally unproductive as these errors are unlikely to resolve on retry. Consider refining the retry logic to only retry on specific transient error codes (e.g., 429, 5xx) and fail immediately for other non-retryable errors.",
       "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "refactoring/design"
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "security"
     },
     {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 149,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `overallProgressBar`'s progress is calculated based on the `playedTextLength`. This might not always accurately reflect the overall audio generation progress, especially if text chunks vary significantly in length or if the backend processes them non-linearly. A more robust approach for overall progress would be to base it on the `chunkIndex` relative to `totalChunks` (i.e., `(chunkIndex / totalChunks) * 100`), as `totalChunks` is provided by the initial `tts-initiate` response. This would give a more consistent representation of the entire job's completion.",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
+      "file_path": "src/handlers/tts.mjs",
+      "github_diff_position": 2,
+      "comment_text_md": "**My Confidence: High**\n\nThe `processingJobs` Map is declared as a global in-memory variable. In a serverless environment like Cloudflare Workers, global state is not persistent across different worker instances or even across different invocations of the same worker instance over time. This means a TTS job started by `handleRawTTS` on one worker instance might not be retrievable by a subsequent `handleTtsResult` request if it hits a different worker instance, leading to `404 Not Found` errors for valid jobs. This design fundamentally breaks the asynchronous polling mechanism.\n\nTo ensure job persistence and retrievability, consider using a persistent storage solution. For Cloudflare Workers, this could be:\n1.  **Cloudflare KV:** For simple key-value storage of job status and results.\n2.  **Cloudflare Durable Objects:** If more complex state management, coordination, or long-running operations are needed for each job.\n\nExample using Cloudflare KV (simplified): `// In handleRawTTS: await MY_KV_NAMESPACE.put(jobId, JSON.stringify({ status: 'processing' })); ttsPromise.then(async (result) => { await MY_KV_NAMESPACE.put(jobId, JSON.stringify({ status: 'completed', data: result })); }).catch(async (error) => { await MY_KV_NAMESPACE.put(jobId, JSON.stringify({ status: 'failed', error: error.message })); }); // In handleTtsResult: const jobData = await MY_KV_NAMESPACE.get(jobId); // ... then parse jobData and return based on status, deleting from KV on completion/failure.`",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
     }
   ]
 }
