@@ -22,10 +22,12 @@ export default {
   moduleFileExtensions: ['mjs', 'js', 'json'],
 
   // Transform configuration
-  transform: {},
-  transformIgnorePatterns: [
-    'node_modules/(?!(.*\\.mjs$))'
-  ],
+transform: {
+   '^.+\\.mjs$': 'babel-jest',
+ },
+ transformIgnorePatterns: [
+   'node_modules/(?!(@whatwg-node/server)/)',
+ ],
 
   // Coverage configuration
   collectCoverage: false,
