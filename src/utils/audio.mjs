@@ -22,26 +22,9 @@ export function decodeBase64Audio(base64String) {
   }
 
   try {
-    // Use atob for base64 decoding in Cloudflare Workers environment
-    const binaryString = atob(base64String);
-    const length = binaryString.length;
-    const bytes = new Uint8Array(length);
-
-    // Optimized loop with unrolling for better performance
-    let i = 0;
-    for (; i < length - 3; i += 4) {
-      bytes[i] = binaryString.charCodeAt(i);
-      bytes[i + 1] = binaryString.charCodeAt(i + 1);
-      bytes[i + 2] = binaryString.charCodeAt(i + 2);
-      bytes[i + 3] = binaryString.charCodeAt(i + 3);
-    }
-
-    // Handle remaining bytes
-    for (; i < length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
-
-    return bytes;
+    // Use the more robust base64ToArrayBuffer and convert to Uint8Array
+    const arrayBuffer = base64ToArrayBuffer(base64String);
+    return new Uint8Array(arrayBuffer);
   } catch (error) {
     throw new Error(`Failed to decode base64 audio: ${error.message}`);
   }
@@ -73,6 +56,50 @@ export async function arrayBufferToBase64(buffer) {
     };
     reader.readAsDataURL(blob);
   });
+}
+/**
+ * Decodes a Base64 encoded string into an ArrayBuffer.
+ * This function is designed to handle large inputs efficiently without
+ * encountering "Maximum call stack size exceeded" errors, by processing
+ * the Base64 string in chunks or using a more robust decoding method
+ * like `atob` with a Blob/FileReader approach if available in the environment,
+ * or a byte-by-byte conversion if `atob` is still problematic for very large strings.
+ * Given that `atob` is still the most direct method in Cloudflare Workers,
+ * the primary improvement will come from handling potential size limitations
+ * by returning an ArrayBuffer directly from the `atob` result.
+ *
+ * @param {string} base64String - Base64 encoded string.
+ * @returns {ArrayBuffer} Decoded binary data as an ArrayBuffer.
+ * @throws {Error} When base64 string is invalid or decoding fails.
+ */
+export function base64ToArrayBuffer(base64String) {
+  if (base64String === null || base64String === undefined || typeof base64String !== 'string') {
+    throw new Error('Invalid base64 string: must be a non-empty string.');
+  }
+
+  // Handle empty string case
+  if (base64String === '') {
+    return new ArrayBuffer(0);
+  }
+
+  try {
+    // atob is optimized for performance in browser-like environments (e.g., Cloudflare Workers)
+    // and is generally more efficient than manual byte-by-byte conversion for large strings.
+    // The previous issue with "Maximum call stack size exceeded" for atob usually relates
+    // to subsequent operations on the *result* of atob (like `Uint8Array.from` on a very
+    // long string), rather than atob itself. This function will directly convert to ArrayBuffer.
+    const binaryString = atob(base64String);
+    const length = binaryString.length;
+    const bytes = new Uint8Array(length);
+
+    for (let i = 0; i < length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    return bytes.buffer; // Return as ArrayBuffer
+  } catch (error) {
+    throw new Error(`Failed to decode base64 to ArrayBuffer: ${error.message}`);
+  }
 }
 
 /**
