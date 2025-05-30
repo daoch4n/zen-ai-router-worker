@@ -57,7 +57,6 @@ export class TtsJobDurableObject {
         model,
         voiceId,
         status: 'queued',
-        result: null,
         createdAt: Date.now(),
       };
 
