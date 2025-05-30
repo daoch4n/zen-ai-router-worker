@@ -117,16 +117,14 @@ function parseSampleRate(mimeType) {
  * @param {string} model - The Gemini model to use for TTS generation
  * @param {Object} requestBody - The constructed request body for Google API
  * @param {string} apiKey - Google API key for authentication
- * @param {number} characterCount - Number of characters in the text to synthesize for timeout calculation
+ * @param {number} timeoutMs - Timeout in milliseconds for the API call
  * @returns {Promise<Object>} Object containing base64 audio data, mimeType, and sampleRate
  * @throws {HttpError} When API call fails or response is invalid
  */
-async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
+async function callGoogleTTSAPI(model, requestBody, apiKey, timeoutMs) {
   // Construct the full Google API endpoint URL
   const url = `${BASE_URL}/${API_VERSION}/models/${model}:generateContent`;
 
-  // Calculate dynamic timeout with a cap of 70 seconds
-  const timeoutMs = Math.min(5000 + (characterCount * 35), 70000);
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -166,14 +164,12 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
     }
 
     const { data: base64Audio } = part.inlineData;
-    const hardcodedMimeType = 'audio/L16;rate=24000';
-    const hardcodedSampleRate = 24000;
+    
 
     return {
       base64Audio,
-      mimeType: hardcodedMimeType,
-      sampleRate: hardcodedSampleRate,
-      orchestratorTimeoutMs: timeoutMs
+      mimeType: part.inlineData.mimeType,
+      sampleRate: parseSampleRate(part.inlineData.mimeType)
     };
 
   } catch (error) {
@@ -202,6 +198,7 @@ async function callGoogleTTSAPI(model, requestBody, apiKey, characterCount) {
  *
  * @param {string} audioContentBase64 - Base64 encoded audio data.
  * @param {string} mimeType - MIME type of the audio.
+ * @param {number} orchestratorTimeoutMs - The timeout used for the orchestrator.
  * @returns {Response} HTTP Response containing the JSON encoded audio data.
  */
 function processAudioDataJSONResponse(audioContentBase64, mimeType, orchestratorTimeoutMs) {
@@ -281,12 +278,15 @@ export async function handleTTS(request, apiKey) {
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
 
+    // Calculate dynamic timeout with a cap of 70 seconds
+    const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
+
     // Call Google Generative AI API to generate audio
-    const { base64Audio, mimeType, sampleRate, orchestratorTimeoutMs } = await callGoogleTTSAPI(
+    const { base64Audio, mimeType, sampleRate } = await callGoogleTTSAPI(
       model.trim(),
       googleApiRequestBody,
       apiKey,
-      text.length // Pass character count for dynamic timeout
+      orchestratorTimeoutMs // Pass calculated timeout
     );
 
     // Decode base64 audio data to binary PCM data
@@ -382,14 +382,17 @@ export async function handleRawTTS(request, env, event, apiKey) {
       secondVoiceName: secondVoiceName ? secondVoiceName.trim() : null
     });
 
+    // Calculate dynamic timeout with a cap of 70 seconds for orchestrator
+    const orchestratorTimeoutMs = Math.min(5000 + (text.length * 35), 70000);
+
     // Determine if TTS generation should be immediate or asynchronous
     if (text.length <= TTS_LIMITS.IMMEDIATE_TEXT_LENGTH_THRESHOLD) {
       // Immediate TTS generation for shorter texts
-      const { base64Audio, mimeType, orchestratorTimeoutMs } = await callGoogleTTSAPI(
+      const { base64Audio, mimeType } = await callGoogleTTSAPI(
         model.trim(),
         googleApiRequestBody,
         apiKey,
-        text.length // Pass character count for dynamic timeout
+        orchestratorTimeoutMs // Pass calculated timeout
       );
       // Return Base64 encoded audio in JSON format
       return processAudioDataJSONResponse(base64Audio, mimeType, orchestratorTimeoutMs);
@@ -419,12 +422,12 @@ export async function handleRawTTS(request, env, event, apiKey) {
           model.trim(),
           googleApiRequestBody,
           apiKey,
-          text.length // Pass character count for dynamic timeout
+          orchestratorTimeoutMs // Pass calculated timeout
         ).then(async (result) => {
           await stub.fetch(new Request(`${stub.url}/tts-job/${jobId}/store-result`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: result.orchestratorTimeoutMs })
+            body: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType, orchestratorTimeoutMs: orchestratorTimeoutMs })
           }));
         }).catch(async (error) => {
           console.error(`TTS job ${jobId} failed:`, error);
@@ -439,7 +442,7 @@ export async function handleRawTTS(request, env, event, apiKey) {
       // The jobId is included in both the JSON body and as an X-Processing-Job-Id header
       // to facilitate the orchestrator's polling mechanism (_pollForTtsResult).
       // Return 202 Accepted with the jobId
-      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs: result.orchestratorTimeoutMs }), fixCors({
+      return new Response(JSON.stringify({ jobId, status: 'processing', orchestratorTimeoutMs: orchestratorTimeoutMs }), fixCors({
         status: 202,
         headers: {
           'Content-Type': 'application/json',
