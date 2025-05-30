@@ -3,8 +3,24 @@ import { fixCors } from './utils/cors.mjs';
 import { HttpError, errorHandler } from './utils/error.mjs';
 import { handleOPTIONS } from './utils/cors.mjs';
 import { splitIntoSentences, getTextCharacterCount } from './utils/textProcessing.mjs';
+import { CircuitBreaker } from './utils/circuitBreaker.mjs'; // Import CircuitBreaker
 export { RouterCounter };
 
+// Define a map to hold circuit breakers for each backend service
+const circuitBreakers = new Map();
+const CIRCUIT_BREAKER_FAILURE_THRESHOLD = 3; // Number of consecutive failures to open the circuit
+const CIRCUIT_BREAKER_RESET_TIMEOUT_MS = 60000; // 60 seconds before trying to close the circuit
+
+async function _getOrCreateCircuitBreaker(serviceName) {
+    if (!circuitBreakers.has(serviceName)) {
+        circuitBreakers.set(serviceName, new CircuitBreaker(
+            serviceName,
+            CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+            CIRCUIT_BREAKER_RESET_TIMEOUT_MS
+        ));
+    }
+    return circuitBreakers.get(serviceName);
+}
 
 export default {
   async fetch(
@@ -167,10 +183,13 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
 
     const targetWorkerIndex = currentCounter % numSrcWorkers;
     const targetService = backendServices[targetWorkerIndex];
+    const targetServiceName = `BackendService-${targetWorkerIndex}`; // Unique name for circuit breaker
 
     if (!targetService) {
         return { success: false, index: chunkIndex, errorMessage: "Failed to select target worker." };
     }
+
+    const circuitBreaker = await _getOrCreateCircuitBreaker(targetServiceName);
 
     const backendTtsUrl = new URL('/api/rawtts', 'http://placeholder');
 
@@ -188,92 +207,103 @@ async function _callBackendTtsService(text, voiceId, model, apiKey, env, backend
     const backendCalculatedTimeout = Math.min(5000 + (characterCount * 35), 70000);
     const timeoutMs = Math.min(backendCalculatedTimeout + 5000, 75000);
 
-    for (let i = 0; i <= maxRetries; i++) {
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+        const result = await circuitBreaker.execute(async () => {
+            for (let i = 0; i <= maxRetries; i++) {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-        try {
-            const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
-                method: 'POST',
-                headers: headersToSend,
-                body: JSON.stringify({
-                    text: text.trim(),
-                    model: model,
-                    voiceId: voiceId
-                }),
-                signal: controller.signal // Apply the AbortController signal
-            }));
+                try {
+                    const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+                        method: 'POST',
+                        headers: headersToSend,
+                        body: JSON.stringify({
+                            text: text.trim(),
+                            model: model,
+                            voiceId: voiceId
+                        }),
+                        signal: controller.signal
+                    }));
 
-            
+                    if (response.status === 202) {
+                        console.log(`Orchestrator: Backend worker accepted TTS job. Initiating polling.`);
+                        const responseData = await response.json();
+                        const jobId = responseData.jobId || response.headers.get('X-Processing-Job-Id');
+                        if (!jobId) {
+                            throw new Error("202 response missing jobId");
+                        }
+                        const pollResult = await _pollForTtsResult(targetService, jobId, apiKey, timeoutMs);
+                        return { success: true, ...pollResult, timeoutMs };
+                    } else if (response.ok) {
+                        console.log(`Orchestrator: Backend TTS fetch successful after ${i + 1} attempt(s).`);
+                        const data = await response.json();
+                        let mimeType = response.headers.get('Content-Type');
 
-            if (response.status === 202) {
-                console.log(`Orchestrator: Backend worker accepted TTS job. Initiating polling.`);
-                const responseData = await response.json();
-                const jobId = responseData.jobId || response.headers.get('X-Processing-Job-Id');
-                if (!jobId) {
-                    return { success: false, index: chunkIndex, errorMessage: "202 response missing jobId" };
-                }
-                // Pass the calculated timeout to the polling function
-                const pollResult = await _pollForTtsResult(targetService, jobId, apiKey, timeoutMs);
-                return { success: true, ...pollResult, timeoutMs };
-            } else if (response.ok) {
-                // Existing handling for successful fetch (2xx responses other than 202)
-            } else { // response.status is not 2xx or 202
-                const RETRYABLE_STATUSES = [429, 500, 502, 503, 504]; // Define transient, retryable HTTP status codes
+                        if (data.mimeType) {
+                            mimeType = data.mimeType;
+                        } else if (!mimeType) {
+                            mimeType = 'audio/L16;rate=24000';
+                            console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
+                        }
+                        return { success: true, audioContentBase64: data.audioContentBase64, mimeType: mimeType, timeoutMs };
+                    } else {
+                        const RETRYABLE_STATUSES = [429, 500, 502, 503, 504];
 
-                if (RETRYABLE_STATUSES.includes(response.status) && i < maxRetries) {
-                    const delay = Math.pow(2, i) * baseDelayMs;
-                    console.warn(`Orchestrator: Backend TTS fetch failed (status: ${response.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
-                    continue;
-                } else {
-                    // Non-retryable HTTP error or max retries reached for a retryable error
-                    let errorData;
-                    try {
-                        errorData = await response.json();
-                    } catch (e) {
-                        errorData = { message: await response.text() };
+                        if (RETRYABLE_STATUSES.includes(response.status) && i < maxRetries) {
+                            const delay = Math.pow(2, i) * baseDelayMs;
+                            console.warn(`Orchestrator: Backend TTS fetch failed (status: ${response.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        } else {
+                            let errorData;
+                            try {
+                                errorData = await response.json();
+                            } catch (e) {
+                                errorData = { message: await response.text() };
+                            }
+                            console.error(`Orchestrator: Backend TTS failed with non-retryable status ${response.status} or max retries reached. Error: ${errorData.message}`);
+                            throw new HttpError(errorData.message || `Backend TTS failed with status ${response.status}`, response.status);
+                        }
                     }
-                    console.error(`Orchestrator: Backend TTS failed with non-retryable status ${response.status} or max retries reached. Error: ${errorData.message}`);
-                    return { success: false, index: chunkIndex, errorMessage: errorData.message || `Backend TTS failed with status ${response.status}`, status: response.status, timeoutMs: null };
+                } catch (e) {
+                    if (e.name === 'AbortError') {
+                        console.warn(`Orchestrator: API call timed out after ${timeoutMs}ms (attempt ${i + 1}/${maxRetries}).`);
+                        if (i < maxRetries) {
+                            const delay = Math.pow(2, i) * baseDelayMs;
+                            await new Promise(resolve => setTimeout(resolve, delay));
+                            continue;
+                        } else {
+                            console.error(`Orchestrator: All retry attempts failed for backend TTS fetch due to timeout.`);
+                            throw new HttpError(`API call timed out after ${timeoutMs}ms`, 504);
+                        }
+                    }
+                    if (e instanceof HttpError && RETRYABLE_STATUSES.includes(e.status) && i < maxRetries) {
+                        const delay = Math.pow(2, i) * baseDelayMs;
+                        console.warn(`Orchestrator: HttpError during backend TTS fetch: ${e.message} (status: ${e.status}). Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
+                        await new Promise(resolve => setTimeout(resolve, delay));
+                        continue;
+                    }
+                    console.error(`Orchestrator: Unhandled error during backend TTS fetch:`, e);
+                    throw e; // Re-throw other errors to be caught by the circuit breaker's execute
+                } finally {
+                    clearTimeout(timeoutId);
                 }
             }
-
-            console.log(`Orchestrator: Backend TTS fetch successful after ${i + 1} attempt(s).`);
-            const data = await response.json();
-            let mimeType = response.headers.get('Content-Type');
-
-            if (data.mimeType) {
-                mimeType = data.mimeType;
-            } else if (!mimeType) {
-                mimeType = 'audio/L16;rate=24000';
-                console.warn(`Orchestrator: Backend did not provide mimeType for raw TTS, defaulting to ${mimeType}`);
-            }
-
-            return { success: true, audioContentBase64: data.audioContentBase64, mimeType: mimeType, timeoutMs };
-
-        } catch (e) {
-            
-
-if (e instanceof HttpError) {
-                console.error(`Orchestrator: HttpError during backend TTS fetch: ${e.message} (status: ${e.status}).`);
-                return { success: false, index: chunkIndex, errorMessage: e.message, status: e.status, timeoutMs: null };
-            }
-            if (e.name === 'AbortError') {
-                return { success: false, index: chunkIndex, errorMessage: `API call timed out after ${timeoutMs}ms`, status: 504, timeoutMs: null };
-            }
-
-            if (i < maxRetries) {
-                const delay = Math.pow(2, i) * baseDelayMs;
-                console.warn(`Orchestrator: Error during backend TTS fetch: ${e.message}. Retrying in ${delay}ms (attempt ${i + 1}/${maxRetries}).`);
-                await new Promise(resolve => setTimeout(resolve, delay));
-            } else {
-                console.error(`Orchestrator: All retry attempts failed for backend TTS fetch. Last error:`, e);
-                return { success: false, index: chunkIndex, errorMessage: e.message || "Unknown error during backend TTS fetch.", timeoutMs: null };
-            }
-        } finally {
-            clearTimeout(timeoutId); // Ensure timeout is cleared on success or other exits
+        });
+        return result;
+    } catch (e) {
+        // This catch block handles errors thrown by the circuit breaker (e.g., circuit is OPEN)
+        // or re-thrown errors from the inner fetch loop (non-retryable HTTP errors, final timeouts).
+        console.error(`Orchestrator: Circuit breaker or final API call error for service ${targetServiceName}:`, e.message);
+        let status = 500;
+        if (e instanceof HttpError) {
+            status = e.status;
+        } else if (e.message.includes("Circuit is OPEN") || e.message.includes("HALF_OPEN")) {
+            status = 503; // Service Unavailable due to circuit breaker
+        } else if (e.name === 'AbortError' || e.message.includes("timed out")) {
+            status = 504; // Gateway Timeout
         }
+        return { success: false, index: chunkIndex, errorMessage: e.message || "Circuit Breaker intervened.", status: status, timeoutMs: null };
     }
 }
 async function handleTtsChunk(request, env) {
