@@ -3,6 +3,7 @@ export class TtsJobDurableObject {
     this.state = state;
     this.env = env;
     this.storage = state.storage;
+    this.TTL_SECONDS = 24 * 60 * 60; // 24 hours
   }
 
   async fetch(request) {
@@ -51,8 +52,7 @@ export class TtsJobDurableObject {
       };
 
       // Set a TTL for the job data (e.g., 24 hours)
-      const TTL_SECONDS = 24 * 60 * 60;
-      await this.storage.put(jobId, jobData, { expirationTtl: TTL_SECONDS });
+      await this.storage.put(jobId, jobData, { expirationTtl: this.TTL_SECONDS });
 
       return new Response(JSON.stringify({ message: 'Job initialized', jobId }), {
         headers: { 'Content-Type': 'application/json' },
@@ -86,7 +86,7 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       }
 
       jobData.status = status;
-      await this.storage.put(jobId, jobData);
+      await this.storage.put(jobId, jobData, { expirationTtl: this.TTL_SECONDS });
 
       return new Response(JSON.stringify({ message: 'Job status updated', jobId, status }), {
         headers: { 'Content-Type': 'application/json' },
@@ -122,7 +122,7 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       jobData.base64Audio = undefined; // Or delete jobData.base64Audio;
       jobData.mimeType = mimeType;
       jobData.status = 'completed';
-      await this.storage.put(jobId, jobData);
+      await this.storage.put(jobId, jobData, { expirationTtl: this.TTL_SECONDS });
 
       return new Response(JSON.stringify({ message: 'Job result stored in R2', jobId }), {
         headers: { 'Content-Type': 'application/json' },
