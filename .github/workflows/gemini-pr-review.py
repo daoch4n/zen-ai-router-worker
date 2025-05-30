@@ -557,7 +557,7 @@ def create_batch_prompt(patched_file: PatchedFile, pr_details: PRDetails) -> str
         combined_hunks_text += ("\n\n" if i > 0 else "") + separator + hunk_text
     
     instructions = """Your task is reviewing pull requests. You will provide structured output in JSON format.
-
+ 
 REVIEW GUIDELINES:
 - Focus on logic flaws, inconsistencies, and bugs that would affect how the application runs. These include:
   * Incorrect error handling or recovery strategies
@@ -572,7 +572,7 @@ REVIEW GUIDELINES:
 - Lower priority issues include:
   * Naming conventions (only if they cause genuine confusion)
   * Documentation suggestions (only for complex logic)
-
+ 
 IMPORTANT GUIDELINES:
 - Make comments actionable with specific suggestions for improvement. Include pseudocode examples when possible.
 - DO NOT comment on minor style issues or suggest adding comments to the code itself.
@@ -580,14 +580,14 @@ IMPORTANT GUIDELINES:
 - Only suggest changes relevant to the diff. Do not comment on unrelated code unless directly impacted by the changes.
 - Be concise and clear in your feedback.
 - If no issues are found, return an empty reviews array.
-
+ 
 HANDLING PREVIOUS REVIEW COMMENTS:
 - If my previous review comments are provided, check if they've been addressed in the current code.
 - If you see "[ADDRESSED]" in a previous comment, verify the fix is correct and DO NOT repeat the issue.
 - If a previous issue has been partially fixed, acknowledge the improvement and suggest any remaining changes.
 - If a previous issue hasn't been addressed at all, you may note it again but focus on new issues.
 - If a fix for a previous issue introduces new problems, highlight those specifically.
-
+ 
 RESPONSE FORMAT:
 Your response must be a valid JSON object with the following structure:
 {
@@ -600,7 +600,7 @@ Your response must be a valid JSON object with the following structure:
     }
   ]
 }
-
+ 
 IMPORTANT NOTES ABOUT LINE NUMBERS:
 - The hunkIndex must be a valid 0-based index within the range of hunks in the diff
 - The lineNumber must be a valid 1-based line number within the content of the specified hunk
@@ -1004,7 +1004,7 @@ def create_review_and_summary_comment(pr_details: PRDetails, comments_for_gh_rev
     pr_for_comments = pr_details.pr_obj
     num_suggestions = len(comments_for_gh_review)
     
-    if gh and gh != pr_details.pr_obj.repository._requester.auth:
+    if gh and gh != pr_details.pr_obj._requester:
         try:
             bot_repo = gh.get_repo(pr_details.get_full_repo_name())
             pr_for_comments = bot_repo.get_pull(pr_details.pull_number)
