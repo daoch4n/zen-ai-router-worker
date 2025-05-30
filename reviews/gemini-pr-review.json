@@ -12,22 +12,6 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 162,
-      "comment_text_md": "**My Confidence: High**\n\nThe `_pollForTtsResult` function still hardcodes the `mimeType` to `audio/L16;rate=24000` when a 200 response is received. For consistency and robustness, it should attempt to extract `mimeType` from the `data` object (e.g., `data.mimeType`) before defaulting. This aligns with how `_callBackendTtsService` handles `mimeType` for direct 2xx responses from the backend.\n```javascript\n// Current:\n// const mimeType = 'audio/L16;rate=24000';\n\n// Suggested:\nconst mimeType = data.mimeType || 'audio/L16;rate=24000';\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "error-handling"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 613,
-      "comment_text_md": "**My Confidence: High**\n\nIn `handleTtsInitiate`, the `mimeType` stored in the Durable Object metadata via `/store-metadata` is hardcoded to `audio/L16;rate=24000`. While `_callBackendTtsService` correctly determines the `mimeType` from the backend response, this determined `mimeType` is not used to update the DO metadata. If the backend ever returns a different `mimeType` (e.g., `audio/webm`), the stored metadata will be inaccurate, potentially leading to client-side issues when retrieving chunks. Consider updating the DO metadata with the actual `mimeType` once the first chunk's `mimeType` is known, or if the backend guarantees a consistent `mimeType` across all chunks, retrieve it from the first successful `_callBackendTtsService` call and then update the DO. Alternatively, if the backend always returns the same `mimeType` for a given `model`/`voiceId`, the `mimeType` could be determined once and stored.\n```javascript\n// Conceptual flow:\n// 1. Store initial metadata (status: 'processing', mimeType: 'pending' or a default)\n// 2. In the ctx.waitUntil block, after the first successful _callBackendTtsService result:\n//    If result.mimeType is different from stored, update DO metadata:\n//    await stub.fetch(new Request(\"https://dummy-url/update-metadata-mimeType\", {\n//        method: \"POST\",\n//        headers: { \"Content-Type\": \"application/json\" },\n//        body: JSON.stringify({ jobId, mimeType: result.mimeType })\n//    }));\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": "orchestrator/src/index.mjs",
       "github_diff_position": 385,
       "comment_text_md": "**My Confidence: Medium**\n\nThe `/retrieve` endpoint in the `TTS_DURABLE_OBJECT` fetches all chunks (`await this.storage.get(chunkKeys);`) for a given job. While `handleTtsChunk` correctly uses `/retrieve-chunk` for individual chunk retrieval, this `/retrieve` endpoint could potentially lead to high memory consumption and slow responses within the Durable Object if a TTS job consists of a very large number of small chunks. If this endpoint is not intended for client-facing retrieval of all audio data at once, consider adding documentation or a warning about its potential performance implications for very large jobs. If it is intended for such use, further optimization (e.g., pagination or streaming from the DO) might be necessary for scalability.",
       "ai_confidence": "Medium",
