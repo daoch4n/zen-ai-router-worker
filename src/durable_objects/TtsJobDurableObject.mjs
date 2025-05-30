@@ -1,3 +1,5 @@
+import { arrayBufferToBase64 } from '../utils/audio.mjs';
+
 export class TtsJobDurableObject {
   constructor(state, env) {
     this.state = state;
@@ -176,8 +178,8 @@ const allowedStatuses = ['processing', 'completed', 'failed', 'queued'];
       // Convert R2 Object Body to ArrayBuffer
       const arrayBuffer = await r2Object.arrayBuffer();
 
-      // Encode to Base64
-      const base64Audio = btoa(String.fromCharCode(...new Uint8Array(arrayBuffer)));
+      // Encode to Base64 using the new utility function
+      const base64Audio = arrayBufferToBase64(arrayBuffer);
 
       return new Response(JSON.stringify({ jobId, status: jobData.status, base64Audio, mimeType: jobData.mimeType }), {
         headers: { 'Content-Type': 'application/json' },
