@@ -323,7 +323,7 @@
     }
   </style>
 </head>
-
+ 
 <body>
   <div id="settingsCog" title="Show/Hide API Key">&#9881;</div>
   <div class="top-input-bar">
@@ -374,9 +374,9 @@
       <button id="speakButton">Speak</button>
     </div>
   </div>
-
+ 
   <div class="container">
-
+ 
     <a id="downloadButton" download="audio.wav" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */ margin-top: 15px;">
       <button>Download WAV</button>
     </a>
@@ -387,7 +387,7 @@
     <label>Overall Progress:</label>
     <div id="overallProgressBarContainer" style="display: block;">
     </div>
-
+ 
     <label for="playbackProgressBar">Audio Playback Progress:</label>
     <div id="playbackProgressBarContainer" style="display: block;">
       <div id="playbackProgressBar"></div>
@@ -397,12 +397,12 @@
     <!-- New section for displaying text and highlighting -->
     <div id="textDisplayArea" class="text-display-area"></div>
   </div>
-
+ 
   <script>
     function setupTTSClient(orchestratorWorkerUrl) {
       window.ORCHESTRATOR_WORKER_URL = orchestratorWorkerUrl; // Ensure this is configured
       
-
+ 
       let audioContext;
       let audioQueue = [];
       let currentSource = null;
@@ -414,11 +414,11 @@
       let currentHighlightedWordIndex = 0; // New: To keep track of the currently highlighted word
       let words = []; // New: To store the words from the input text
       let currentSentenceIndex = -1; // New: To track the currently playing sentence index
-
+ 
       function showToast(message, type = 'info', duration = 4000) {
         const toastContainer = document.getElementById('toastContainer');
         const messageDiv = document.getElementById('message'); // Fallback
-
+ 
         if (!toastContainer) {
           if (messageDiv) {
             messageDiv.textContent = `[${type.toUpperCase()}] ${message}`;
@@ -427,14 +427,14 @@
           console.warn("Toast container not found. Using fallback message div.");
           return;
         }
-
+ 
         const toast = document.createElement('div');
         toast.className = `toast toast-${type}`;
         toast.textContent = message;
         toastContainer.appendChild(toast);
-
+ 
         setTimeout(() => toast.classList.add('show'), 10);
-
+ 
         setTimeout(() => {
           toast.classList.remove('show');
           toast.addEventListener('transitionend', () => toast.remove(), {
@@ -442,7 +442,7 @@
           });
         }, duration);
       }
-
+ 
       // Refactored function to remove SSE logic and prepare for fetch-based requests
       const initiateTtsRequest = async (text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model) => {
         // Clear existing state related to previous playback or SSE
@@ -471,20 +471,20 @@
         audioQueue = [];
         fullAudioBuffers = [];
         currentSource = null;
-
+ 
         loadingText.textContent = 'Playing...';
         overallProgressBarContainer.style.display = 'block';
         overallProgressBar.style.width = '0%';
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
-
+ 
         const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
         const INITIAL_BACKOFF_MS = 500; // 2^n * 500ms
         const POLLING_INTERVAL_MS = 1500; // 1.5 seconds
         const MAX_POLLING_TIME_MS = 90000; // 90 seconds
-
+ 
         const delay = ms => new Promise(res => setTimeout(res, ms));
-
+ 
         // Helper function to process audio chunks
         const processAudioChunk = async (audioBase64, sentenceMapping, currentChunkIndex) => {
           const audioBinary = atob(audioBase64); // Decode base64 to binary string
@@ -492,7 +492,7 @@
           for (let i = 0; i < audioBinary.length; i++) {
             audioBytes[i] = audioBinary.charCodeAt(i);
           }
-
+ 
           return new Promise((resolve, reject) => {
             audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
               fullAudioBuffers.push(buffer);
@@ -500,7 +500,7 @@
               if (!currentSource) {
                 playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
               }
-
+ 
               // Update word sentence indices
               sentenceMapping.forEach(mapping => {
                   const mappedSentenceIndex = mapping.sentenceIndex;
@@ -511,7 +511,7 @@
                       }
                   });
               });
-
+ 
               // Mark the current segment as completed (or processed)
               const currentSegment = window.ttsJobData.segmentElements[currentChunkIndex];
               if (currentSegment) {
@@ -519,10 +519,10 @@
                 currentSegment.classList.add('completed');
                 currentSegment.querySelector('.segment-fill').style.width = '100%'; // Ensure it's fully filled
               }
-
+ 
               // Update cumulative completed length (for overall progress conceptualization)
               window.ttsJobData.cumulativeCompletedLength += window.ttsJobData.chunkLengths[currentChunkIndex];
-
+ 
               // No longer directly setting overallProgressBar width here, as it's segmented
               resolve();
             }, reject);
@@ -537,13 +537,15 @@
           }
         });
         clearAllHighlights(textDisplayArea);
-
+ 
         // This function will be adapted in a later step to manage `fetch`-based sequential requests.
         // For now, it only prepares the state and clears previous SSE-related logic.
         try {
           loadingText.textContent = 'Initiating TTS request...';
           const abortControllerInitiate = new AbortController();
-          const initiateTimeout = setTimeout(() => abortControllerInitiate.abort(), 15000); // 15 seconds timeout
+          const initialFetchTimeout = orchestratorTimeoutMs ? Math.min(orchestratorTimeoutMs + 20000, 80000) : 20000; // Use orchestrator's recommendation + buffer, capped, or fallback to 20s
+          console.log(`Setting initial TTS fetch timeout to: ${initialFetchTimeout}ms`); // Added logging
+          const initiateTimeout = setTimeout(() => abortControllerInitiate.abort(), initialFetchTimeout);
           const response = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-initiate`, {
             method: 'POST',
             headers: {
@@ -559,15 +561,15 @@
             signal: abortControllerInitiate.signal
           });
           clearTimeout(initiateTimeout);
-
+ 
           if (!response.ok) {
             const errorData = await response.json();
             throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
           }
-
-          const { jobId, totalChunks, chunkLengths } = await response.json();
+ 
+          const { jobId, totalChunks, chunkLengths, orchestratorTimeoutMs } = await response.json();
           showToast(`TTS initiated. Job ID: ${jobId}, Total Chunks: ${totalChunks}`, 'success');
-
+ 
           // Store chunk lengths globally
           window.ttsJobData = {
             chunkLengths: chunkLengths,
@@ -575,7 +577,7 @@
             cumulativeCompletedLength: 0,
             segmentElements: [] // To store references to created segment divs
           };
-
+ 
           // Initial rendering of segmented progress bar
           overallProgressBarContainer.style.display = 'flex'; // Ensure it's a flex container
           overallProgressBarContainer.innerHTML = ''; // Clear existing content (e.g., old overallProgressBar)
@@ -584,38 +586,38 @@
             segment.className = 'progress-segment';
             segment.dataset.chunkIndex = index;
             segment.style.width = `${(length / window.ttsJobData.totalTextLength) * 100}%`;
-
+ 
             const segmentFill = document.createElement('div');
             segmentFill.className = 'segment-fill';
             segment.appendChild(segmentFill);
             overallProgressBarContainer.appendChild(segment);
             window.ttsJobData.segmentElements.push(segment); // Store reference
           });
-
+ 
           loadingText.textContent = 'Fetching audio chunks...';
           playbackProgressBarContainer.style.display = 'none';
           playbackProgressBar.style.width = '0%';
-
+ 
           // Function to fetch individual audio chunks - Refactored to use iteration
           let chunkIndex = 0;
           while (chunkIndex < totalChunks) {
             let retries = 0;
             let chunkData = null; // Reset chunkData for each chunk
             let chunkHandled = false; // Flag to indicate if the chunk was successfully fetched or intentionally skipped
-
+ 
             while (retries <= MAX_RETRIES && !chunkHandled) { // Loop while retries available and chunk not handled
               try {
                 loadingText.textContent = `Fetching chunk ${chunkIndex + 1}/${totalChunks} (attempt ${retries + 1}/${MAX_RETRIES + 1})...`;
-
+ 
                 const abortControllerChunk = new AbortController();
                 // Assuming orchestratorTimeoutMs is available in a previous response or has a default
                 // For the initial chunk, we don't have it yet, so we'll use a default or assume it's part of the initiate response.
                 // Since the task implies it's per-chunk, I'll assume for the first chunk it's 0 and the +5000 applies.
                 // Later chunks might receive this info from the orchestrator. For now, we'll implement the logic assuming its presence.
                 const orchestratorDynamicTimeout = chunkData?.orchestratorTimeoutMs || 0; // Will be available in chunkData after first successful fetch
-                const dynamicChunkTimeout = Math.min(orchestratorDynamicTimeout + 5000, 80000); // Capped at 80 seconds
+                const dynamicChunkTimeout = Math.min(orchestratorDynamicTimeout + 20000, 80000); // Capped at 80 seconds
                 const chunkTimeout = setTimeout(() => abortControllerChunk.abort(), dynamicChunkTimeout);
-
+ 
                 const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
                   method: 'GET',
                   headers: {
@@ -624,12 +626,12 @@
                   signal: abortControllerChunk.signal
                 });
                 clearTimeout(chunkTimeout);
-
+ 
                 if (chunkResponse.status === 202) { // 202 Accepted: Chunk is in progress
                   showToast(`Chunk ${chunkIndex + 1} is in progress. Polling...`, 'info');
                   let pollingStartTime = Date.now();
                   let polledResponse = null;
-
+ 
                   while (Date.now() - pollingStartTime < MAX_POLLING_TIME_MS) {
                     await delay(POLLING_INTERVAL_MS);
                     const pollingAttemptResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
@@ -638,7 +640,7 @@
                         'Authorization': `Bearer ${apiKey}`
                       }
                     });
-
+ 
                     if (pollingAttemptResponse.ok && pollingAttemptResponse.status !== 202) {
                       polledResponse = pollingAttemptResponse;
                       break; // Exit polling loop, chunk is ready
@@ -663,7 +665,7 @@
                       break; // Exit polling loop
                     }
                   }
-
+ 
                   if (polledResponse) {
                     chunkData = await polledResponse.json();
                     chunkHandled = true; // Successfully fetched after polling
@@ -676,7 +678,7 @@
                     }
                     chunkHandled = true; // Mark as handled, no chunkData
                   }
-
+ 
                 } else if (chunkResponse.status === 410) { // 410 Gone: Permanent failure
                   console.warn(`Chunk ${chunkIndex + 1} permanently failed.`);
                   showToast(`Warning: Segment ${chunkIndex + 1} failed and will be skipped.`, 'warning');
@@ -698,7 +700,7 @@
                   chunkData = await chunkResponse.json();
                   chunkHandled = true; // Successfully fetched
                 }
-
+ 
               } catch (error) { // Catch network errors or errors thrown from polling logic
                 if (error.name === 'AbortError') {
                   console.error(`Chunk ${chunkIndex + 1} request timed out (attempt ${retries + 1}).`);
@@ -723,7 +725,7 @@
                 }
               }
             }
-
+ 
             if (chunkData) {
               await processAudioChunk(chunkData.audioContentBase64, chunkData.sentenceMapping, chunkIndex);
             } else {
@@ -735,7 +737,7 @@
             }
             chunkIndex++; // Always increment chunkIndex to move to the next chunk, regardless of success or failure
           }
-
+ 
           // Completion logic after the loop finishes
           showToast('All audio chunks processed (some may have been skipped/failed).', 'success');
           loadingText.textContent = 'Playback complete.';
@@ -743,9 +745,10 @@
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
           // overallProgressBarContainer.style.display = 'none'; // Keep visible if segments are shown
-
+ 
           // Concatenate all buffers and enable download
           if (fullAudioBuffers.length > 0) {
+fullAudioBuffers.sort((a, b) => a.index - b.index);
             const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
             downloadButtonLink.href = URL.createObjectURL(audioBlob);
             downloadButtonLink.style.display = 'block';
@@ -765,20 +768,20 @@
           overallProgressBarContainer.style.display = 'none';
         }
       };
-
+ 
       const playNextChunk = (textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer) => {
         if (audioQueue.length > 0) {
           const { buffer, index } = audioQueue.shift();
-
+ 
           const source = audioContext.createBufferSource();
           source.buffer = buffer;
           source.connect(audioContext.destination);
-
+ 
           let scheduledTime = cumulativeAudioDuration;
           if (scheduledTime < audioContext.currentTime) {
             scheduledTime = audioContext.currentTime;
           }
-
+ 
           // Get the current progress segment and mark it active
           const currentSegment = window.ttsJobData.segmentElements[index];
           if (currentSegment) {
@@ -786,7 +789,7 @@
             document.querySelectorAll('.progress-segment.active').forEach(s => s.classList.remove('active'));
             currentSegment.classList.add('active');
           }
-
+ 
           // Position playbackProgressBar over the active segment
           playbackProgressBarContainer.style.display = 'block';
           playbackProgressBarContainer.style.position = 'absolute';
@@ -795,20 +798,20 @@
           playbackProgressBarContainer.style.top = `${currentSegment.offsetTop}px`; // Align with segment
           playbackProgressBarContainer.style.height = `${currentSegment.offsetHeight}px`; // Match segment height
           playbackProgressBar.style.width = '0%'; // Reset for new chunk
-
+ 
           playStartTime = audioContext.currentTime;
           source.start(scheduledTime);
           currentSource = source;
           lastPlayedIndex = index;
           cumulativeAudioDuration += buffer.duration;
-
+ 
           const updatePlaybackProgress = () => {
             if (currentSource && audioContext) {
               const elapsed = audioContext.currentTime - playStartTime;
               const duration = buffer.duration;
               const progress = (elapsed / duration) * 100;
               playbackProgressBar.style.width = `${progress}%`;
-
+ 
               if (elapsed < duration) {
                 requestAnimationFrame(updatePlaybackProgress);
               } else {
@@ -818,7 +821,7 @@
             }
           };
           requestAnimationFrame(updatePlaybackProgress);
-
+ 
           // Highlight current sentence
           clearAllHighlights(textDisplayArea);
           currentSentenceIndex = index;
@@ -827,7 +830,7 @@
               word.element.classList.add('highlighted-word');
             }
           });
-
+ 
           source.onended = () => {
             // Mark the current segment as completed
             if (currentSegment) {
@@ -835,7 +838,7 @@
               currentSegment.classList.add('completed');
               currentSegment.querySelector('.segment-fill').style.width = '100%';
             }
-
+ 
             if (audioQueue.length > 0) {
               playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
             } else {
@@ -849,28 +852,28 @@
           };
         }
       };
-
+ 
       function clearAllHighlights(textDisplayArea) {
         textDisplayArea.querySelectorAll('.highlighted-word').forEach(element => {
           element.classList.remove('highlighted-word');
         });
       }
-
+ 
 // New function to concatenate multiple AudioBuffer objects
       function concatenateAudioBuffers(audioBuffers, audioContext) {
         if (!audioBuffers || audioBuffers.length === 0) {
           return null;
         }
-
+ 
         const numberOfChannels = audioBuffers[0].numberOfChannels;
         const sampleRate = audioBuffers[0].sampleRate;
         let totalLength = 0;
         for (const buffer of audioBuffers) {
           totalLength += buffer.length;
         }
-
+ 
         const outputBuffer = audioContext.createBuffer(numberOfChannels, totalLength, sampleRate);
-
+ 
         let offset = 0;
         for (const buffer of audioBuffers) {
           for (let i = 0; i < numberOfChannels; i++) {
@@ -889,26 +892,26 @@
           i, sample,
           offset = 0,
           pos = 0;
-
+ 
         setUint32(0x46464952); // "RIFF"
         setUint32(length - 8); // file length - 8
         setUint32(0x45564157); // "WAVE"
-
+ 
         setUint32(0x20746d66); // "fmt " chunk
         setUint32(16); // length = 16
         setUint16(1); // PCM (uncompressed)
         setUint16(numOfChan);
         setUint32(abuffer.sampleRate);
         setUint32(abuffer.sampleRate * numOfChan * 2); // avg. bytes/sec
-        setUint16(numOfChan * 2); // block-align
-        setUint16(16); // 16-bit (each sample uses 2 bytes)
-
+        setUint32(numOfChan * 2); // block-align
+        setUint32(16); // 16-bit (each sample uses 2 bytes)
+ 
         setUint32(0x61746164); // "data" chunk
         setUint32(length - pos - 4); // chunk length
-
+ 
         for (i = 0; i < abuffer.numberOfChannels; i++)
           channels.push(abuffer.getChannelData(i));
-
+ 
         while (pos < length) {
           for (i = 0; i < numOfChan; i++) {
             sample = Math.max(-1, Math.min(1, channels[i][offset]));
@@ -918,30 +921,30 @@
           }
           offset++
         }
-
+ 
         return new Blob([buffer], {
           type: 'audio/wav'
         });
-
+ 
         function setUint16(data) {
           view.setUint16(pos, data, true);
           pos += 2;
         }
-
+ 
         function setUint32(data) {
           view.setUint32(pos, data, true);
           pos += 4;
         }
       }
-
+ 
       return {
         initiateTtsRequest, // Renamed from connectToEventSource
         showToast,
         bufferToWave
       };
     }
-
-
+ 
+ 
     document.addEventListener('DOMContentLoaded', () => {
       const apiKeyInput = document.getElementById('apiKeyInput');
       const splittingInput = document.getElementById('splittingInput'); // Get the new splitting input
@@ -955,18 +958,18 @@
       const playbackProgressBarContainer = document.getElementById('playbackProgressBarContainer');
       const playbackProgressBar = document.getElementById('playbackProgressBar');
       
-
-
+ 
+ 
       // This should be configured at deployment, e.g., by a build process or environment variable
       // For local testing, you might hardcode it or use a simple config mechanism.
       const ORCHESTRATOR_WORKER_URL = 'http://localhost:8787'; // Example URL
-
+ 
       const {
         initiateTtsRequest, // Renamed from connectToEventSource
         showToast
       } = setupTTSClient(ORCHESTRATOR_WORKER_URL);
-
-
+ 
+ 
       if (storedApiKey) {
         apiKeyInput.value = storedApiKey;
         apiKeyInput.type = 'password';
@@ -984,27 +987,27 @@
         ttsModelInput.value = storedTtsModel;
       }
       ttsModelInput.style.display = 'inline-block';
-
+ 
       const storedVoiceId = localStorage.getItem('voiceId');
       if (storedVoiceId) {
         document.getElementById('voiceIdInput').value = storedVoiceId;
       }
-
+ 
       const topInputBar = document.querySelector('.top-input-bar');
-
+ 
       function updateBodyPadding() {
         if (topInputBar) {
           const barHeight = topInputBar.offsetHeight;
           document.body.style.paddingTop = `${barHeight + 20}px`;
         }
       }
-
+ 
       if (topInputBar) {
         updateBodyPadding();
         window.addEventListener('resize', updateBodyPadding);
         new ResizeObserver(updateBodyPadding).observe(topInputBar);
       }
-
+ 
       settingsCog.addEventListener('click', () => {
         const isHidden = apiKeyInput.style.display === 'none';
       document.getElementById('ttsModelInput').addEventListener('change', (event) => {
@@ -1018,11 +1021,11 @@
           apiKeyInput.type = 'password';
         }
       });
-
+ 
       document.getElementById('voiceIdInput').addEventListener('change', (event) => {
         localStorage.setItem('voiceId', event.target.value);
       });
-
+ 
       document.getElementById('speakButton').addEventListener('click', async () => {
         const text = textInput.value;
         const voiceName = document.getElementById('voiceIdInput').value;
@@ -1032,7 +1035,7 @@
         const downloadButtonLink = document.getElementById('downloadButton');
         const speakButton = document.getElementById('speakButton');
         const loadingIndicator = document.getElementById('loadingIndicator');
-
+ 
         messageDiv.textContent = '';
         downloadButtonLink.style.display = 'none';
         downloadButtonLink.href = '';
@@ -1044,27 +1047,27 @@
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
         textDisplayArea.style.display = 'none'; // Hide text display initially
-
-
+ 
+ 
         if (!text || !apiKey) {
           showToast('Please enter text and API Key.', 'error');
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
           return;
         }
-
+ 
         localStorage.setItem('apiKey', apiKey);
-
+ 
         // Prepare text for highlighting
         textDisplayArea.innerHTML = text.split(/\b(\w+)\b|\s+/).filter(Boolean).map((word, index) => {
           return word.match(/\b(\w+)\b/) ? `<span data-word-index="${index}">${word}</span>` : word;
         }).join('');
         textDisplayArea.style.display = 'block'; // Show text display
-
+ 
         try {
           // MODIFICATION: Define the default TTS model as a configurable global variable
       
-
+ 
       // Use the configurable model
       const model = document.getElementById('ttsModelInput').value;
           await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
@@ -1083,5 +1086,5 @@
     });
   </script>
 </body>
-
+ 
 </html>
