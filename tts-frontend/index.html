@@ -500,7 +500,7 @@
  
           return new Promise((resolve, reject) => {
             audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
-              fullAudioBuffers.push(buffer);
+              fullAudioBuffers.push({ buffer, index: currentChunkIndex });
               audioQueue.push({ buffer, index: currentChunkIndex, sentenceMapping });
               if (!currentSource) {
                 playNextChunk(textDisplayArea, playbackProgressBar, playbackProgressBarContainer);
