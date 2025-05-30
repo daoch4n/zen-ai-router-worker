@@ -2,8 +2,8 @@
   "metadata": {
     "pr_number": 8,
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Feat/remove sse tts",
-    "timestamp_utc": "2025-05-30T02:31:33.657336+00:00",
+    "title": "Refactor: Implement Asynchronous TTS with Durable Objects",
+    "timestamp_utc": "2025-05-30T03:02:44.453181+00:00",
     "review_tool": "I'm your Gemini AI Reviewer",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used_status": "primary",
@@ -12,85 +12,95 @@
   "review_comments": [
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 161,
-      "comment_text_md": "**My Confidence: High**\n\nThe `_pollForTtsResult` function still defaults the `mimeType` to `audio/L16;rate=24000`. For consistency and robustness, it should attempt to extract `mimeType` from the `data` object received in the 200 response (e.g., `data.mimeType`) before defaulting, similar to how `_callBackendTtsService` handles it for direct 200 responses. This ensures that if the backend provides a more specific or different MIME type, it is correctly propagated.\n\n```javascript\n// Current:\n// const mimeType = 'audio/L16;rate=24000'; // Default if not provided\n\n// Suggested:\nconst mimeType = data.mimeType || 'audio/L16;rate=24000';\n```",
+      "github_diff_position": 162,
+      "comment_text_md": "**My Confidence: High**\n\nThe `_pollForTtsResult` function still hardcodes the `mimeType` to `audio/L16;rate=24000` when a 200 response is received. For consistency and robustness, it should attempt to extract `mimeType` from the `data` object (e.g., `data.mimeType`) before defaulting. This aligns with how `_callBackendTtsService` handles `mimeType` for direct 2xx responses from the backend.\n```javascript\n// Current:\n// const mimeType = 'audio/L16;rate=24000';\n\n// Suggested:\nconst mimeType = data.mimeType || 'audio/L16;rate=24000';\n```",
       "ai_confidence": "High",
       "detected_severity_heuristic": "medium",
       "detected_category_heuristic": "error-handling"
     },
     {
       "file_path": "orchestrator/src/index.mjs",
-      "github_diff_position": 537,
-      "comment_text_md": "**My Confidence: Medium**\n\nIn `handleTtsInitiate`, the `mimeType` stored in the Durable Object metadata is hardcoded to `audio/L16;rate=24000`. While `_callBackendTtsService` correctly determines the `mimeType` from the backend response, this determined `mimeType` is not used to update the DO metadata. If the backend ever returns a different `mimeType` (e.g., `audio/webm`), the stored metadata will be inaccurate, potentially leading to client-side issues. Consider passing the actual `mimeType` returned by the first successful `_callBackendTtsService` call to the `store-metadata` Durable Object call.\n\n```javascript\n// Current:\n// const expectedMimeType = 'audio/L16;rate=24000';\n// ...\n// mimeType: expectedMimeType,\n\n// Suggested (conceptual, requires finding the actual mimeType from a chunk result):\n// const firstChunkResult = await _callBackendTtsService(...); // Or similar\n// const actualMimeType = firstChunkResult.mimeType;\n// ...\n// mimeType: actualMimeType,\n```",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
-      "github_diff_position": 20,
-      "comment_text_md": "**My Confidence: High**\n\nThe `request.json()` calls in `handleInitJob`, `handleUpdateStatus`, and `handleStoreResult` should be wrapped in a `try-catch` block. If the request body is not valid JSON, `request.json()` will throw an error, leading to an unhandled exception and a 500 response. It's better to return a 400 Bad Request with a clear error message.\n\n```javascript\nasync handleInitJob(request, jobId) {\n  let text, model, voiceId;\n  try {\n    ({ text, model, voiceId } = await request.json());\n  } catch (e) {\n    return new Response('Invalid JSON body', { status: 400 });\n  }\n  // ... rest of the code\n}\n```",
+      "github_diff_position": 613,
+      "comment_text_md": "**My Confidence: High**\n\nIn `handleTtsInitiate`, the `mimeType` stored in the Durable Object metadata via `/store-metadata` is hardcoded to `audio/L16;rate=24000`. While `_callBackendTtsService` correctly determines the `mimeType` from the backend response, this determined `mimeType` is not used to update the DO metadata. If the backend ever returns a different `mimeType` (e.g., `audio/webm`), the stored metadata will be inaccurate, potentially leading to client-side issues when retrieving chunks. Consider updating the DO metadata with the actual `mimeType` once the first chunk's `mimeType` is known, or if the backend guarantees a consistent `mimeType` across all chunks, retrieve it from the first successful `_callBackendTtsService` call and then update the DO. Alternatively, if the backend always returns the same `mimeType` for a given `model`/`voiceId`, the `mimeType` could be determined once and stored.\n```javascript\n// Conceptual flow:\n// 1. Store initial metadata (status: 'processing', mimeType: 'pending' or a default)\n// 2. In the ctx.waitUntil block, after the first successful _callBackendTtsService result:\n//    If result.mimeType is different from stored, update DO metadata:\n//    await stub.fetch(new Request(\"https://dummy-url/update-metadata-mimeType\", {\n//        method: \"POST\",\n//        headers: { \"Content-Type\": \"application/json\" },\n//        body: JSON.stringify({ jobId, mimeType: result.mimeType })\n//    }));\n```",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
+      "detected_severity_heuristic": "medium",
       "detected_category_heuristic": "concurrency"
     },
     {
-      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
-      "github_diff_position": 8,
-      "comment_text_md": "**My Confidence: Medium**\n\nThe `jobId` is extracted using `url.pathname.split('/').pop()`. While this works for the current URL structure, it assumes `jobId` will always be the last segment and will not contain any `/` characters. If `jobId` could potentially contain slashes or if the URL structure changes, this extraction method could be fragile. Consider adding basic validation for `jobId` (e.g., checking if it's a UUID format) or using a more robust parsing method if `jobId` complexity is expected to increase.",
+      "file_path": "orchestrator/src/index.mjs",
+      "github_diff_position": 385,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `/retrieve` endpoint in the `TTS_DURABLE_OBJECT` fetches all chunks (`await this.storage.get(chunkKeys);`) for a given job. While `handleTtsChunk` correctly uses `/retrieve-chunk` for individual chunk retrieval, this `/retrieve` endpoint could potentially lead to high memory consumption and slow responses within the Durable Object if a TTS job consists of a very large number of small chunks. If this endpoint is not intended for client-facing retrieval of all audio data at once, consider adding documentation or a warning about its potential performance implications for very large jobs. If it is intended for such use, further optimization (e.g., pagination or streaming from the DO) might be necessary for scalability.",
       "ai_confidence": "Medium",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "style/clarity"
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "performance"
     },
     {
-      "file_path": "src/handlers/tts.mjs",
-      "github_diff_position": 251,
-      "comment_text_md": "**My Confidence: High**\n\nIn the asynchronous TTS path, when storing the result in the Durable Object, only `result.base64Audio` is being stored. The `mimeType` is also returned by `callGoogleTTSAPI` and is crucial for the `handleTtsResult` function to correctly serve the audio.\n\nCurrently, `handleTtsResult` attempts to destructure `mimeType` from the stored result, which will be undefined, leading to incorrect `Content-Type` headers or errors when `processAudioDataJSONResponse` is called.\n\n**Suggestion:** Store both `base64Audio` and `mimeType` in the Durable Object.\n\n```javascript\n// Before:\n// body: JSON.stringify({ result: result.base64Audio })\n\n// After:\nbody: JSON.stringify({\n  base64Audio: result.base64Audio,\n  mimeType: result.mimeType\n})\n```\n\nAnd then in `handleTtsResult`, ensure you are destructuring `base64Audio` and `mimeType` from the stored object, not just `result`.",
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 80,
+      "comment_text_md": "**My Confidence: High**\n\nThe `expirationTtl` set during `handleInitJob` is not preserved when updating the job data in `handleUpdateStatus` and `handleStoreResult`. This means that after the first update, the job data will persist indefinitely unless explicitly deleted, overriding the initial TTL.\n\nTo ensure the TTL is maintained, you should either fetch the existing `expirationTtl` from the stored `jobData` (if you store it as part of `jobData`) or re-apply the `TTL_SECONDS` constant when calling `this.storage.put()` in these update functions.\n\nExample for `handleUpdateStatus`:\n```javascript\n// ...\njobData.status = status;\n// Assuming TTL_SECONDS is accessible or jobData stores its original TTL\nawait this.storage.put(jobId, jobData, { expirationTtl: TTL_SECONDS });\n// ...\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 84,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe error responses for \"Job not found\" (e.g., lines 76, 101, 117, 131) return plain text with a 404 status. However, other error responses (e.g., invalid JSON body, invalid jobId format) return JSON with a `Content-Type: application/json` header.\n\nFor API consistency, all error responses should ideally follow the same format (e.g., JSON). This makes it easier for clients to parse and handle errors uniformly.\n\nConsider changing these responses to:\n```javascript\nreturn new Response(JSON.stringify({ error: 'Job not found' }), {\n  headers: { 'Content-Type': 'application/json' },\n  status: 404,\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 103,
+      "comment_text_md": "**My Confidence: High**\n\nStoring `base64Audio` directly in the Durable Object's storage might hit the 128KB per-key storage limit if the audio file is large. If the TTS output can exceed this size, `this.storage.put(jobId, jobData)` will fail.\n\nFor larger audio results, consider storing them in a separate, more suitable storage service like Cloudflare R2 or S3, and only store a reference (e.g., a URL) to the audio file within the Durable Object's state. This decouples large binary data from the DO's state management.\n\nIf you intend to keep it in DO storage, you might need to add a size check before storing or ensure robust error handling for potential storage limit exceptions.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
       "detected_category_heuristic": "bug"
     },
     {
-      "file_path": "src/worker.mjs",
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 72,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `status` field in `handleUpdateStatus` is updated without any validation. This allows any arbitrary string to be set as the job status, which could lead to inconsistent states or unexpected behavior if the client sends an invalid status.\n\nIt's recommended to validate the `status` against a predefined set of allowed values (e.g., 'processing', 'completed', 'failed', 'queued').\n\n```javascript\nasync handleUpdateStatus(request, jobId) {\n  try {\n    const { status } = await request.json();\n    const allowedStatuses = ['processing', 'completed', 'failed', 'queued']; // Define your valid statuses\n    if (!allowedStatuses.includes(status)) {\n      return new Response(JSON.stringify({ error: 'Invalid status value' }), {\n        headers: { 'Content-Type': 'application/json' },\n        status: 400,\n      });\n    }\n    const jobData = await this.storage.get(jobId);\n    // ... rest of the code\n  } catch (error) {\n    // ...\n  }\n}\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/handlers/tts.mjs",
       "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 1, Line 89), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThis change correctly passes `env` and `event` to `handleRawTTS`, addressing the observation in the previous review comment. It's crucial to ensure that the `handleRawTTS` implementation (in `./handlers/index.mjs`) has been updated to properly utilize these new parameters, especially `env` for interacting with the newly imported `TtsJobDurableObject` and `event` for `event.waitUntil()` to manage background tasks initiated by the Durable Object operations.",
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 9, Line 401), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThere's a mismatch in the key used to store audio content in the Durable Object and the key expected when retrieving it.\n\nIn the asynchronous TTS path (`handleRawTTS`), when storing the result in the Durable Object, you're using `base64Audio` as the key:\n```javascript\nbody: JSON.stringify({ base64Audio: result.base64Audio, mimeType: result.mimeType })\n```\nHowever, in `handleTtsResult`, when retrieving the result, you're expecting the audio content under a key named `result`:\n```javascript\nconst { result: audioContentBase64, mimeType } = await jobResultResponse.json();\n```\nThis will cause `audioContentBase64` to be `undefined` when the job is completed, leading to an empty or invalid JSON response from `processAudioDataJSONResponse`.\n\n**Suggestion:** Change the destructuring in `handleTtsResult` to match the stored key `base64Audio`.\n\n```javascript\n// In handleTtsResult, when status is 'completed':\n// Before:\n// const { result: audioContentBase64, mimeType } = await jobResultResponse.json();\n// After:\nconst { base64Audio, mimeType } = await jobResultResponse.json();\n\n// Then pass base64Audio to the function:\nreturn processAudioDataJSONResponse(base64Audio, mimeType);\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "medium",
+      "detected_category_heuristic": "bug",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "src/handlers/tts.mjs",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 3, Line 169), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThe `mimeType` and `sampleRate` are now hardcoded in `callGoogleTTSAPI` to `audio/L16;rate=24000` and `24000` respectively.\n\nPreviously, these values were extracted dynamically from the Google API response (`part.inlineData.mimeType`). Hardcoding them assumes that the Google TTS API will *always* return audio in this specific format, regardless of the input model or voice configurations. If the API ever changes its default format, or if different voice parameters lead to different audio encodings/sample rates, this hardcoding will result in incorrect `Content-Type` headers and potentially unplayable audio.\n\n**Suggestion:** Revert to extracting `mimeType` from `part.inlineData` as it was before, and re-use the `parseSampleRate` function.\n\n```javascript\n// In callGoogleTTSAPI:\n// Before:\n// const hardcodedMimeType = 'audio/L16;rate=24000';\n// const hardcodedSampleRate = 24000;\n// After:\nconst { data: base64Audio, mimeType } = part.inlineData;\nconst sampleRate = parseSampleRate(mimeType); // Re-use the existing parseSampleRate function\n\nreturn {\n  base64Audio,\n  mimeType, // Use the extracted mimeType\n  sampleRate, // Use the extracted sampleRate\n  orchestratorTimeoutMs: timeoutMs\n};\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 6, Line 702), but I think it's important feedback:**\n\n**My Confidence: High**\n\nThe playback progress bar (`playbackProgressBarContainer`) is positioned absolutely, but its `left`, `top`, `width`, and `height` are calculated using `currentSegment.offsetLeft`, `currentSegment.offsetTop`, etc. These `offset` properties are relative to the `overallProgressBarContainer` (its offset parent), while `playbackProgressBarContainer` is positioned relative to the `.container` element. This mismatch will cause the playback progress bar to be incorrectly positioned on the page.\n\nTo fix this, you should either:\n1.  Make `playbackProgressBarContainer` a child of `overallProgressBarContainer` in the HTML, and then position it absolutely with `left: 0; top: 0; width: 100%; height: 100%;` within `overallProgressBarContainer`. The `playbackProgressBar` inside it would then be dynamically sized to overlay the `currentSegment`.\n2.  If `playbackProgressBarContainer` must remain a sibling, its `left` and `top` calculations need to account for the `overallProgressBarContainer`'s position relative to the common `container` parent. For example, `playbackProgressBarContainer.style.left = `${overallProgressBarContainer.offsetLeft + currentSegment.offsetLeft}px`;` (and similar for `top`), assuming `overallProgressBarContainer` is also positioned relative to `container`.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug",
+      "invalidPosition": true
+    },
+    {
+      "file_path": "tts-frontend/index.html",
+      "github_diff_position": 1,
+      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 9, Line 956), but I think it's important feedback:**\n\n**My Confidence: Medium**\n\nThe `overallProgressBar` variable is passed into `initiateTtsRequest` and `playNextChunk`, and initialized in `DOMContentLoaded` (e.g., `overallProgressBar.style.width = '0%';`). However, the overall progress is now handled by the segmented `overallProgressBarContainer` and its child `segmentElements`. The `overallProgressBar` element and variable seem to be remnants of the previous single progress bar implementation and are no longer actively used for their original purpose. Consider removing this variable and its associated initializations and parameters for better code clarity and maintainability.",
       "ai_confidence": "Medium",
       "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general",
-      "invalidPosition": true
-    },
-    {
-      "file_path": "src/worker.mjs",
-      "github_diff_position": 1,
-      "comment_text_md": "**Note: I couldn't precisely position this comment in the diff (targeting Hunk Index 2, Line 100), but I think it's important feedback:**\n\n**My Confidence: High**\n\nExporting `TtsJobDurableObject` is essential for Cloudflare Workers to bind the Durable Object correctly. This change is necessary and correct for the Durable Object pattern.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
       "detected_category_heuristic": "refactoring/design",
       "invalidPosition": true
-    },
-    {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 248,
-      "comment_text_md": "**My Confidence: High**\n\nThe `orchestratorDynamicTimeout` is initialized to 0 for the first chunk, making the effective timeout for the initial chunk fetch 5 seconds. This might be too short if the backend requires more time for setup (e.g., cold start, model loading) before returning the first chunk. Consider providing a more generous default timeout for the very first chunk, or ensure `orchestratorTimeoutMs` is part of the initial `tts-initiate` response.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "performance"
-    },
-    {
-      "file_path": "tts-frontend/index.html",
-      "github_diff_position": 332,
-      "comment_text_md": "**My Confidence: High**\n\nThe `fullAudioBuffers` array is populated in the order chunks are processed, but not necessarily in their original `chunkIndex` order if some chunks are skipped or processed out of sequence due to retries/polling. Before concatenating `fullAudioBuffers` for the WAV download, it should be sorted by `index` to ensure the audio segments are in the correct order. The previous SSE implementation had `fullAudioBuffers.sort((a, b) => a.index - b.index);`, which is now missing.\n\n```javascript\n// Before calling concatenateAudioBuffers\nfullAudioBuffers.sort((a, b) => a.index - b.index);\nconst audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": "wrangler.toml.example",
-      "github_diff_position": 24,
-      "comment_text_md": "**My Confidence: High**\n\nThe PR title 'Feat/remove sse tts' indicates the removal of SSE TTS functionality. However, this change introduces configuration for a `TtsJobDurableObject` in `wrangler.toml.example`, which suggests the introduction or refactoring of TTS using Durable Objects. This is contradictory. Please clarify the intent: if TTS is being removed, this configuration should not be added. If TTS is being refactored, the PR title should be updated to reflect that.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "medium",
-      "detected_category_heuristic": "refactoring/design"
     }
   ]
 }
