@@ -364,6 +364,11 @@
         <option value="sentence">Sentence by Sentence</option>
         <option value="tokenCount">Sentence by Token Count</option>
         <option value="none">No Splitting</option>
+      <select id="ttsModelInput" style="display: inline-block;">
+        <option value="gemini-2.5-flash-preview-tts">gemini-2.5-flash-preview-tts</option>
+        <option value="other-model-1">Other Model 1</option>
+        <option value="other-model-2">Other Model 2</option>
+      </select>
       </select>
       <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
       <button id="speakButton">Speak</button>
@@ -474,7 +479,7 @@
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
 
-const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
+        const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
         const INITIAL_BACKOFF_MS = 500; // 2^n * 500ms
         const POLLING_INTERVAL_MS = 1500; // 1.5 seconds
         const MAX_POLLING_TIME_MS = 30000; // 30 seconds
@@ -949,6 +954,12 @@ const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
         splittingInput.style.display = 'block'; // Show splitting input if API key is not stored
         settingsCog.style.display = 'inline-block';
       }
+      const ttsModelInput = document.getElementById('ttsModelInput');
+      const storedTtsModel = localStorage.getItem('ttsModel');
+      if (storedTtsModel) {
+        ttsModelInput.value = storedTtsModel;
+      }
+      ttsModelInput.style.display = 'inline-block';
 
       const storedVoiceId = localStorage.getItem('voiceId');
       if (storedVoiceId) {
@@ -972,6 +983,9 @@ const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
 
       settingsCog.addEventListener('click', () => {
         const isHidden = apiKeyInput.style.display === 'none';
+      document.getElementById('ttsModelInput').addEventListener('change', (event) => {
+        localStorage.setItem('ttsModel', event.target.value);
+      });
         apiKeyInput.style.display = isHidden ? 'block' : 'none';
         splittingInput.style.display = isHidden ? 'block' : 'none'; // Toggle splitting input visibility
         if (isHidden && apiKeyInput.value) {
@@ -1025,10 +1039,10 @@ const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
 
         try {
           // MODIFICATION: Define the default TTS model as a configurable global variable
-      const DEFAULT_TTS_MODEL = 'gemini-2.5-flash-preview-tts'; // Change this value to switch models
+      
 
       // Use the configurable model
-      const model = DEFAULT_TTS_MODEL;
+      const model = document.getElementById('ttsModelInput').value;
           await initiateTtsRequest(text, voiceName, apiKey, downloadButtonLink, speakButton, loadingIndicator, loadingText, overallProgressBarContainer, overallProgressBar, playbackProgressBarContainer, playbackProgressBar, textDisplayArea, splitting, model); // Renamed from connectToEventSource
         } catch (error) {
           console.error('TTS Request Error:', error);
