@@ -328,6 +328,46 @@
       /* Adjust margin to prevent gap between words */
       transition: background-color 0.2s ease;
     }
+
+    /* MODIFICATION: Styles for the new model and voice selection container */
+    .model-voice-selection {
+      display: flex;
+      flex-wrap: wrap; /* Allow items to wrap on smaller screens */
+      justify-content: center;
+      gap: 20px; /* Space between the select groups */
+      margin: 20px auto; /* Center the container below the top bar */
+      width: 90%;
+      max-width: 700px;
+      padding: 15px 20px;
+      background-color: #fff;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+      box-sizing: border-box;
+    }
+
+    .select-group {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start; /* Align label and select to the start */
+      gap: 5px; /* Space between label and select */
+      flex-basis: calc(50% - 10px); /* Roughly 50% width minus half the gap */
+      min-width: 250px; /* Minimum width for responsiveness */
+    }
+
+    .select-group label {
+      font-weight: bold;
+      color: #555;
+      margin-bottom: 0px; /* Remove default margin */
+    }
+
+    .select-group select {
+      width: 100%; /* Ensure select fills its container */
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      box-sizing: border-box;
+      font-size: 1em;
+    }
   </style>
 </head>
  
@@ -336,6 +376,28 @@
   <div class="top-input-bar">
     <div class="input-group">
       <textarea id="textInput" placeholder="Enter text here..." rows="3"></textarea>
+      <select id="splittingInput" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
+        <option value="sentence">Sentence by Sentence</option>
+        <option value="tokenCount">Sentence by Token Count</option>
+        <option value="none">No Splitting</option>
+      
+      </select>
+      <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
+      <button id="speakButton">Speak</button>
+    </div>
+  </div>
+
+  <div class="model-voice-selection">
+    <div class="select-group">
+      <label for="ttsModelInput">Model:</label>
+      <select id="ttsModelInput">
+        <option value="gemini-2.5-flash-preview-tts">gemini-2.5-flash-preview-tts</option>
+        <option value="other-model-1">Other Model 1</option>
+        <option value="other-model-2">Other Model 2</option>
+      </select>
+    </div>
+    <div class="select-group">
+      <label for="voiceIdInput">Voice:</label>
       <select id="voiceIdInput">
         <option value="achernar">achernar</option>
         <option value="achird">achird</option>
@@ -367,23 +429,10 @@
         <option value="zephyr">zephyr</option>
         <option value="zubenelgenubi">zubenelgenubi</option>
       </select>
-      <select id="splittingInput" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */">
-        <option value="sentence">Sentence by Sentence</option>
-        <option value="tokenCount">Sentence by Token Count</option>
-        <option value="none">No Splitting</option>
-      
-      </select>
-      <input type="text" id="apiKeyInput" placeholder="Enter your API Key">
-      <button id="speakButton">Speak</button>
     </div>
   </div>
-<select id="ttsModelInput">
-        <option value="gemini-2.5-flash-preview-tts">gemini-2.5-flash-preview-tts</option>
-        <option value="other-model-1">Other Model 1</option>
-        <option value="other-model-2">Other Model 2</option>
-      </select>
  
-  <div class="container">
+   <div class="container">
  
     <a id="downloadButton" download="audio.wav" style="display: inline-block; /* Changed from none to inline-block to ensure rendering */ margin-top: 15px;">
       <button>Download WAV</button>
@@ -569,8 +618,20 @@
           clearTimeout(initiateTimeout);
  
           if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+            let errorMessage = `HTTP error! status: ${response.status}`;
+            try {
+              const errorData = await response.json();
+              errorMessage = errorData.error || errorMessage;
+            } catch (jsonError) {
+              try {
+                const errorText = await response.text();
+                errorMessage = errorText || errorMessage;
+              } catch (textError) {
+                // Could not parse as JSON or text
+                // Fallback to default message
+              }
+            }
+            throw new Error(errorMessage);
           }
  
           const { jobId, totalChunks, chunkLengths, orchestratorTimeoutMs } = await response.json();
@@ -695,9 +756,21 @@
                   }
                   chunkHandled = true; // Mark as handled, no chunkData
                 } else if (!chunkResponse.ok) { // Other non-200, non-202, non-410 error
-                  const errorData = await chunkResponse.json();
-                  console.error(`Error fetching chunk ${chunkIndex + 1}:`, errorData);
-                  showToast(`Error: Failed to retrieve segment ${chunkIndex + 1} due to server error. Skipping.`, 'error');
+                  let chunkErrorMessage = `Error fetching chunk ${chunkIndex + 1}: HTTP status ${chunkResponse.status}`;
+                  try {
+                    const errorData = await chunkResponse.json();
+                    chunkErrorMessage = errorData.error || chunkErrorMessage;
+                  } catch (jsonError) {
+                    try {
+                      const errorText = await chunkResponse.text();
+                      chunkErrorMessage = errorText || chunkErrorMessage;
+                    } catch (textError) {
+                      // Could not parse as JSON or text
+                      // Fallback to default message
+                    }
+                  }
+                  console.error(chunkErrorMessage);
+                  showToast(`Error: ${chunkErrorMessage}. Skipping.`, 'error');
                   const segment = window.ttsJobData.segmentElements[chunkIndex];
                   if (segment) {
                     segment.classList.add('failed');
@@ -756,7 +829,7 @@
           // Concatenate all buffers and enable download
           if (fullAudioBuffers.length > 0) {
 fullAudioBuffers.sort((a, b) => a.index - b.index);
-            const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.length, 0));
+            const audioBlob = bufferToWave(concatenateAudioBuffers(fullAudioBuffers, audioContext), fullAudioBuffers.reduce((acc, val) => acc + val.buffer.length, 0));
             downloadButtonLink.href = URL.createObjectURL(audioBlob);
             downloadButtonLink.style.display = 'block';
           }
@@ -771,8 +844,6 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
           }
           speakButton.disabled = false;
           loadingIndicator.style.display = 'none';
-          overallProgressBarContainer.innerHTML = ''; // Clear segments on overall error
-          overallProgressBarContainer.style.display = 'none';
         }
       };
  
@@ -852,7 +923,6 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
               currentSource = null;
               clearAllHighlights(textDisplayArea);
               // All chunks are done, clear segments and hide playback bar
-              overallProgressBarContainer.innerHTML = ''; // Clear segments
               playbackProgressBarContainer.style.display = 'none';
               playbackProgressBar.style.width = '0%';
             }
@@ -891,14 +961,16 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
         return outputBuffer;
       }
       function bufferToWave(abuffer, len) {
-        var numOfChan = abuffer.numberOfChannels,
-          length = len * numOfChan * 2 + 44,
-          buffer = new ArrayBuffer(length),
-          view = new DataView(buffer),
-          channels = [],
-          i, sample,
-          offset = 0,
-          pos = 0;
+        var numOfChan = abuffer.numberOfChannels;
+        var bitsPerSample = 16; // Standard for PCM, as currently implemented
+        var bytesPerSample = bitsPerSample / 8; // 2 bytes for 16-bit
+        var length = len * numOfChan * bytesPerSample + 44; // Calculate total length dynamically
+        var buffer = new ArrayBuffer(length);
+        var view = new DataView(buffer);
+        var channels = [];
+        var i, sample;
+        var offset = 0;
+        var pos = 0;
  
         setUint32(0x46464952); // "RIFF"
         setUint32(length - 8); // file length - 8
@@ -909,12 +981,12 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
         setUint16(1); // PCM (uncompressed)
         setUint16(numOfChan);
         setUint32(abuffer.sampleRate);
-        setUint32(abuffer.sampleRate * numOfChan * 2); // avg. bytes/sec
-        setUint32(numOfChan * 2); // block-align
-        setUint32(16); // 16-bit (each sample uses 2 bytes)
+        setUint32(abuffer.sampleRate * numOfChan * bytesPerSample); // avg. bytes/sec
+        setUint16(numOfChan * bytesPerSample); // block-align
+        setUint16(bitsPerSample); // bits-per-sample
  
         setUint32(0x61746164); // "data" chunk
-        setUint32(length - pos - 4); // chunk length
+        setUint32(length - 44); // chunk length
  
         for (i = 0; i < abuffer.numberOfChannels; i++)
           channels.push(abuffer.getChannelData(i));
@@ -986,46 +1058,53 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
       } else {
         apiKeyInput.style.display = 'block';
         splittingInput.style.display = 'block'; // Show splitting input if API key is not stored
-        settingsCog.style.display = 'inline-block';
+        settingsCog.style.display = 'inline- quizásblock';
       }
       const ttsModelInput = document.getElementById('ttsModelInput');
       const storedTtsModel = localStorage.getItem('ttsModel');
       if (storedTtsModel) {
         ttsModelInput.value = storedTtsModel;
       }
-      ttsModelInput.style.display = 'inline-block';
-ttsModelInput.addEventListener('change', (event) => {
+      // ttsModelInput.style.display = 'inline-block'; // Removed, as it's now handled by the new container's display
+      ttsModelInput.addEventListener('change', (event) => {
         localStorage.setItem('ttsModel', event.target.value);
       });
- 
+
       const storedVoiceId = localStorage.getItem('voiceId');
       if (storedVoiceId) {
         document.getElementById('voiceIdInput').value = storedVoiceId;
       }
- 
+
       const topInputBar = document.querySelector('.top-input-bar');
- 
+      const modelVoiceSelection = document.querySelector('.model-voice-selection');
+
       function updateBodyPadding() {
-        if (topInputBar) {
-          const barHeight = topInputBar.offsetHeight;
-          document.body.style.paddingTop = `${barHeight + 20}px`;
+        if (topInputBar && modelVoiceSelection) {
+          const totalFixedElementsHeight = topInputBar.offsetHeight + modelVoiceSelection.offsetHeight;
+          document.body.style.paddingTop = `${totalFixedElementsHeight + 20}px`;
         }
       }
- 
-      if (topInputBar) {
+
+      if (topInputBar && modelVoiceSelection) {
         updateBodyPadding();
         window.addEventListener('resize', updateBodyPadding);
+        // Observe changes to the height of both fixed elements
         new ResizeObserver(updateBodyPadding).observe(topInputBar);
+        new ResizeObserver(updateBodyPadding).observe(modelVoiceSelection);
       }
- 
+
       settingsCog.addEventListener('click', () => {
-        const isHidden = apiKeyInput.style.display === 'none';
-      
-        apiKeyInput.style.display = isHidden ? 'block' : 'none';
-        splittingInput.style.display = isHidden ? 'block' : 'none'; // Toggle splitting input visibility
-        if (isHidden && apiKeyInput.value) {
+        const isApiKeyHidden = apiKeyInput.style.display === 'none';
+        const isSplittingHidden = splittingInput.style.display === 'none';
+
+        // Toggle API Key and Splitting Input visibility
+        apiKeyInput.style.display = isApiKeyHidden ? 'block' : 'none';
+        splittingInput.style.display = isSplittingHidden ? 'block' : 'none';
+
+        // Set API Key input type based on visibility
+        if (isApiKeyHidden && apiKeyInput.value) {
           apiKeyInput.type = 'text';
-        } else if (!isHidden) {
+        } else if (!isApiKeyHidden) {
           apiKeyInput.type = 'password';
         }
       });
@@ -1050,6 +1129,7 @@ ttsModelInput.addEventListener('change', (event) => {
         speakButton.disabled = true;
         loadingIndicator.style.display = 'flex';
         loadingText.textContent = 'Connecting...';
+        overallProgressBarContainer.innerHTML = ''; // Clear segments
         overallProgressBarContainer.style.display = 'none';
         
         playbackProgressBarContainer.style.display = 'none';
