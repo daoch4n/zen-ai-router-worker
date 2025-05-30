@@ -48,6 +48,33 @@ export function decodeBase64Audio(base64String) {
 }
 
 /**
+ * Encodes a Uint8Array (or ArrayBuffer) into a Base64 string.
+ * This function handles large inputs by processing them in chunks to avoid
+ * "Maximum call stack size exceeded" errors with String.fromCharCode.
+ *
+ * @param {Uint8Array|ArrayBuffer} buffer - The binary data to encode.
+ * @returns {string} The Base64 encoded string.
+ * @throws {Error} If the input is not a valid Uint8Array or ArrayBuffer.
+ */
+export function arrayBufferToBase64(buffer) {
+  if (!(buffer instanceof Uint8Array) && !(buffer instanceof ArrayBuffer)) {
+    throw new Error('Invalid input: must be a Uint8Array or ArrayBuffer.');
+  }
+
+  const uint8Array = buffer instanceof ArrayBuffer ? new Uint8Array(buffer) : buffer;
+  let binary = '';
+  const len = uint8Array.byteLength;
+  const chunkSize = 16384; // Process in 16KB chunks
+
+  for (let i = 0; i < len; i += chunkSize) {
+    const chunk = uint8Array.subarray(i, i + chunkSize);
+    binary += String.fromCharCode.apply(null, chunk);
+  }
+
+  return btoa(binary);
+}
+
+/**
  * Generates a WAV file header as a Uint8Array.
  * Creates a 44-byte RIFF/WAV header with proper byte ordering and chunk structure.
  * Optimized for performance using DataView for efficient byte manipulation.
