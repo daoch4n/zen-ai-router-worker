@@ -4,6 +4,7 @@
  */
 import { HttpError } from '../utils/error.mjs';
 import { parseImg, getBudgetFromLevel, adjustSchema } from '../utils/helpers.mjs';
+import { reduceSystemMessage } from '../utils/token-reducer.mjs';
 import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } from '../constants/index.mjs';
 
 /**
@@ -230,7 +231,20 @@ export const transformMessages = async (messages) => {
     switch (item.role) {
       case "system":
         // Extract system instruction separately from conversation flow
-        system_instruction = { parts: await transformMsg(item) };
+        // Apply token reduction to system message content
+        const optimizedItem = { ...item };
+        if (typeof item.content === 'string') {
+          optimizedItem.content = reduceSystemMessage(item.content);
+        } else if (Array.isArray(item.content)) {
+          // Handle multi-part content by reducing text parts only
+          optimizedItem.content = item.content.map(part => {
+            if (part.type === 'text' && typeof part.text === 'string') {
+              return { ...part, text: reduceSystemMessage(part.text) };
+            }
+            return part;
+          });
+        }
+        system_instruction = { parts: await transformMsg(optimizedItem) };
         continue;
 
       case "tool":
