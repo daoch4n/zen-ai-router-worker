@@ -1041,7 +1041,7 @@ fullAudioBuffers.sort((a, b) => a.index - b.index);
  
       // This should be configured at deployment, e.g., by a build process or environment variable
       // For local testing, you might hardcode it or use a simple config mechanism.
-      const ORCHESTRATOR_WORKER_URL = 'http://localhost:8787'; // Example URL
+      const ORCHESTRATOR_WORKER_URL = '{{ORCHESTRATOR_WORKER_URL}}'; // Replaced with placeholder
  
       const {
         initiateTtsRequest, // Renamed from connectToEventSource
