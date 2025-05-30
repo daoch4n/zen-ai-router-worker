@@ -447,6 +447,48 @@
         playbackProgressBarContainer.style.display = 'none';
         playbackProgressBar.style.width = '0%';
 
+const MAX_RETRIES = 4; // 0-indexed, so 5 attempts
+        const INITIAL_BACKOFF_MS = 500; // 2^n * 500ms
+        const POLLING_INTERVAL_MS = 1500; // 1.5 seconds
+        const MAX_POLLING_TIME_MS = 30000; // 30 seconds
+
+        const delay = ms => new Promise(res => setTimeout(res, ms));
+
+        // Helper function to process audio chunks
+        const processAudioChunk = async (audioBase64, sentenceMapping, currentChunkIndex) => {
+          const audioBinary = atob(audioBase64); // Decode base64 to binary string
+          const audioBytes = new Uint8Array(audioBinary.length);
+          for (let i = 0; i < audioBinary.length; i++) {
+            audioBytes[i] = audioBinary.charCodeAt(i);
+          }
+
+          return new Promise((resolve, reject) => {
+            audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
+              fullAudioBuffers.push(buffer);
+              audioQueue.push({ buffer, index: currentChunkIndex, sentenceMapping });
+              if (!currentSource) {
+                playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
+              }
+
+              // Update word sentence indices
+              sentenceMapping.forEach(mapping => {
+                  const mappedSentenceIndex = mapping.sentenceIndex;
+                  mapping.wordIndexes.forEach(wordOriginalIndex => {
+                      const wordObj = words.find(w => w.originalIndex === wordOriginalIndex);
+                      if (wordObj) {
+                          wordObj.sentenceIndex = mappedSentenceIndex;
+                      }
+                  });
+              });
+
+              const totalTextLength = words.map(w => w.text).join('').length;
+              const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= currentChunkIndex).map(w => w.text).join('').length;
+              const progress = (playedTextLength / totalTextLength) * 100;
+              overallProgressBar.style.width = `${progress}%`;
+              resolve();
+            }, reject);
+          });
+        };
         const wordSpans = textDisplayArea.querySelectorAll('span[data-word-index]');
         wordSpans.forEach(span => {
           const originalIndex = parseInt(span.dataset.wordIndex);
@@ -492,61 +534,69 @@
           // Function to fetch individual audio chunks - Refactored to use iteration
           let chunkIndex = 0;
           while (chunkIndex < totalChunks) {
-            try {
-              const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
-                method: 'GET',
-                headers: {
-                  'Authorization': `Bearer ${apiKey}`
-                }
-              });
+            let retries = 0;
+            let chunkData = null;
+            while (retries <= MAX_RETRIES) {
+              try {
+                loadingText.textContent = `Fetching chunk ${chunkIndex + 1}/${totalChunks} (attempt ${retries + 1}/${MAX_RETRIES + 1})...`;
 
-              if (!chunkResponse.ok) {
-                const errorData = await chunkResponse.json();
-                throw new Error(errorData.error || `HTTP error! status: ${chunkResponse.status}`);
-              }
-
-              const { audioBase64, sentenceMapping } = await chunkResponse.json();
-              const audioBinary = atob(audioBase64); // Decode base64 to binary string
-              const audioBytes = new Uint8Array(audioBinary.length);
-              for (let i = 0; i < audioBinary.length; i++) {
-                audioBytes[i] = audioBinary.charCodeAt(i);
-              }
-
-              await new Promise((resolve, reject) => {
-                audioContext.decodeAudioData(audioBytes.buffer, (buffer) => {
-                  fullAudioBuffers.push(buffer);
-                  audioQueue.push({ buffer, index: chunkIndex, sentenceMapping });
-                  if (!currentSource) {
-                    playNextChunk(textDisplayArea, overallProgressBar, playbackProgressBar, playbackProgressBarContainer);
+                const chunkResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
+                  method: 'GET',
+                  headers: {
+                    'Authorization': `Bearer ${apiKey}`
                   }
+                });
 
-                  // Update word sentence indices
-                  sentenceMapping.forEach(mapping => {
-                      const mappedSentenceIndex = mapping.sentenceIndex;
-                      mapping.wordIndexes.forEach(wordOriginalIndex => {
-                          const wordObj = words.find(w => w.originalIndex === wordOriginalIndex);
-                          if (wordObj) {
-                              wordObj.sentenceIndex = mappedSentenceIndex;
-                          }
-                      });
-                  });
+                if (chunkResponse.status === 202) { // 202 Accepted: Chunk is in progress
+                  showToast(`Chunk ${chunkIndex + 1} is in progress. Polling...`, 'info');
+                  let pollingStartTime = Date.now();
+                  while (Date.now() - pollingStartTime < MAX_POLLING_TIME_MS) {
+                    await delay(POLLING_INTERVAL_MS);
+                    const pollingResponse = await fetch(`${window.ORCHESTRATOR_WORKER_URL}/api/tts-chunk?jobId=${jobId}&chunkIndex=${chunkIndex}`, {
+                      method: 'GET',
+                      headers: {
+                        'Authorization': `Bearer ${apiKey}`
+                      }
+                    });
+                    if (pollingResponse.ok && pollingResponse.status !== 202) {
+                      chunkData = await pollingResponse.json();
+                      break; // Exit polling loop, chunk is ready
+                    } else if (!pollingResponse.ok && pollingResponse.status !== 202) {
+                      const errorData = await pollingResponse.json();
+                      throw new Error(errorData.error || `HTTP error! status: ${pollingResponse.status}`);
+                    }
+                  }
+                  if (!chunkData) {
+                    throw new Error(`Polling for chunk ${chunkIndex + 1} timed out.`);
+                  }
+                } else if (!chunkResponse.ok) {
+                  const errorData = await chunkResponse.json();
+                  throw new Error(errorData.error || `HTTP error! status: ${chunkResponse.status}`);
+                } else {
+                  chunkData = await chunkResponse.json();
+                }
+                break; // Break from retry loop if successful or handled
+              } catch (error) {
+                console.error(`Error fetching chunk ${chunkIndex + 1} (attempt ${retries + 1}):`, error);
+                showToast(`Error fetching chunk ${chunkIndex + 1}: ${error.message}. Retrying...`, 'warning');
+                retries++;
+                if (retries <= MAX_RETRIES) {
+                  const backoffTime = INITIAL_BACKOFF_MS * Math.pow(2, retries - 1);
+                  await delay(backoffTime);
+                } else {
+                  showToast(`Failed to fetch chunk ${chunkIndex + 1} after ${MAX_RETRIES + 1} attempts.`, 'error');
+                  throw error; // Re-throw if all retries fail
+                }
+              }
+            }
 
-                  const totalTextLength = words.map(w => w.text).join('').length;
-                  const playedTextLength = words.filter(w => w.sentenceIndex !== -1 && w.sentenceIndex <= chunkIndex).map(w => w.text).join('').length;
-                  const progress = (playedTextLength / totalTextLength) * 100;
-                  overallProgressBar.style.width = `${progress}%`;
-                  resolve();
-                }, reject);
-              });
-
-              chunkIndex++; // Increment for the next iteration
-            } catch (error) {
-              console.error(`Error fetching chunk ${chunkIndex}:`, error);
-              showToast(`Error fetching chunk ${chunkIndex}: ${error.message}`, 'error');
-              speakButton.disabled = false;
-              loadingIndicator.style.display = 'none';
-              overallProgressBarContainer.style.display = 'none';
-              return; // Exit the loop on error
+            if (chunkData) {
+              await processAudioChunk(chunkData.audioBase64, chunkData.sentenceMapping, chunkIndex);
+              chunkIndex++; // Increment for the next iteration only on success
+            } else {
+              // This case should ideally not be reached if errors are re-thrown, but as a safeguard
+              showToast(`Failed to get data for chunk ${chunkIndex + 1}. Aborting.`, 'error');
+              break;
             }
           }
 
