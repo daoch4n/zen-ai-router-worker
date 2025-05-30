@@ -184,29 +184,16 @@ Authorization: Bearer <WORKER_ACCESS_PASS>
 Content-Type: application/json
 ```
 
-### Query Parameters
-
-The `/rawtts` endpoint uses **identical** query parameters to `/tts`:
-
-#### Required Parameters
-- **`voiceName`** (string): The voice to use for speech synthesis
-  - **Gemini voices**: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede`
-  - **Standard voices**: Format like `en-US-Standard-A`, `ja-JP-Wavenet-B`
-  - **Pattern validation**: Must match predefined voice name patterns
-
-#### Optional Parameters
-- **`secondVoiceName`** (string): Secondary voice for future multi-speaker support
-  - Currently not implemented in single-speaker mode
-  - Reserved for future multi-speaker functionality
-
 ### Request Body Schema
 
-The `/rawtts` endpoint uses **identical** request body schema to `/tts`:
+The `rawtts` endpoint expects all parameters in the request body:
 
 ```json
 {
   "text": "string",
-  "model": "string"
+  "model": "string",
+  "voiceName": "string",
+  "secondVoiceName": "string" // Optional
 }
 ```
 
@@ -224,6 +211,44 @@ The `/rawtts` endpoint uses **identical** request body schema to `/tts`:
 - **Format**: Must be a non-empty string
 - **Example**: `"gemini-2.5-flash-preview-tts"`
 - **Supported models**: Any Gemini 2.5 model with TTS capabilities
+
+**`voiceName`** (required)
+- **Type**: String
+- **Description**: Primary voice for speech synthesis
+- **Validation**: Must match one of the supported voice patterns
+- **Error if missing**: `400 voiceName field is required in request body`
+- **Error if invalid**: `400 Invalid voice name format`
+
+**Supported Voice Formats:**
+
+1. **Gemini Voices** (Recommended)
+   - **Pattern**: Single capitalized word
+   - **Examples**: `Puck`, `Charon`, `Kore`, `Fenrir`, `Aoede`
+   - **Regex**: `^[A-Z][a-z]+$`
+
+2. **Standard Google Voices**
+   - **Pattern**: `{language}-{region}-{type}-{variant}`
+   - **Examples**:
+     - `en-US-Standard-A`
+     - `en-US-Wavenet-B`
+     - `ja-JP-Neural2-C`
+     - `fr-FR-Studio-D`
+   - **Regex**: `^[a-z]{2}-[A-Z]{2}-(Standard|Wavenet|Neural2|Studio|Journey)-[A-Z]$`
+
+3. **Custom Voices** (Future)
+   - **Pattern**: `custom-{identifier}`
+   - **Examples**: `custom-my-voice-1`
+   - **Regex**: `^custom-[a-zA-Z0-9-_]+$`
+
+#### Optional Fields
+
+**`secondVoiceName`** (optional)
+- **Type**: String
+- **Description**: Secondary voice for multi-speaker mode (not yet implemented)
+- **Validation**: Same patterns as `voiceName` if provided
+- **Current Status**: Reserved for future use
+- **Default**: `null`
+
 
 ### Response Format
 
@@ -286,12 +311,13 @@ Error responses are **identical** to `/tts` endpoint:
 
 #### Basic Raw TTS Request
 ```bash
-curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+curl -X POST "https://your-worker-domain.workers.dev/rawtts" \
   -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Hello, world! This is raw audio data.",
-    "model": "gemini-2.5-flash-preview-tts"
+    "model": "gemini-2.5-flash-preview-tts",
+    "voiceName": "Puck"
   }' \
   --output raw_audio.base64
 ```
@@ -299,12 +325,13 @@ curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
 #### Processing Raw Audio Data
 ```bash
 # Get raw base64 audio data
-curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+curl -X POST "https://your-worker-domain.workers.dev/rawtts" \
   -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
   -H "Content-Type: application/json" \
   -d '{
     "text": "Raw audio processing example.",
-    "model": "gemini-2.5-flash-preview-tts"
+    "model": "gemini-2.5-flash-preview-tts",
+    "voiceName": "Puck"
   }' \
   --output raw_audio.base64
 
@@ -318,7 +345,7 @@ ffmpeg -f s16le -ar 24000 -ac 1 -i raw_audio.pcm output.wav
 #### JavaScript Client-Side Processing
 ```javascript
 // Fetch raw audio data
-const response = await fetch('/rawtts?voiceName=Puck', {
+const response = await fetch('/rawtts', {
   method: 'POST',
   headers: {
     'Authorization': 'Bearer sk-proj-your-worker-access-pass',
@@ -326,7 +353,8 @@ const response = await fetch('/rawtts?voiceName=Puck', {
   },
   body: JSON.stringify({
     text: 'Client-side audio processing example.',
-    model: 'gemini-2.5-flash-preview-tts'
+    model: 'gemini-2.5-flash-preview-tts',
+    voiceName: 'Puck'
   })
 });
 
@@ -362,10 +390,10 @@ curl -X POST "https://your-worker-domain.workers.dev/tts?voiceName=Puck" \
   --output standard.wav
 
 # Raw base64 endpoint
-curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=Puck" \
+curl -X POST "https://your-worker-domain.workers.dev/rawtts" \
   -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
   -H "Content-Type: application/json" \
-  -d "{\"text\": \"$TEXT\", \"model\": \"gemini-2.5-flash-preview-tts\"}" \
+  -d "{\"text\": \"$TEXT\", \"model\": \"gemini-2.5-flash-preview-tts\", \"voiceName\": \"Puck\"}" \
   --output raw.base64
 
 # Compare file sizes
@@ -447,7 +475,7 @@ Response:
 ```json
 {
   "error": {
-    "message": "voiceName query parameter is required",
+    "message": "voiceName field is required in request body",
     "type": "invalid_request_error"
   }
 }
@@ -455,10 +483,10 @@ Response:
 
 **Invalid voice name**
 ```bash
-curl -X POST "https://your-worker-domain.workers.dev/rawtts?voiceName=invalid-voice" \
+curl -X POST "https://your-worker-domain.workers.dev/rawtts" \
   -H "Authorization: Bearer sk-proj-your-worker-access-pass" \
   -H "Content-Type: application/json" \
-  -d '{"text": "Hello", "model": "gemini-2.5-flash-preview-tts"}'
+  -d '{"text": "Hello", "model": "gemini-2.5-flash-preview-tts", "voiceName": "invalid-voice"}'
 ```
 Response:
 ```json
