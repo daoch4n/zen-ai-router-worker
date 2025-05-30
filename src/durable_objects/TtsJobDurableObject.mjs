@@ -9,6 +9,15 @@ export class TtsJobDurableObject {
     const url = new URL(request.url);
     const jobId = url.pathname.split('/').pop();
 
+    // Basic validation for jobId (e.g., UUID format)
+    const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!uuidRegex.test(jobId)) {
+      return new Response(JSON.stringify({ error: 'Invalid jobId format' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
+
     switch (url.pathname) {
       case `/tts-job/${jobId}/status`:
         return this.handleGetStatus(jobId);
@@ -26,60 +35,81 @@ export class TtsJobDurableObject {
   }
 
   async handleInitJob(request, jobId) {
-    const { text, model, voiceId } = await request.json();
-    const jobData = {
-      jobId,
-      text,
-      model,
-      voiceId,
-      status: 'processing',
-      result: null,
-      createdAt: Date.now(),
-    };
+    try {
+      const { text, model, voiceId } = await request.json();
+      const jobData = {
+        jobId,
+        text,
+        model,
+        voiceId,
+        status: 'processing',
+        result: null,
+        createdAt: Date.now(),
+      };
 
-    // Set a TTL for the job data (e.g., 24 hours)
-    const TTL_SECONDS = 24 * 60 * 60; 
-    await this.storage.put(jobId, jobData, { expirationTtl: TTL_SECONDS });
-    
-    return new Response(JSON.stringify({ message: 'Job initialized', jobId }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200,
-    });
+      // Set a TTL for the job data (e.g., 24 hours)
+      const TTL_SECONDS = 24 * 60 * 60;
+      await this.storage.put(jobId, jobData, { expirationTtl: TTL_SECONDS });
+
+      return new Response(JSON.stringify({ message: 'Job initialized', jobId }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400,
+      });
+    }
   }
 
   async handleUpdateStatus(request, jobId) {
-    const { status } = await request.json();
-    const jobData = await this.storage.get(jobId);
+    try {
+      const { status } = await request.json();
+      const jobData = await this.storage.get(jobId);
 
-    if (!jobData) {
-      return new Response('Job not found', { status: 404 });
+      if (!jobData) {
+        return new Response('Job not found', { status: 404 });
+      }
+
+      jobData.status = status;
+      await this.storage.put(jobId, jobData);
+
+      return new Response(JSON.stringify({ message: 'Job status updated', jobId, status }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400,
+      });
     }
-
-    jobData.status = status;
-    await this.storage.put(jobId, jobData);
-
-    return new Response(JSON.stringify({ message: 'Job status updated', jobId, status }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200,
-    });
   }
 
   async handleStoreResult(request, jobId) {
-    const { result } = await request.json();
-    const jobData = await this.storage.get(jobId);
+    try {
+      const { result } = await request.json();
+      const jobData = await this.storage.get(jobId);
 
-    if (!jobData) {
-      return new Response('Job not found', { status: 404 });
+      if (!jobData) {
+        return new Response('Job not found', { status: 404 });
+      }
+
+      jobData.result = result;
+      jobData.status = 'completed';
+      await this.storage.put(jobId, jobData);
+
+      return new Response(JSON.stringify({ message: 'Job result stored', jobId }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 200,
+      });
+    } catch (error) {
+      return new Response(JSON.stringify({ error: 'Invalid JSON body' }), {
+        headers: { 'Content-Type': 'application/json' },
+        status: 400,
+      });
     }
-
-    jobData.result = result;
-    jobData.status = 'completed';
-    await this.storage.put(jobId, jobData);
-
-    return new Response(JSON.stringify({ message: 'Job result stored', jobId }), {
-      headers: { 'Content-Type': 'application/json' },
-      status: 200,
-    });
   }
 
   async handleGetStatus(jobId) {
