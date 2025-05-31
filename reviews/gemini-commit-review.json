@@ -2,22 +2,13 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Commit: :wrench:",
-    "timestamp_utc": "2025-05-31T15:39:08.849095+00:00",
+    "title": "Commit: Updated the gemini-commit-review.yml workflow to dynamically generate commit messages based on issue count.",
+    "timestamp_utc": "2025-05-31T15:51:59.094416+00:00",
     "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "3dce6487cdd8de4fcdc748b6295654206c4b8686"
+    "commit_sha": "8b14f35a2bfa67e15c0806f4dc818cde7431043a"
   },
-  "review_comments": [
-    {
-      "file_path": "src/transformers/requestAnthropic.mjs",
-      "github_diff_position": 7,
-      "comment_text_md": "**My Confidence: High**\n\nThe `anthropicToGeminiModelMap` contains comments like \"Example, confirm actual target\". This indicates that the model mappings are placeholders and not yet finalized or verified. Deploying this code with unconfirmed mappings could lead to incorrect routing of Anthropic models to inappropriate Gemini equivalents, potentially causing unexpected behavior or errors.\n\n**Suggestion:** Before deployment, ensure all mappings in `anthropicToGeminiModelMap` are accurately confirmed and reflect the intended target Gemini models. If these are indeed just examples for a future configuration, consider making their temporary nature more explicit (e.g., using `TODO` comments or moving this mapping to a configurable source).",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "bug"
-    }
-  ]
+  "review_comments": []
 }
