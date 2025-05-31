@@ -1,0 +1,63 @@
+{
+  "metadata": {
+    "event_type": "pull_request",
+    "repo": "daoch4n/zen-ai-router-worker",
+    "title": "feat: Implement Anthropic to Gemini function calling transformation",
+    "timestamp_utc": "2025-05-31T15:12:50.742652+00:00",
+    "review_tool": "zen-ai-qa",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false,
+    "pull_number": 9
+  },
+  "review_comments": [
+    {
+      "file_path": "src/transformers/streamAnthropic.mjs",
+      "github_diff_position": 100,
+      "comment_text_md": "**My Confidence: High**\n\nThe current logic for handling `part.functionCall` when a new `fc.name` is encountered (lines 100-111) explicitly stops and clears *all* other active tool calls. This prevents the transformer from supporting truly parallel function calls, as described in the PR description (\"Supports parallel function calls from Gemini, mapping them to multiple `tool_use` blocks\").\n\nIf Gemini sends multiple `functionCall` parts in a single chunk (e.g., `parts: [{functionCall: {name: \"tool1\"}}, {functionCall: {name: \"tool2\"}}]`), the current code would stop `tool1` when `tool2` starts, even if `tool1` is not yet complete.\n\nTo support parallel tool calls, the `this.activeToolCalls` map should be able to hold multiple active tool states simultaneously. A new tool call should only be started (and a new `content_block_start` emitted) without stopping other active tools. Existing tools should only be stopped when a `text` part is encountered, or when the stream concludes (which is already handled correctly).\n\n**Suggestion:** Remove the `for (const toolId in this.activeToolCalls) { ... }` loop and the `this.activeToolCalls = {};` line within the `else` block (where `existingToolIdWithName` is null). This will allow new tool calls to be initiated without prematurely stopping others.\n\n```javascript\n            if (fc.name) {\n                let currentProcessingToolId = null;\n                let existingToolIdWithName = null;\n                for (const id in this.activeToolCalls) {\n                    if (this.activeToolCalls[id].name === fc.name && this.activeToolCalls[id].isStarted) {\n                        existingToolIdWithName = id;\n                        break;\n                    }\n                }\n\n                if (existingToolIdWithName) {\n                    currentProcessingToolId = existingToolIdWithName;\n                } else {\n                    // A truly new, different tool name is starting. DO NOT STOP OTHER ACTIVE TOOL CALLS HERE.\n                    // They will be stopped when text content starts or the stream ends.\n                    const newToolId = `toolu_${generateId()}`;\n                    currentProcessingToolId = newToolId;\n                    this.activeToolCalls[newToolId] = {\n                        id: newToolId,\n                        name: fc.name,\n                        index: this.contentBlockIndex,\n                        accumulatedArgsJson: \"\",\n                        isStarted: true,\n                    };\n                    anthropicSse += this.emitContentBlockStart(\"tool_use\", this.contentBlockIndex, {\n                        id: currentProcessingToolId,\n                        name: fc.name,\n                        input: {}\n                    });\n                    this.hadToolUseContent = true;\n                    this.contentBlockIndex++;\n                }\n                this.lastActiveToolCallIdForArgs = currentProcessingToolId;\n                toolCallIdForArgs = currentProcessingToolId;\n\n            } else if (fc.args) {\n                // This part only contains args, no name. Assign to the tool that last had its name processed.\n                toolCallIdForArgs = this.lastActiveToolCallIdForArgs;\n            }\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "test/transformers/requestAnthropicToGemini.test.mjs",
+      "github_diff_position": 100,
+      "comment_text_md": "**My Confidence: High**\n\nThe test suite currently removes the test for `tool_choice: { type: \"none\" }`, stating it's not a standard Anthropic type. However, Anthropic's API *does* support `tool_choice: { type: \"none\" }` to explicitly disable tool usage. This should be mapped to Gemini's `tool_config: { function_calling_config: { mode: \"NONE\" } }`.\n\nPlease add a test case to verify this mapping.\n\n```javascript\nit('should map tool_choice: { type: \"none\" }', () => {\n    const anthropicReq = { messages: [], tools, tool_choice: { type: \"none\" } };\n    const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);\n    assert.deepStrictEqual(geminiReq.tool_config, { function_calling_config: { mode: \"NONE\" } });\n    assert.strictEqual(geminiReq.tools, undefined); // Ensure tools are also removed if present but choice is none\n});\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/transformers/requestAnthropicToGemini.test.mjs",
+      "github_diff_position": 150,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe PR description mentions that \"System prompts are mapped to Gemini's `systemInstruction`.\" There isn't a specific test case covering this transformation. Please add a test for system instruction mapping.\n\n```javascript\nit('should map Anthropic system message to Gemini systemInstruction', () => {\n    const anthropicReq = {\n        model: 'claude-3-sonnet-20240229',\n        system: 'You are a helpful assistant.',\n        messages: [{ role: 'user', content: 'Hello' }]\n    };\n    const expectedGeminiReq = {\n        systemInstruction: { parts: [{ text: 'You are a helpful assistant.' }] },\n        contents: [{ role: 'user', parts: [{ text: 'Hello' }] }],\n        tool_config: { function_calling_config: { mode: \"AUTO\" } } // Default if no tools are present\n    };\n    const actualGeminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);\n    assert.deepStrictEqual(actualGeminiReq.systemInstruction, expectedGeminiReq.systemInstruction);\n    assert.deepStrictEqual(actualGeminiReq.contents, expectedGeminiReq.contents);\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/transformers/requestAnthropicToGemini.test.mjs",
+      "github_diff_position": 150,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe PR description states that \"Other request parameters (max_tokens, temperature, etc.) are mapped to Gemini's `generationConfig`.\" It would be beneficial to add a test case to verify this mapping.\n\n```javascript\nit('should map generation config parameters', () => {\n    const anthropicReq = {\n        model: 'claude-3-sonnet-20240229',\n        messages: [{ role: 'user', content: 'Test' }],\n        max_tokens: 500,\n        temperature: 0.7,\n        top_p: 0.9,\n        top_k: 40\n    };\n    const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);\n    assert.deepStrictEqual(geminiReq.generationConfig, {\n        maxOutputTokens: 500,\n        temperature: 0.7,\n        topP: 0.9,\n        topK: 40\n    });\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/transformers/requestAnthropicToGemini.test.mjs",
+      "github_diff_position": 10,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe `mockEnv` is set up with model mappings, but there isn't a test case explicitly verifying that the `model` field is correctly transformed based on these mappings. Please add a test to ensure model mapping works as expected.\n\n```javascript\nit('should map Anthropic model to Gemini equivalent', () => {\n    const anthropicReq = {\n        model: 'claude-3-opus-20240229',\n        messages: [{ role: 'user', content: 'Hello' }]\n    };\n    const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);\n    assert.strictEqual(geminiReq.model, 'gemini-opus-equivalent');\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/transformers/responseGeminiToAnthropic.test.mjs",
+      "github_diff_position": 83,
+      "comment_text_md": "**My Confidence: High**\n\nThe `transformGeminiToAnthropicResponse` function is described as \"generating unique IDs\" for `tool_use` blocks. However, in this test for parallel function calls, the `helpers.generateId` mock is set to return a fixed string (`'fixed_test_id'`) for every call.\n\nConsequently, the assertions on lines 76 and 83 verify that both `tool_use` IDs are identical (`mockedToolId`). This contradicts the requirement for unique `tool_use` IDs in Anthropic's API. If the transformer correctly generates unique IDs, this test would fail, or it would pass incorrectly if the transformer *always* generates the same ID.\n\nTo properly test the uniqueness of `tool_use` IDs for parallel calls, consider modifying the `generateId` mock in the `beforeEach` block to return a unique value on each invocation within a test run (e.g., by incrementing a counter). Then, update the assertions in this test case to expect distinct IDs.\n\nExample mock:\n```javascript\nlet callCount = 0;\nhelpers.generateId = () => `fixed_test_id_${callCount++}`;\n```\nAnd update assertions to check for `toolu_fixed_test_id_0`, `toolu_fixed_test_id_1`, etc.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    }
+  ]
+}
