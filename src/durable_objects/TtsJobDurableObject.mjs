@@ -5,7 +5,7 @@ import { HttpError } from '../utils/error.mjs'; // Assuming HttpError is defined
 import { splitIntoSentences, getTextCharacterCount } from '../utils/textProcessing.mjs';
 
 const TTL_SECONDS = 24 * 60 * 60; // 24 hours
-const MAX_TEXT_LENGTH_CHAR_COUNT = 1500;
+export const MAX_TEXT_LENGTH_CHAR_COUNT = 1500;
 
 // Text processing utilities are now imported from ../utils/textProcessing.mjs
 
@@ -67,16 +67,9 @@ export class TtsJobDurableObject {
         for (const sentence of initialSentences) {
             const sentenceLength = getTextCharacterCount(sentence);
             // This existing logic handles batching for sentences that are individually within the limit
-            // but collectively might exceed it, or super long sentences that couldn't be split further.
-            // The check above ensures no single sentence is *initially* too long.
-            if (sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) { // This condition might seem redundant now but kept for safety / future text processing changes
-                if (currentBatch.length > 0) {
-                    batchedSentences.push(currentBatch.trim());
-                    currentBatch = '';
-                    currentBatchLength = 0;
-                }
-                batchedSentences.push(sentence.trim());
-            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) {
+            // but collectively might exceed it.
+            // The check above (lines 53-59) ensures no single sentence is *initially* too long.
+            if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) {
                 batchedSentences.push(currentBatch.trim());
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
@@ -90,6 +83,12 @@ export class TtsJobDurableObject {
         }
         sentences = batchedSentences.filter(s => s.length > 0);
     } else if (splittingPreference === 'none') {
+        if (getTextCharacterCount(text) > MAX_TEXT_LENGTH_CHAR_COUNT) {
+            throw new HttpError(
+                `Text exceeds maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters when splittingPreference is 'none'.`,
+                400
+            );
+        }
         sentences = [text];
     } else { // Default: sentence by sentence
         sentences = splitIntoSentences(text);

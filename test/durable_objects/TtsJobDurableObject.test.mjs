@@ -1,10 +1,10 @@
 // test/durable_objects/TtsJobDurableObject.test.mjs
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { TtsJobDurableObject } from '../../src/durable_objects/TtsJobDurableObject.mjs';
+import { TtsJobDurableObject, MAX_TEXT_LENGTH_CHAR_COUNT } from '../../src/durable_objects/TtsJobDurableObject.mjs';
 import { HttpError } from '../../src/utils/error.mjs';
 
-const MAX_TEXT_LENGTH_CHAR_COUNT = 1500; // Should match the source file
+// const MAX_TEXT_LENGTH_CHAR_COUNT = 1500; // Should match the source file - REMOVED
 
 describe('TtsJobDurableObject', () => {
   let state;
@@ -65,6 +65,32 @@ describe('TtsJobDurableObject', () => {
         expect(error).toBeInstanceOf(HttpError);
         expect(error.statusCode).toBe(400);
         expect(error.message).toBe(`A single sentence exceeds the maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters.`);
+      }
+    });
+
+    it('should throw HttpError if text length exceeds MAX_TEXT_LENGTH_CHAR_COUNT with splittingPreference "none"', async () => {
+      const longText = 'a'.repeat(MAX_TEXT_LENGTH_CHAR_COUNT + 1);
+      const requestBody = {
+        jobId: testJobId,
+        text: longText,
+        voiceId: 'voice-1',
+        model: 'model-1',
+        splittingPreference: 'none',
+      };
+      const request = new Request(`https://example.com/tts-job/${testJobId}/initialize`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(requestBody),
+      });
+
+      expect.assertions(3); // Expect HttpError, statusCode, and message
+      try {
+        await durableObject.fetch(request);
+      } catch (error) {
+        expect(error).toBeInstanceOf(HttpError);
+        expect(error.statusCode).toBe(400);
+        // This is the expected message. If the source code doesn't throw this specific error, this test will drive that change.
+        expect(error.message).toBe(`Text exceeds maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters when splittingPreference is 'none'.`);
       }
     });
 

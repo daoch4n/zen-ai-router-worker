@@ -20,11 +20,12 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constan
  * @param {string} [req.model] - Model name, may include thinking mode suffixes
  * @param {boolean} [req.stream] - Whether to stream the response
  * @param {Object} [req.stream_options] - Streaming configuration options
- * @param {string} apiKey - Google API key for Gemini access
+ * @param {string} apiKey - Client's API key for the target service.
+ * @param {Object} env - Cloudflare Worker environment variables.
  * @returns {Promise<Response>} HTTP response with completion data or stream
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleCompletions(req, apiKey) {
+export async function handleCompletions(req, apiKey, env) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -67,20 +68,46 @@ export async function handleCompletions(req, apiKey) {
       body.tools.push({googleSearch: {}});
   }
 
-  // Construct Gemini API endpoint URL based on streaming preference
-  const TASK = req.stream ? "streamGenerateContent" : "generateContent";
-  let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
-  if (req.stream) {
-    url += "?alt=sse";
+  // Construct API endpoint URL and headers based on model type
+  let url;
+  let headers;
+  const isGoogleModel = model.startsWith("gemini-") || model.startsWith("gemma-") || model.startsWith("learnlm-") || originalModel.startsWith("models/"); // models/.. are google
+  const isOpenAiModel = model.startsWith("gpt-"); // Add other OpenAI model prefixes if needed
+  // Add isAnthropicModel if this handler were to also support anthropic directly
+
+  if (isGoogleModel) {
+    const TASK = req.stream ? "streamGenerateContent" : "generateContent";
+    url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`; // BASE_URL is Google's
+    if (req.stream) {
+      url += "?alt=sse";
+    }
+    headers = makeHeaders(apiKey, { "Content-Type": "application/json" }); // makeHeaders is for Google
+  } else if (isOpenAiModel) {
+    if (!env || !env.OPENAI_API_BASE_URL) {
+      console.warn("OPENAI_API_BASE_URL is not configured in env. Using default https://api.openai.com/v1");
+    }
+    const OPENAI_BASE_URL = env && env.OPENAI_API_BASE_URL ? env.OPENAI_API_BASE_URL : "https://api.openai.com/v1";
+    url = `${OPENAI_BASE_URL}/chat/completions`;
+    headers = {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    };
+    // OpenAI request body might need slight adjustments from Gemini's `body`.
+    // For this step, we assume `body` is compatible enough or `transformRequest` handles it.
+  } else {
+    // Default or error for unsupported model prefixes for this handler
+    // Ensure HttpError is imported or defined
+    // import { HttpError } from '../utils/error.mjs'; // Assuming it's imported
+    throw new HttpError(`Unsupported model type for completions: ${model}`, 400);
   }
 
   const response = await fetch(url, {
     method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+    headers: headers,
     body: JSON.stringify(body),
   });
 
-  body = response.body;
+  let responseBody = response.body; // Renamed to avoid conflict with outer `body`
   if (response.ok) {
     let id = "chatcmpl-" + generateId();
     const shared = {};

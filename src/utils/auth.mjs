@@ -1,3 +1,10 @@
+// TODO: If worker-level access control (e.g., using a master access key like env.PASS)
+// is required, it should be implemented as a separate mechanism. This could involve
+// a dedicated authorization function called in worker.mjs, potentially checking a
+// different header (e.g., X-Worker-Access-Key) or a specific path.
+// The authenticateClientRequest function below is now solely focused on extracting
+// the client's API key intended for downstream services.
+
 /**
  * Authentication utilities for handling API keys and request headers.
  * Manages Google API authentication and worker access control.
@@ -15,16 +22,16 @@ import { API_CLIENT } from '../constants/index.mjs';
  */
 export function authenticateClientRequest(request, env) {
   const authHeader = request.headers.get("Authorization");
-  const token = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
+  const clientApiKey = authHeader?.startsWith("Bearer ") ? authHeader.substring(7) : null;
 
-  if (!token) {
-    throw new HttpError("Bad credentials - no api key", 401);
+  if (!clientApiKey) {
+    throw new HttpError("Missing client API key in Authorization header. Please include 'Authorization: Bearer YOUR_API_KEY'.", 401);
   }
 
-  if (token !== env.PASS) {
-    throw new HttpError("Bad credentials - wrong api key", 401);
-  }
-  // If authentication is successful, the function completes.
+  // env.PASS validation has been removed from this function.
+  // This function now solely extracts the client's API key for downstream services.
+  // Worker-level access control, if needed, should be handled separately (see TODO above).
+  return clientApiKey;
 }
 
 /**
