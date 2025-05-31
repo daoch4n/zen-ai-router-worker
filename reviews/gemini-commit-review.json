@@ -2,13 +2,46 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-tts",
-    "title": "Commit: \ud83d\udc41\ufe0f\u200d\ud83d\udde8\ufe0f Update Gemini PR review (no issues found)",
-    "timestamp_utc": "2025-05-31T20:34:21.524968+00:00",
+    "title": "Commit: Merge branch 'master' into fix/tts-long-sentence-error",
+    "timestamp_utc": "2025-05-31T20:42:27.281998+00:00",
     "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "7fed345bbf0ece52745379120756b3d2ef26ffdb"
+    "commit_sha": "fdd7abe146707399e11e9d58fd66f036f3e16d83"
   },
-  "review_comments": []
+  "review_comments": [
+    {
+      "file_path": "src/utils/auth.mjs",
+      "github_diff_position": 73,
+      "comment_text_md": "**My Confidence: High**\n\nThe `selectRandomGoogleApiKey` function currently filters for keys matching only the `KEY\\d+` pattern. This is inconsistent with `getGoogleApiKeysFromEnv` (used by `selectGoogleApiKeyRoundRobin`), which also includes keys starting with `GOOGLE_API_KEY`. To ensure all configured Google API keys are considered by all selection methods, and to reduce potential confusion, `selectRandomGoogleApiKey` should ideally use the more general `getGoogleApiKeysFromEnv` function.\n\nSuggested change:\n```javascript\nexport function selectRandomGoogleApiKey(env) {\n  // Use the more general key collection logic\n  const apiKeys = getGoogleApiKeysFromEnv(env);\n\n  if (apiKeys.length === 0) {\n    throw new HttpError(\"No Google API keys (KEY... or GOOGLE_API_KEY...) configured for random selection.\", 500);\n  }\n\n  return apiKeys[Math.floor(Math.random() * apiKeys.length)];\n}\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/utils/textProcessing.mjs",
+      "github_diff_position": 22,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe current sentence splitting regex `text.split(/(?<=[.?!])(?=(\\s+[\"']?|$)|[.!?\"']+)/g)` might not correctly split sentences that are immediately concatenated without whitespace, e.g., \"Hello!How are you?\". For Text-to-Speech (TTS) purposes, it's generally desirable to split such cases to allow for natural pauses and better pronunciation.\n\nIf the intention was to split \"Hello!How are you?\" into two distinct sentences, consider adjusting the regex to also look for a capital letter immediately following the terminator (after optional quotes/whitespace).\n\n**Suggestion:**\n```javascript\n// Current:\n// const sentences = text.split(/(?<=[.?!])(?=(\\s+[\"']?|$)|[.!\"']+)/g)\n\n// Proposed (to also split on capital letter without whitespace):\nconst sentences = text.split(/(?<=[.?!])(?=\\s*[\"']?|$|[.!\"']+|[A-Z])/g)\n// This regex will split after a terminator if followed by:\n// - Optional whitespace and optional quote (e.g., \"Hello. World\")\n// - End of string (e.g., \"Hello.\")\n// - Another terminator or quote (e.g., \"Hello!!?\")\n// - A capital letter (e.g., \"Hello!How are you?\")\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": "src/worker.mjs",
+      "github_diff_position": 66,
+      "comment_text_md": "**My Confidence: High**\n\nThe `googleApiKeyForBackend` is derived from `GOOGLE_API_KEY` or `KEY` environment variables, implying it's specifically for Google services (like TTS). However, it's now being passed to `handleAnthropicCompletions`, `handleCompletions`, `handleEmbeddings`, and `handleModels`.\n\nIf these handlers interact with non-Google services (e.g., Anthropic, OpenAI), passing a Google API key to them is incorrect and will likely cause API authentication failures. The previous `selectedApiKey = getRandomApiKey(request, env);` logic for non-TTS routes was likely responsible for selecting the appropriate non-Google API keys.\n\nPlease ensure that the correct API key (e.g., Anthropic key for `handleAnthropicCompletions`, OpenAI key for `handleCompletions`/`handleEmbeddings`) is provided to these handlers. This might require reintroducing a mechanism similar to `getRandomApiKey` for non-Google services, or modifying `authenticateClientRequest` to also provide the relevant backend API key.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "security"
+    },
+    {
+      "file_path": "test/durable_objects/TtsJobDurableObject.test.mjs",
+      "github_diff_position": 6,
+      "comment_text_md": "**My Confidence: Medium**\n\nConsider importing `MAX_TEXT_LENGTH_CHAR_COUNT` directly from `../../src/durable_objects/TtsJobDurableObject.mjs` (or a shared constants file if applicable) instead of hardcoding it here. This ensures that the test automatically uses the correct value if the constant changes in the source, preventing potential inconsistencies and making the test more robust.\n\nFor example:\n```javascript\nimport { TtsJobDurableObject, MAX_TEXT_LENGTH_CHAR_COUNT } from '../../src/durable_objects/TtsJobDurableObject.mjs';\n// ... rest of the test\n```\n(Assuming `MAX_TEXT_LENGTH_CHAR_COUNT` is exported from `TtsJobDurableObject.mjs` or a module it re-exports.)",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    }
+  ]
 }
