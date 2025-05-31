@@ -8,7 +8,7 @@ import {
   createAnthropicStreamTransformer
 } from '../transformers/streamAnthropic.mjs';
 import {
-  handleOpenAICompletions
+  handleCompletions
 } from './completions.mjs'; // This is the refactored core logic
 import {
   parseStream,
@@ -43,9 +43,9 @@ export async function handleAnthropicCompletions(req, apiKey, env) {
   // This function will return an OpenAI-formatted response (either full JSON or a stream)
   let openAIRes;
   try {
-    openAIRes = await handleOpenAICompletions(openAIReq, apiKey);
+    openAIRes = await handleCompletions(openAIReq, apiKey);
   } catch (error) {
-    // Catch errors from handleOpenAICompletions and transform to Anthropic error
+    // Catch errors from handleCompletions and transform to Anthropic error
     return errorHandler(error, fixCors);
   }
 
