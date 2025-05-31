@@ -1,0 +1,236 @@
+name: AI Commit Review
+
+on:
+  push:
+    branches:
+      - main # Or other relevant branches like 'master', 'develop'
+    # You might want to exclude certain paths or tags
+    # paths-ignore:
+    #   - 'docs/**'
+    #   - '*.md'
+
+permissions:
+  contents: write       # For committing review.json and auto-formatting/linting
+  # pull-requests: write  # Not needed for commit reviews directly
+
+jobs:
+  gemini-code-review:
+    if: github.actor != 'zen-ai-qa[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📊 Commit Info
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          BEFORE_SHA: ${{ github.event.before }}
+          REPO: ${{ github.repository }}
+        run: |
+          echo "Commit SHA: $COMMIT_SHA"
+          echo "Previous Commit SHA (before push): $BEFORE_SHA"
+          echo "Repository: $REPO"
+          echo "Event type: ${{ github.event_name }}"
+          echo "Ref: ${{ github.ref }}"
+
+      - name: 👀 Checkout Repo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Needed for diffing against base SHA (if comparing to a previous state)
+
+      - name: 🐍 Set up Python and Install Dependencies
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - run: |
+          pip install flake8 google-generativeai PyGithub unidiff "google-ai-generativelanguage>=0.6.0" github3.py requests PyJWT cryptography
+
+      - name: 🐍 Python Syntax Check
+        run: |
+          echo "Running Python validation on .github/ and other specified .py files..."
+          set -e
+          errors=0
+          summary=""
+          py_files_to_check=$(find .github -type f -name "*.py" 2>/dev/null)
+
+          if [ -z "$py_files_to_check" ]; then
+            echo "No Python files found in specified paths to check."
+          else
+            echo "Step 1: Basic syntax check with py_compile"
+            for file in $py_files_to_check; do
+              echo "Checking $file with py_compile"
+              if ! output=$(python -m py_compile "$file" 2>&1); then
+                errors=$((errors+1)) # Increment for each file with py_compile errors
+                summary+="$file (py_compile syntax error):\n$output\n\n"
+              fi
+            done
+
+            echo "\nStep 2: Checking for AST parsing issues (e.g., f-string errors)"
+            ast_errors=0
+            ast_summary=""
+            for file in $py_files_to_check; do
+              echo "Checking $file with ast.parse"
+              if ! python -c "import ast; ast.parse(open('$file', encoding='utf-8').read())" 2>&1 >/dev/null; then
+                 if ! grep -q "$file (py_compile syntax error)" <<< "$summary"; then
+                    ast_errors=$((ast_errors+1))
+                    ast_summary+="$file (AST parsing error, e.g., f-string):\nPython's AST parser failed. Check syntax, especially f-strings.\n\n"
+                 fi
+              fi
+            done
+            if [ "$ast_errors" -gt 0 ]; then
+              summary+=$ast_summary
+              errors=$((errors + ast_errors)) # Add to total errors
+            fi
+
+
+            echo "\nStep 3: Checking for critical errors with flake8"
+            flake8_errors=0
+            flake8_summary=""
+            for file in $py_files_to_check; do
+              echo "Running flake8 on $file"
+              output=$(flake8 --select=E9,F821 "$file" 2>&1)
+              if [ -n "$output" ]; then
+                if ! grep -q "$file" <<< "$summary"; then # Simple check
+                    flake8_errors=$((flake8_errors+1))
+                    flake8_summary+="$file (flake8 critical errors E9/F821):\n$output\n\n"
+                fi
+              fi
+            done
+            if [ "$flake8_errors" -gt 0 ]; then
+              summary+=$flake8_summary
+              errors=$((errors + flake8_errors)) # Add to total errors
+            fi
+          fi
+
+          if [ "$errors" -gt 0 ]; then # Use the master 'errors' counter
+            echo -e "\n⚠️ Issues found in Python files:\n"
+            echo -e "$summary"
+            exit 1
+          else
+            echo "\n✅ No critical issues detected in Python files."
+          fi
+
+      - name: 🔑 Prepare Gemini API Keys
+        id: prepare_gemini_keys
+        env:
+          ALL_API_KEYS_JSON_SECRET: ${{ secrets.ALL_API_KEYS_JSON }}
+        run: |
+          echo "Attempting to parse ALL_API_KEYS_JSON_SECRET..."
+          if [ -z "$ALL_API_KEYS_JSON_SECRET" ]; then
+            echo "Error: ALL_API_KEYS_JSON_SECRET is empty." >&2
+            exit 1
+          fi
+
+          # Parse JSON array into newline-separated keys
+          API_KEYS_NEWLINE_SEPARATED=$(jq -e -r '.[]' <<< "$ALL_API_KEYS_JSON_SECRET")
+          JQ_EXIT_CODE=$?
+          if [ $JQ_EXIT_CODE -ne 0 ]; then
+            echo "Error: jq failed to parse ALL_API_KEYS_JSON_SECRET. JQ Exit Code: $JQ_EXIT_CODE" >&2
+            echo "Please validate the JSON structure of the ALL_API_KEYS_JSON_SECRET secret. The secret content will not be displayed." >&2
+            exit 1
+          fi
+
+          # Convert to array for counting and selection
+          mapfile -t API_KEYS_ARRAY <<< "$API_KEYS_NEWLINE_SEPARATED"
+          local_api_keys_count=${#API_KEYS_ARRAY[@]}
+          echo "Successfully parsed ${local_api_keys_count} keys."
+
+          SELECTED_KEYS=()
+          if [ "${local_api_keys_count}" -eq 0 ]; then
+            echo "Error: No API keys found in ALL_API_KEYS_JSON_SECRET." >&2
+            exit 1
+          elif [ "${local_api_keys_count}" -eq 1 ]; then
+            echo "Only one API key found. Using it as main key."
+            SELECTED_KEYS+=("${API_KEYS_ARRAY[0]}")
+            SELECTED_KEYS+=("") # No fallback key
+          else
+            # Randomly select 2 unique keys
+            # Ensure unique keys are selected if there are enough
+            if [ "${local_api_keys_count}" -ge 2 ]; then
+              mapfile -t SHUFFLED_KEYS < <(printf "%s\n" "${API_KEYS_ARRAY[@]}" | shuf)
+              SELECTED_KEYS+=("${SHUFFLED_KEYS[0]}") # Main key
+              SELECTED_KEYS+=("${SHUFFLED_KEYS[1]}") # Fallback key
+            else
+              # This case should ideally be covered by the local_api_keys_count == 1 check, but as a safeguard
+              echo "Not enough unique API keys for main and fallback. Using available keys."
+              SELECTED_KEYS+=("${API_KEYS_ARRAY[0]}")
+              SELECTED_KEYS+=("")
+            fi
+          fi
+
+          echo "gemini_main_key=${SELECTED_KEYS[0]}" >> $GITHUB_OUTPUT
+          echo "gemini_fallback_key=${SELECTED_KEYS[1]}" >> $GITHUB_OUTPUT
+          echo "Selected keys for review."
+      - name: 🧠 Run code review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GEMINI_API_KEY: ${{ steps.prepare_gemini_keys.outputs.gemini_main_key }}
+          GEMINI_FALLBACK_API_KEY: ${{ steps.prepare_gemini_keys.outputs.gemini_fallback_key }}
+          GEMINI_MODEL: gemini-2.5-flash-preview-05-20
+          # Updated exclude list to reflect the new review JSON file name
+          INPUT_EXCLUDE: "*.md,*.txt,*.json,*.lock,*.yml,*.yaml,*.svg,*.png,*.jpg,*.jpeg,*.gif,*.ico,*.woff,*.woff2,*.ttf,*.eot,*.otf,*.map,*.min.js,*.min.css,reviews/gemini-commit-review.json,*.test.js,*.d.ts,vendor/**,node_modules/**,dist/**,build/**"
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_SERVER_URL: ${{ github.server_url }}
+          # GITHUB_HEAD_REF is for PRs, not relevant for push events
+          # GITHUB_HEAD_REF: ${{ github.head_ref }}
+          GITHUB_RUN_ID: ${{ github.run_id }}
+          GITHUB_JOB: ${{ github.job }}
+          # GitHub App authentication
+          ZEN_APP_INSTALLATION_ID: ${{ secrets.ZEN_APP_INSTALLATION_ID }}
+          ZEN_APP_PRIVATE_KEY: ${{ secrets.ZEN_APP_PRIVATE_KEY }}
+        run: |
+          max_attempts=3
+          attempt=1
+          while [ $attempt -le $max_attempts ]; do
+            echo "Attempt $attempt of $max_attempts to run code review script"
+            if python .github/workflows/gemini-review.py; then
+              echo "Code review script completed successfully"
+              break
+            else
+              exit_code=$?
+              echo "Code review script failed with exit code $exit_code"
+              if [ $attempt -lt $max_attempts ]; then
+                sleep_time=$((60 * attempt))
+                echo "Waiting $sleep_time seconds before retrying..."
+                sleep $sleep_time
+              else
+                echo "All attempts for code review script failed."
+                echo "Continuing workflow despite script failure after retries to commit artifacts."
+              fi
+            fi
+            attempt=$((attempt + 1))
+          done
+
+      - name: 💾 Commit review artifacts (review JSON)
+        run: |
+          export GIT_AUTHOR_NAME="zen-ai-qa[bot]"
+          export GIT_AUTHOR_EMAIL="211895442+zen-ai-qa[bot]@users.noreply.github.com"
+          export GIT_COMMITTER_NAME="zen-ai-qa[bot]"
+          export GIT_COMMITTER_EMAIL="211895442+zen-ai-qa[bot]@users.noreply.github.com"
+
+          # Add the JSON files
+          # Changed to gemini-commit-review.json
+          git add reviews/*.json 2>/dev/null || true
+
+          if git diff --staged --quiet --exit-code; then
+            echo "No changes to review artifacts to commit."
+          else
+            # For commit reviews, simplify the commit message
+            commit_message="👁️‍🗨️ Update Gemini Commit review" # Simplified message
+
+            git commit -m "$commit_message"
+
+            # Push to the current branch.
+            for i in 1 2 3; do
+              git pull --rebase origin ${{ github.ref }} || true # Try to rebase before push
+              if git push origin HEAD:${{ github.ref }}; then
+                echo "Push of review artifacts succeeded."
+                break
+              fi
+              if [ "$i" -eq 3 ]; then
+                echo "Push of review artifacts failed after multiple attempts."
+              else
+                echo "Push failed, retrying in 10s..."
+                sleep 10
+              fi
+            done
+          fi
