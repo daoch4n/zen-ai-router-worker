@@ -16,6 +16,8 @@ import {
 
 import { TtsJobDurableObject } from './durable_objects/TtsJobDurableObject.mjs';
 
+// Global index for round-robin API key selection
+let apiKeyIndex = 0;
 
 import {
   getRandomApiKey,
@@ -50,7 +52,28 @@ async function fetch(request, env) {
   const errHandler = (err) => errorHandler(err, fixCors);
 
   try {
-    const apiKey = getRandomApiKey(request, env);
+    const url = new URL(request.url); // Define URL here to use it later
+    let selectedApiKey;
+
+    // API key selection logic for TTS routes
+    if (url.pathname.endsWith("/tts") || url.pathname.endsWith("/rawtts")) {
+      const apiKeys = Object.keys(env)
+        .filter(key => key.startsWith("KEY") || key.startsWith("GOOGLE_API_KEY"))
+        .map(key => env[key])
+        .filter(value => typeof value === 'string' && value.trim() !== ''); // Ensure keys are non-empty strings
+
+      if (apiKeys.length === 0) {
+        throw new HttpError("No Google API keys configured", 500);
+      }
+
+      selectedApiKey = apiKeys[apiKeyIndex % apiKeys.length];
+      apiKeyIndex = (apiKeyIndex + 1) % apiKeys.length;
+      console.log(`Worker: Selected API Key (Round Robin Index: ${apiKeyIndex}): ${selectedApiKey ? 'Present' : 'Missing'}`);
+    } else {
+      // Existing API key logic for other routes
+      // This part might need adjustment based on whether other routes also stop using Authorization header
+      selectedApiKey = getRandomApiKey(request, env);
+    }
 
     // Block requests from specific Cloudflare data centers that may have
     // connectivity issues with Google's API endpoints
@@ -65,49 +88,52 @@ async function fetch(request, env) {
     // Initialize worker location for geolocation-dependent features
     await forceSetWorkerLocation(env);
 
-    const { pathname } = new URL(request.url);
+    // const { pathname } = new URL(request.url); // URL is already parsed above
     switch (true) {
-      case pathname.endsWith("/v1/messages"): // Anthropic Messages API
+      case url.pathname.endsWith("/v1/messages"): // Anthropic Messages API
         if (!(request.method === "POST")) {
           throw new HttpError("Method Not Allowed", 405);
         }
-        return handleAnthropicCompletions(await request.json(), apiKey, env)
+        // Assuming selectedApiKey here refers to the one from getRandomApiKey for non-TTS routes
+        return handleAnthropicCompletions(await request.json(), selectedApiKey, env)
           .catch(errHandler);
 
-      case pathname.endsWith("/chat/completions"):
+      case url.pathname.endsWith("/chat/completions"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleCompletions(await request.json(), apiKey)
+        return handleCompletions(await request.json(), selectedApiKey)
           .catch(errHandler);
 
-      case pathname.endsWith("/embeddings"):
-      case pathname.endsWith("/embed"):
+      case url.pathname.endsWith("/embeddings"):
+      case url.pathname.endsWith("/embed"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleEmbeddings(await request.json(), apiKey)
+        return handleEmbeddings(await request.json(), selectedApiKey)
           .catch(errHandler);
 
-      case pathname.endsWith("/models"):
+      case url.pathname.endsWith("/models"):
         if (!(request.method === "GET")) {
           throw new Error("Assertion failed: expected GET request");
         }
-        return handleModels(apiKey)
+        return handleModels(selectedApiKey)
           .catch(errHandler);
 
-      case pathname.endsWith("/tts"):
+      case url.pathname.endsWith("/tts"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleTTS(request, apiKey)
+        // Pass selectedApiKey, env, and url to handleTTS
+        return handleTTS(request, selectedApiKey, env, url)
           .catch(errHandler);
 
-      case pathname.endsWith("/rawtts"):
+      case url.pathname.endsWith("/rawtts"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
         }
-        return handleRawTTS(request, apiKey)
+        // Pass selectedApiKey, env, and url to handleRawTTS
+        return handleRawTTS(request, selectedApiKey, env, url)
           .catch(errHandler);
 
       default:
