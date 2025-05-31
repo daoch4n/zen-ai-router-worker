@@ -5,13 +5,15 @@ import * as helpers from '../../src/utils/helpers.mjs'; // Import as namespace
 describe('transformGeminiToAnthropicResponse', () => {
     const anthropicModelName = "claude-custom-model";
     const originalRequestId = "req_123";
-    const mockedToolId = "toolu_fixed_test_id";
+    // Note: mockedToolId is not a single const anymore due to sequential IDs.
 
     let originalGenerateId;
+    let mockIdCounter;
 
     beforeEach(() => {
       originalGenerateId = helpers.generateId; // Store original
-      helpers.generateId = () => 'fixed_test_id'; // Replace with mock
+      mockIdCounter = 0; // Reset counter for each test
+      helpers.generateId = () => `fixed_test_id_${mockIdCounter++}`; // Replace with mock that increments
     });
 
     afterEach(() => {
@@ -43,7 +45,7 @@ describe('transformGeminiToAnthropicResponse', () => {
         assert.strictEqual(anthropicRes.model, anthropicModelName);
         assert.strictEqual(anthropicRes.content.length, 1);
         assert.strictEqual(anthropicRes.content[0].type, "tool_use");
-        assert.strictEqual(anthropicRes.content[0].id, mockedToolId, "Tool use ID should be the mocked, deterministic ID");
+        assert.strictEqual(anthropicRes.content[0].id, "toolu_fixed_test_id_0", "Tool use ID should be unique and predictable");
         assert.strictEqual(anthropicRes.content[0].name, "get_weather");
         assert.deepStrictEqual(anthropicRes.content[0].input, { location: "Boston, MA" });
         assert.strictEqual(anthropicRes.stop_reason, "tool_use");
@@ -68,13 +70,15 @@ describe('transformGeminiToAnthropicResponse', () => {
         const anthropicRes = transformGeminiToAnthropicResponse(geminiResp, anthropicModelName, originalRequestId);
 
         assert.strictEqual(anthropicRes.content.length, 2);
+        // First tool
         assert.strictEqual(anthropicRes.content[0].type, "tool_use");
-        assert.strictEqual(anthropicRes.content[0].id, mockedToolId, "Tool use ID should be the mocked, deterministic ID for first tool");
+        assert.strictEqual(anthropicRes.content[0].id, "toolu_fixed_test_id_0", "First tool_use ID should be unique and predictable");
         assert.strictEqual(anthropicRes.content[0].name, "get_weather");
         assert.deepStrictEqual(anthropicRes.content[0].input, { location: "Boston, MA" });
 
+        // Second tool
         assert.strictEqual(anthropicRes.content[1].type, "tool_use");
-        assert.strictEqual(anthropicRes.content[1].id, mockedToolId, "Tool use ID should be the mocked, deterministic ID for second tool");
+        assert.strictEqual(anthropicRes.content[1].id, "toolu_fixed_test_id_1", "Second tool_use ID should be unique and predictable");
         assert.strictEqual(anthropicRes.content[1].name, "get_stock_price");
         assert.deepStrictEqual(anthropicRes.content[1].input, { symbol: "GOOG" });
         assert.strictEqual(anthropicRes.stop_reason, "tool_use");
@@ -123,7 +127,7 @@ describe('transformGeminiToAnthropicResponse', () => {
         assert.strictEqual(anthropicRes.content[0].text, "Okay, I will get the weather.");
 
         assert.strictEqual(anthropicRes.content[1].type, "tool_use");
-        assert.strictEqual(anthropicRes.content[1].id, mockedToolId, "Tool use ID should be the mocked, deterministic ID");
+        assert.strictEqual(anthropicRes.content[1].id, "toolu_fixed_test_id_0", "Tool use ID should be unique and predictable");
         assert.strictEqual(anthropicRes.content[1].name, "get_weather");
         assert.deepStrictEqual(anthropicRes.content[1].input, { location: "London" });
         assert.strictEqual(anthropicRes.stop_reason, "tool_use");

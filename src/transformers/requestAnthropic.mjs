@@ -2,6 +2,18 @@ import {
   DEFAULT_ANTHROPIC_VERSION
 } from '../constants/index.mjs';
 
+// Defines canonical model name mappings from Anthropic to Gemini.
+// These are baseline mappings; the actual model used in requests might be
+// further influenced by environment variables or specific configurations if needed by the proxy.
+export const anthropicToGeminiModelMap = {
+  "claude-3-opus-20240229": "gemini-1.5-pro-latest", // Example, confirm actual target
+  "claude-3-sonnet-20240229": "gemini-1.0-pro-latest",  // Example, confirm actual target
+  "claude-3-haiku-20240307": "gemini-1.0-pro-vision-latest", // Example, confirm actual target (Haiku might map to Flash or a specific vision/lite model)
+  "claude-2.1": "gemini-1.0-pro", // Example
+  "claude-2.0": "gemini-1.0-pro", // Example
+  "claude-instant-1.2": "gemini-1.0-pro" // Example, or a "flash"/"lite" equivalent
+};
+
 /**
  * Recursively removes unsupported fields from a JSON schema for Gemini.
  * @param {Object} schema - The JSON schema to clean.

@@ -1,7 +1,11 @@
 import assert from 'assert';
-import { transformAnthropicToGeminiRequest, cleanGeminiSchema } from '../../src/transformers/requestAnthropic.mjs';
+import {
+    transformAnthropicToGeminiRequest,
+    cleanGeminiSchema,
+    anthropicToGeminiModelMap // Import the map
+} from '../../src/transformers/requestAnthropic.mjs';
 
-// Mock environment, if your function uses it (e.g., for model mapping)
+// Mock environment, if your function uses it (e.g., for model mapping within transform function)
 const mockEnv = {
     MODEL_MAP_OPUS: "gemini-opus-equivalent",
     MODEL_MAP_SONNET: "gemini-sonnet-equivalent",
@@ -70,6 +74,41 @@ describe('transformAnthropicToGeminiRequest', () => {
         });
     });
 
+    describe('Generation Parameter Mapping', () => {
+        it('should map Anthropic generation parameters to Gemini generationConfig', () => {
+            const anthropicReq = {
+              model: "claude-test",
+              messages: [{ role: "user", content: "Generate text" }],
+              max_tokens: 500,
+              temperature: 0.7,
+              top_p: 0.9,
+              top_k: 40,
+              stop_sequences: ["\n", "user:"]
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            assert.deepStrictEqual(geminiReq.generationConfig, {
+              maxOutputTokens: 500,
+              temperature: 0.7,
+              topP: 0.9,
+              topK: 40,
+              stopSequences: ["\n", "user:"]
+            }, "Gemini generationConfig should be correctly mapped");
+        });
+
+        it('should result in undefined generationConfig if no Anthropic generation parameters are set', () => {
+            const anthropicReq = {
+              model: "claude-test",
+              messages: [{ role: "user", content: "Generate text" }]
+              // No max_tokens, temperature, top_p, top_k, stop_sequences
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            // The transformer deletes generationConfig if it's empty
+            assert.strictEqual(geminiReq.generationConfig, undefined, "Gemini generationConfig should be undefined if no Anthropic params provided");
+        });
+    });
+
     describe('Tool Choice Mapping', () => {
         const tools = [{ name: "get_weather", description: "Weather tool", input_schema: { type: "object", properties: { location: { type: "string" } } } }];
 
@@ -121,9 +160,62 @@ describe('transformAnthropicToGeminiRequest', () => {
             assert.strictEqual(geminiReq.tool_config, undefined, "Gemini 'tool_config' property should be undefined when Anthropic 'tools' is an empty array");
           });
 
+        it('should map Anthropic tool_choice: { type: "none" } to Gemini mode: NONE, keeping tool definitions', () => {
+            const tools = [
+                { name: "get_weather", description: "Get weather", input_schema: { type: "object", properties: {} } }
+            ];
+            const anthropicReq = {
+                model: "claude-test",
+                messages: [{ role: "user", content: "Hi" }],
+                tools: tools,
+                tool_choice: { type: "none" }
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            assert.deepStrictEqual(geminiReq.tool_config, {
+                function_calling_config: { mode: "NONE" }
+            }, "Gemini tool_config.function_calling_config.mode should be NONE");
+
+            assert.ok(geminiReq.tools && geminiReq.tools[0].functionDeclarations.length > 0, "Gemini 'tools' should still be defined if Anthropic tools were provided, even if mode is NONE");
+            assert.strictEqual(geminiReq.tools[0].functionDeclarations[0].name, "get_weather");
+        });
+
         // Removed the test for tool_choice: { type: "none" } as "none" is not a standard Anthropic type,
         // and mode: "NONE" is covered by the "no tools" case or if explicitly set by a valid Anthropic choice
         // that the transformer logic might map to NONE (though current logic doesn't show such a mapping for a non-standard type).
+        // RE-ADDITION: The above comment about removing the test for "none" was from a previous iteration.
+        // The current task specifically asks to test for `tool_choice: { type: "none" }` if Anthropic supports it
+        // or if the transformer has logic for it. The transformer *does* have logic for it.
+    });
+
+    describe('System Prompt Mapping', () => {
+        it('should map Anthropic system prompt to Gemini systemInstruction', () => {
+            const anthropicReq = {
+              model: "claude-test",
+              system: "You are a helpful assistant.",
+              messages: [{ role: "user", content: "Hi" }]
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            assert.deepStrictEqual(geminiReq.systemInstruction, {
+              role: "system", // As per current implementation which adds role:"system"
+              parts: [{ text: "You are a helpful assistant." }]
+            }, "Gemini systemInstruction should be correctly mapped");
+
+            // Ensure messages are still processed
+            assert.ok(geminiReq.contents && geminiReq.contents.length === 1);
+            assert.strictEqual(geminiReq.contents[0].parts[0].text, "Hi");
+        });
+
+        it('should not have systemInstruction if Anthropic system prompt is absent', () => {
+            const anthropicReq = {
+              model: "claude-test",
+              messages: [{ role: "user", content: "Hi" }]
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            assert.strictEqual(geminiReq.systemInstruction, undefined, "Gemini systemInstruction should be undefined if no Anthropic system prompt");
+        });
     });
 
     describe('Message History Transformation for Function Calling', () => {
@@ -209,6 +301,37 @@ describe('transformAnthropicToGeminiRequest', () => {
             assert.strictEqual(cleaned.properties.email.format, undefined);
             assert.strictEqual(cleaned.properties.timestamp.format, "date-time");
         });
+    });
+});
+
+describe('Anthropic to Gemini Model Mapping (anthropicToGeminiModelMap)', () => {
+    it('should correctly map claude-3-opus-20240229', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-opus-20240229'], "gemini-1.5-pro-latest", "Mapping for Opus model is incorrect");
+    });
+
+    it('should correctly map claude-3-sonnet-20240229', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-sonnet-20240229'], "gemini-1.0-pro-latest", "Mapping for Sonnet model is incorrect");
+    });
+
+    it('should correctly map claude-3-haiku-20240307', () => {
+      // Example: update "gemini-1.0-pro-vision-latest" to actual if different (e.g. gemini-flash)
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-haiku-20240307'], "gemini-1.0-pro-vision-latest", "Mapping for Haiku model is incorrect");
+    });
+
+    it('should correctly map claude-2.1', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['claude-2.1'], "gemini-1.0-pro", "Mapping for Claude 2.1 model is incorrect");
+    });
+
+    it('should correctly map claude-2.0', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['claude-2.0'], "gemini-1.0-pro", "Mapping for Claude 2.0 model is incorrect");
+    });
+
+    it('should correctly map claude-instant-1.2', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['claude-instant-1.2'], "gemini-1.0-pro", "Mapping for Claude Instant 1.2 model is incorrect");
+    });
+
+    it('should return undefined for an unmapped Anthropic model', () => {
+      assert.strictEqual(anthropicToGeminiModelMap['unmapped-claude-model-xyz'], undefined, "Should be undefined for unmapped models");
     });
 });
 
