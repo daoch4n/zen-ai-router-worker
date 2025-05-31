@@ -429,7 +429,7 @@ def get_review_context() -> ReviewContext:
         logger.info(f"Detected event type: push. Commit SHA: {commit_sha}")
         return ReviewContext(owner, repo_name_str, "push", repo_obj,
                              commit_sha=commit_sha, commit_obj=commit_obj,
-                             title=f"Commit: {commit_message.splitlines()[0]}", description=commit_message)
+                             title=f"Commit: {commit_message.splitlines()[0] if commit_message.strip() else 'No Commit Title'}", description=commit_message)
 
     elif event_name == "issue_comment":
         if "issue" in event_data and "pull_request" in event_data["issue"]:
@@ -715,7 +715,9 @@ def create_batch_prompt(patched_file: PatchedFile, review_context: ReviewContext
 
     # Adjust instructions based on event type
     review_type_instruction = "pull requests" if review_context.event_type == "pull_request" else "code commits"
-    instructions = f"""Your task is reviewing {review_type_instruction}. You will provide structured output in JSON format.
+    # Escape any literal '%' characters in review_type_instruction for f-string
+    escaped_review_type_instruction = review_type_instruction.replace('%', '%%')
+    instructions = f"""Your task is reviewing {escaped_review_type_instruction}. You will provide structured output in JSON format.
 
 REVIEW GUIDELINES:
 - Focus on logic flaws, inconsistencies, and bugs that would affect how the application runs. These include:
