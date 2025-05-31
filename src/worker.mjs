@@ -13,6 +13,9 @@ import {
   handleRawTTS
 } from './handlers/index.mjs';
 
+import { TtsJobDurableObject } from './durable_objects/TtsJobDurableObject.mjs';
+
+
 import {
   getRandomApiKey,
   forceSetWorkerLocation,
@@ -99,4 +102,4 @@ async function fetch(request, env) {
   }
 }
 
-export default { fetch };
+export default { fetch, TtsJobDurableObject };
