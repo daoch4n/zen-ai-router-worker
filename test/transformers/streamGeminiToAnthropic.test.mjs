@@ -220,6 +220,138 @@ describe('GeminiToAnthropicStreamTransformer', () => {
         assert.strictEqual(events[7].data.delta.stop_reason, "tool_use");
         assert.strictEqual(events[8].type, "message_stop");
     });
+
+    it('should correctly transform a pure text-only stream from Gemini', () => {
+        // Mock original request for input token calculation in message_start
+        const mockOriginalRequest = {
+            messages: [{ role: "user", content: "Test prompt" }]
+            // input_tokens for this would be roughly len("Test prompt")/4 = ~3 if using rough calc
+        };
+        const transformer = createGeminiToAnthropicStreamTransformer(
+            anthropicModelName,
+            originalRequestId,
+            true, // streamIncludeUsage
+            mockOriginalRequest
+        );
+
+        const geminiChunks = [
+            // First text chunk, also implies role: "model"
+            { candidates: [{ content: { role: "model", parts: [{ text: "Hello" }] } }] },
+            // Second text chunk
+            { candidates: [{ content: { parts: [{ text: " world" }] } }] },
+            // Final chunk with finish reason and last text part
+            {
+              candidates: [{
+                finishReason: "STOP",
+                content: { parts: [{ text: "!" }] }
+                // Note: Gemini might not have 'tokenCount' here; usage is from usageMetadata
+              }],
+              usageMetadata: { promptTokenCount: 3, candidatesTokenCount: 3 } // Example usage
+            }
+        ];
+
+        const sseOutput = collectStreamOutput(transformer, geminiChunks);
+        const events = parseSseEvents(sseOutput);
+
+        assert.strictEqual(events.length, 8, "Should be 8 SSE events for this text stream");
+
+        // 1. message_start
+        assert.strictEqual(events[0].type, "message_start");
+        assert.strictEqual(events[0].data.message.id, originalRequestId);
+        assert.strictEqual(events[0].data.message.role, "assistant");
+        assert.strictEqual(events[0].data.message.model, anthropicModelName);
+        assert.ok(events[0].data.message.usage.input_tokens > 0, "Input tokens should be estimated");
+
+        // 2. content_block_start (for text)
+        assert.strictEqual(events[1].type, "content_block_start");
+        assert.strictEqual(events[1].data.index, 0);
+        assert.strictEqual(events[1].data.content_block.type, "text");
+        assert.strictEqual(events[1].data.content_block.text, "");
+
+        // 3. content_block_delta (Hello)
+        assert.strictEqual(events[2].type, "content_block_delta");
+        assert.strictEqual(events[2].data.index, 0);
+        assert.strictEqual(events[2].data.delta.type, "text_delta");
+        assert.strictEqual(events[2].data.delta.text, "Hello");
+
+        // 4. content_block_delta ( world)
+        assert.strictEqual(events[3].type, "content_block_delta");
+        assert.strictEqual(events[3].data.index, 0);
+        assert.strictEqual(events[3].data.delta.type, "text_delta");
+        assert.strictEqual(events[3].data.delta.text, " world");
+
+        // 5. content_block_delta (!) - from the final chunk part
+        assert.strictEqual(events[4].type, "content_block_delta");
+        assert.strictEqual(events[4].data.index, 0);
+        assert.strictEqual(events[4].data.delta.type, "text_delta");
+        assert.strictEqual(events[4].data.delta.text, "!");
+
+        // 6. content_block_stop
+        assert.strictEqual(events[5].type, "content_block_stop");
+        assert.strictEqual(events[5].data.index, 0);
+
+        // 7. message_delta
+        assert.strictEqual(events[6].type, "message_delta");
+        assert.strictEqual(events[6].data.delta.stop_reason, "end_turn");
+        assert.strictEqual(events[6].data.delta.stop_sequence, null);
+        assert.deepStrictEqual(events[6].data.usage, { output_tokens: 3 }); // from usageMetadata.candidatesTokenCount
+
+        // 8. message_stop
+        assert.strictEqual(events[7].type, "message_stop");
+    });
+
+    it('should map Gemini finishReason SAFETY to Anthropic stop_reason content_filter', () => {
+        const mockOriginalRequest = { messages: [{ role: "user", content: "Unsafe prompt" }] };
+        const transformer = createGeminiToAnthropicStreamTransformer(
+            anthropicModelName,
+            originalRequestId,
+            true,
+            mockOriginalRequest
+        );
+
+        const geminiChunks = [
+            { candidates: [{ content: { role: "model", parts: [{ text: "Some initial text" }] } }] },
+            {
+              candidates: [{
+                finishReason: "SAFETY",
+                safetyRatings: [ // Example safetyRatings
+                    { category: "HARM_CATEGORY_HATE_SPEECH", probability: "HIGH" }
+                ],
+                content: { parts: [{ text: "" }] } // Content might be empty or partial
+              }],
+              // Gemini might also include promptFeedback in the same final chunk or separately
+              promptFeedback: {
+                blockReason: "SAFETY", // This might be redundant if finishReason is SAFETY
+                safetyRatings: [
+                    { category: "HARM_CATEGORY_DANGEROUS_CONTENT", probability: "HIGH" }
+                ]
+              },
+              usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 }
+            }
+        ];
+
+        const sseOutput = collectStreamOutput(transformer, geminiChunks);
+        const events = parseSseEvents(sseOutput);
+
+        // Expected: message_start, content_block_start, content_block_delta (for "Some initial text"),
+        // content_block_stop, message_delta, message_stop
+        assert.strictEqual(events.length, 6, "Should be 6 SSE events");
+
+        assert.strictEqual(events[0].type, "message_start");
+        assert.strictEqual(events[1].type, "content_block_start");
+        assert.strictEqual(events[1].data.content_block.type, "text");
+        assert.strictEqual(events[2].type, "content_block_delta");
+        assert.strictEqual(events[2].data.delta.text, "Some initial text");
+        assert.strictEqual(events[3].type, "content_block_stop");
+
+        const messageDeltaEvent = events.find(e => e.type === "message_delta");
+        assert.ok(messageDeltaEvent, "message_delta event not found");
+        assert.strictEqual(messageDeltaEvent.data.delta.stop_reason, "content_filter");
+        assert.deepStrictEqual(messageDeltaEvent.data.usage, { output_tokens: 2 });
+
+        const messageStopEvent = events.find(e => e.type === "message_stop");
+        assert.ok(messageStopEvent, "message_stop event not found");
+    });
 });
 
 // Helper to run tests

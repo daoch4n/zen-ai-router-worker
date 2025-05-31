@@ -109,6 +109,18 @@ describe('transformAnthropicToGeminiRequest', () => {
             assert.strictEqual(geminiReq.tools, undefined, "tools property should be undefined");
         });
 
+        it('should result in undefined tools and tool_config if Anthropic tools array is explicitly empty', () => {
+            const anthropicReq = {
+              model: "claude-test",
+              messages: [{ role: "user", content: "Hi" }],
+              tools: [] // Explicitly empty tools array
+            };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+            assert.strictEqual(geminiReq.tools, undefined, "Gemini 'tools' property should be undefined when Anthropic 'tools' is an empty array");
+            assert.strictEqual(geminiReq.tool_config, undefined, "Gemini 'tool_config' property should be undefined when Anthropic 'tools' is an empty array");
+          });
+
         // Removed the test for tool_choice: { type: "none" } as "none" is not a standard Anthropic type,
         // and mode: "NONE" is covered by the "no tools" case or if explicitly set by a valid Anthropic choice
         // that the transformer logic might map to NONE (though current logic doesn't show such a mapping for a non-standard type).

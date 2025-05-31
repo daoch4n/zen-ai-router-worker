@@ -202,7 +202,7 @@ describe('transformGeminiToAnthropicResponse', () => {
             const anthropicRes = transformGeminiToAnthropicResponse(geminiBlockedResp, anthropicModelName, originalRequestId);
             assert.strictEqual(anthropicRes.type, "error");
             assert.ok(anthropicRes.error);
-            assert.strictEqual(anthropicRes.error.type, "invalid_request_error"); // As per current mapping
+            assert.strictEqual(anthropicRes.error.type, "content_filter_error"); // Expect content_filter_error
             assert.ok(anthropicRes.error.message.includes("Request blocked due to SAFETY"));
         });
 

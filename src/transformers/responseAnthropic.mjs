@@ -56,7 +56,7 @@ export function transformGeminiToAnthropicResponse(geminiResp, anthropicModelNam
     return {
       type: "error",
       error: {
-        type: "invalid_request_error", // Or a more specific type like "content_filter_error"
+        type: "content_filter_error", // Changed to content_filter_error
         message: `Request blocked due to ${geminiResp.promptFeedback.blockReason}. ` +
                  (geminiResp.promptFeedback.safetyRatings ? `Safety Ratings: ${JSON.stringify(geminiResp.promptFeedback.safetyRatings)}` : '')
       }
