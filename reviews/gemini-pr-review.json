@@ -1,0 +1,23 @@
+{
+  "metadata": {
+    "event_type": "pull_request",
+    "repo": "daoch4n/zen-ai-tts",
+    "title": "Fix: Handle excessively long sentences in TTS job initialization",
+    "timestamp_utc": "2025-05-31T16:24:09.290691+00:00",
+    "review_tool": "zen-ai-qa",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false,
+    "pull_number": 13
+  },
+  "review_comments": [
+    {
+      "file_path": "test/durable_objects/TtsJobDurableObject.test.mjs",
+      "github_diff_position": 77,
+      "comment_text_md": "**My Confidence: High**\n\nThe current test effectively covers the scenario where a single sentence exceeds `MAX_TEXT_LENGTH_CHAR_COUNT` when `splittingPreference` is set to `'characterCount'`. However, it's crucial to also test the behavior when `splittingPreference` is `'none'` and the total text length exceeds the maximum allowed. In this case, the entire text is treated as a single unit, and the `initializeJob` method should also reject it with an appropriate `HttpError`.\n\nConsider adding a test case similar to this:\n\n```javascript\nit('should throw HttpError if splittingPreference is \"none\" and total text exceeds MAX_TEXT_LENGTH_CHAR_COUNT', async () => {\n  const longText = 'a'.repeat(MAX_TEXT_LENGTH_CHAR_COUNT + 1);\n\n  const requestBody = {\n    jobId: testJobId,\n    text: longText,\n    voiceId: 'voice-1',\n    model: 'model-1',\n    splittingPreference: 'none',\n  };\n\n  const request = new Request(`https://example.com/tts-job/${testJobId}/initialize`, {\n    method: 'POST',\n    headers: { 'Content-Type': 'application/json' },\n    body: JSON.stringify(requestBody),\n  });\n\n  expect.assertions(3);\n  try {\n    await durableObject.fetch(request);\n  } catch (error) {\n    expect(error).toBeInstanceOf(HttpError);\n    expect(error.statusCode).toBe(400);\n    // The error message might be slightly different, e.g., \"Total text exceeds...\"\n    expect(error.message).toMatch(/exceeds the maximum allowed length/);\n  }\n});\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    }
+  ]
+}
