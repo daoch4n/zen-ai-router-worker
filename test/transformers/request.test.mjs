@@ -19,7 +19,7 @@ describe('Request Transformers', () => {
       const req = {
         temperature: 0.7,
         max_tokens: 100,
-        top_p: 0.9,
+        top_p: 0.8,  // This will be overridden to 0.9
         frequency_penalty: 0.5,
         presence_penalty: 0.3
       };
@@ -29,7 +29,7 @@ describe('Request Transformers', () => {
       expect(result).toEqual({
         temperature: 0.7,
         maxOutputTokens: 100,
-        topP: 0.9,
+        topP: 0.95,  // Always forced to 0.9
         frequencyPenalty: 0.5,
         presencePenalty: 0.3
       });
@@ -45,6 +45,7 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.5,
+        topP: 0.95,
         thinkingConfig: {
           thinkingBudget: 24576
         }
@@ -64,6 +65,7 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.7,
+        topP: 0.95,
         thinkingConfig: {
           thinkingBudget: 8192,
           includeThoughts: true
@@ -81,13 +83,61 @@ describe('Request Transformers', () => {
       const result = transformConfig(req);
 
       expect(result).toEqual({
-        temperature: 0.7
+        temperature: 0.7,
+        topP: 0.95
       });
     });
 
     it('should handle empty request', () => {
       const result = transformConfig({});
-      expect(result).toEqual({});
+      expect(result).toEqual({
+        temperature: 0.2,
+        topP: 0.95
+      });
+    });
+
+    it('should set default temperature when not provided', () => {
+      const req = {
+        max_tokens: 100
+      };
+
+      const result = transformConfig(req);
+
+      expect(result).toEqual({
+        temperature: 0.2,
+        maxOutputTokens: 100,
+        topP: 0.95
+      });
+    });
+
+    it('should force topP to 0.9 regardless of input', () => {
+      const req = {
+        temperature: 0.5,
+        top_p: 0.7  // This should be overridden
+      };
+
+      const result = transformConfig(req);
+
+      expect(result).toEqual({
+        temperature: 0.5,
+        topP: 0.95  // Should be 0.95, not 0.7
+      });
+    });
+
+    it('should preserve provided temperature and force topP', () => {
+      const req = {
+        temperature: 0.8,
+        max_tokens: 200,
+        top_p: 0.5  // This should be overridden
+      };
+
+      const result = transformConfig(req);
+
+      expect(result).toEqual({
+        temperature: 0.8,
+        maxOutputTokens: 200,
+        topP: 0.95  // Should be 0.95, not 0.5
+      });
     });
   });
 
@@ -235,8 +285,9 @@ describe('Request Transformers', () => {
 
       const result = await transformMessages(messages);
 
+      // Token reduction should remove " a " from "You are a helpful assistant."
       expect(result.system_instruction).toEqual({
-        parts: [{ text: "You are a helpful assistant." }]
+        parts: [{ text: "You helpful assistant." }]
       });
       expect(result.contents).toHaveLength(1);
       expect(result.contents[0].role).toBe("user");
@@ -333,8 +384,9 @@ describe('Request Transformers', () => {
 
       const result = await transformMessages(messages);
 
+      // Token reduction should remove " are " from "You are helpful"
       expect(result.system_instruction).toEqual({
-        parts: [{ text: "You are helpful" }]
+        parts: [{ text: "You helpful" }]
       });
       expect(result.contents).toHaveLength(2);
       expect(result.contents[0].role).toBe("user");
@@ -580,7 +632,8 @@ describe('Request Transformers', () => {
       expect(result).toHaveProperty('generationConfig');
       expect(result.generationConfig).toEqual({
         temperature: 0.7,
-        maxOutputTokens: 100
+        maxOutputTokens: 100,
+        topP: 0.95
       });
     });
 

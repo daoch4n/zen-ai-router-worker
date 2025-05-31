@@ -4,15 +4,18 @@
  */
 import { HttpError } from '../utils/error.mjs';
 import { parseImg, getBudgetFromLevel, adjustSchema } from '../utils/helpers.mjs';
+import { reduceSystemMessage } from '../utils/token-reducer.mjs';
 import { FIELDS_MAP, SAFETY_SETTINGS, REASONING_EFFORT_MAP, THINKING_MODES } from '../constants/index.mjs';
 
 /**
  * Transforms OpenAI-style request configuration parameters to Gemini API format.
  * Maps parameter names and handles special cases like response formatting and thinking configuration.
  * Uses responseJsonSchema for JSON schema response formats.
+ * Sets default values: temperature=0.1, top_p=0.9 when not provided.
  *
  * @param {Object} req - OpenAI request object containing configuration parameters
- * @param {number} [req.temperature] - Sampling temperature (0-2)
+ * @param {number} [req.temperature] - Sampling temperature (0-2), defaults to 0.1
+ * @param {number} [req.top_p] - Top-p sampling parameter (0-1), defaults to 0.9
  * @param {number} [req.max_tokens] - Maximum tokens to generate
  * @param {string} [req.reasoning_effort] - Reasoning effort level for thinking models
  * @param {Object} [req.response_format] - Desired response format specification
@@ -41,6 +44,13 @@ export const transformConfig = (req, thinkingConfig = null) => {
       }
     }
   }
+
+  // Set temperature if not provided
+  if (cfg.temperature === undefined) {
+    cfg.temperature = 0.2;
+  }
+  // Force ovveride topP
+  cfg.topP = 0.95;
 
   // Apply thinking configuration from model name parsing
   if (thinkingConfig) {
@@ -230,7 +240,20 @@ export const transformMessages = async (messages) => {
     switch (item.role) {
       case "system":
         // Extract system instruction separately from conversation flow
-        system_instruction = { parts: await transformMsg(item) };
+        // Apply token reduction to system message content
+        const optimizedItem = { ...item };
+        if (typeof item.content === 'string') {
+          optimizedItem.content = reduceSystemMessage(item.content);
+        } else if (Array.isArray(item.content)) {
+          // Handle multi-part content by reducing text parts only
+          optimizedItem.content = item.content.map(part => {
+            if (part.type === 'text' && typeof part.text === 'string') {
+              return { ...part, text: reduceSystemMessage(part.text) };
+            }
+            return part;
+          });
+        }
+        system_instruction = { parts: await transformMsg(optimizedItem) };
         continue;
 
       case "tool":
