@@ -115,6 +115,8 @@ jobs:
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
           CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
           CONFIG_CONTENT+="compatibility_date = \"2024-05-01\"\n\n"
+          CONFIG_CONTENT+="[observability.logs]\n"
+          CONFIG_CONTENT+="enabled = true\n\n"
           CONFIG_CONTENT+="[placement]\nmode = \"smart\"\n\n"
           CONFIG_CONTENT+="[[durable_objects.bindings]]\n"
           CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
@@ -164,6 +166,8 @@ jobs:
           CONFIG_CONTENT="name = \"zen-ai-router-orchestrator\"\n"
           CONFIG_CONTENT+="main = \"src/index.mjs\"\n"
           CONFIG_CONTENT+="compatibility_date = \"2024-05-01\"\n\n"
+          CONFIG_CONTENT+="[observability.logs]\n"
+          CONFIG_CONTENT+="enabled = true\n\n"
           CONFIG_CONTENT+="[placement]\nmode = \"smart\"\n\n"
           CONFIG_CONTENT+="[[durable_objects.bindings]]\n" # Binding is still needed
           CONFIG_CONTENT+="name = \"ROUTER_COUNTER\"\n"
