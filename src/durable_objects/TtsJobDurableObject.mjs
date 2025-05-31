@@ -83,13 +83,27 @@ export class TtsJobDurableObject {
     let sentences;
     if (splittingPreference === 'characterCount') {
         const initialSentences = splitIntoSentences(text);
+
+        // First, check if any single sentence exceeds the character limit.
+        for (const sentence of initialSentences) {
+            if (getTextCharacterCount(sentence) > MAX_TEXT_LENGTH_CHAR_COUNT) {
+                throw new HttpError(
+                    `A single sentence exceeds the maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters.`,
+                    400
+                );
+            }
+        }
+
         const batchedSentences = [];
         let currentBatch = '';
         let currentBatchLength = 0;
 
         for (const sentence of initialSentences) {
             const sentenceLength = getTextCharacterCount(sentence);
-            if (sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) {
+            // This existing logic handles batching for sentences that are individually within the limit
+            // but collectively might exceed it, or super long sentences that couldn't be split further.
+            // The check above ensures no single sentence is *initially* too long.
+            if (sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) { // This condition might seem redundant now but kept for safety / future text processing changes
                 if (currentBatch.length > 0) {
                     batchedSentences.push(currentBatch.trim());
                     currentBatch = '';
