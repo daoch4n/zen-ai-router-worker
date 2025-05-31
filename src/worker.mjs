@@ -10,7 +10,8 @@ import {
   handleEmbeddings,
   handleModels,
   handleTTS,
-  handleRawTTS
+  handleRawTTS,
+  handleAnthropicCompletions
 } from './handlers/index.mjs';
 
 import { TtsJobDurableObject } from './durable_objects/TtsJobDurableObject.mjs';
@@ -66,6 +67,13 @@ async function fetch(request, env) {
 
     const { pathname } = new URL(request.url);
     switch (true) {
+      case pathname.endsWith("/v1/messages"): // Anthropic Messages API
+        if (!(request.method === "POST")) {
+          throw new HttpError("Method Not Allowed", 405);
+        }
+        return handleAnthropicCompletions(await request.json(), apiKey, env)
+          .catch(errHandler);
+
       case pathname.endsWith("/chat/completions"):
         if (!(request.method === "POST")) {
           throw new Error("Assertion failed: expected POST request");
@@ -86,6 +94,13 @@ async function fetch(request, env) {
           throw new Error("Assertion failed: expected GET request");
         }
         return handleModels(apiKey)
+          .catch(errHandler);
+
+      case pathname.endsWith("/tts"):
+        if (!(request.method === "POST")) {
+          throw new Error("Assertion failed: expected POST request");
+        }
+        return handleTTS(request, apiKey)
           .catch(errHandler);
 
       case pathname.endsWith("/rawtts"):
