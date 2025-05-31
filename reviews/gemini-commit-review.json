@@ -2,30 +2,22 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Commit: Merge pull request #9 from daoch4n/feat/gemini-function-calling",
-    "timestamp_utc": "2025-05-31T15:24:26.677185+00:00",
+    "title": "Commit: Merge pull request #10 from daoch4n/feat/tts-do-r2-integration",
+    "timestamp_utc": "2025-05-31T15:34:53.837209+00:00",
     "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "c3231eba4a2805ecf7c663cfaf09dc7c48381111"
+    "commit_sha": "80923814a09e4e7061cc7f440e184fd1beafafed"
   },
   "review_comments": [
     {
-      "file_path": "src/transformers/requestAnthropic.mjs",
-      "github_diff_position": 92,
-      "comment_text_md": "**My Confidence: High**\n\nThe logic for mapping Anthropic `tool_result` to Gemini `functionResponse` uses a two-pass approach to resolve the `tool_use_id` to a `functionName` within the current request's messages. While this is a good attempt for stateless transformation, it has a significant limitation:\n\nIf the corresponding `tool_use` message (from the assistant) occurred in a *previous* API call and is not included in the current `anthropicReq.messages` array, the `toolIdToNameMap` will not contain the necessary mapping. In such cases, the code falls back to using `block.tool_use_id` as the function name. Gemini's `functionResponse` expects the actual function name (e.g., `get_weather`), not an internal `tool_use_id` (e.g., `toolu_01A09s9901s9s9s9s9s9s9s9`). This discrepancy will likely lead to errors when Gemini attempts to process the `functionResponse`.\n\nThis is a fundamental limitation for handling multi-turn tool use in a stateless proxy. The current `console.warn` is helpful, but users should be aware that multi-turn tool interactions might fail if the full conversation history (including the `tool_use` turn) is not consistently sent in each request.",
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 90,
+      "comment_text_md": "**My Confidence: High**\n\nThe `initializeJob` method's `characterCount` splitting logic currently allows individual sentences that exceed `MAX_TEXT_LENGTH_CHAR_COUNT` to be pushed directly into the `sentences` array. If the downstream TTS provider has a strict character limit, this could lead to failures for very long sentences. Consider either:\n\n1.  Throwing an `HttpError` if any single sentence from `splitIntoSentences` exceeds `MAX_TEXT_LENGTH_CHAR_COUNT`.\n2.  Implementing a sub-splitting mechanism for such long sentences within the `characterCount` logic to ensure no single chunk exceeds the limit. This would require more complex logic than simple sentence splitting based on punctuation.",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency"
-    },
-    {
-      "file_path": "src/transformers/streamAnthropic.mjs",
-      "github_diff_position": 115,
-      "comment_text_md": "**My Confidence: High**\n\nThe logic for handling `part.functionCall` when `fc.name` is present might lead to incorrect Anthropic output for distinct tool calls. \n\nCurrently, if `fc.name` is present, the code attempts to find an `existingToolIdWithName` and reuse that `tool_use` block. However, Anthropic's `tool_use` blocks are identified by a unique `id`. If Gemini sends multiple distinct `functionCall` parts with the same `name` (implying separate calls to the same tool), the current logic would merge them into a single `tool_use` block, which is a mismatch with Anthropic's expected behavior.\n\nEach time `fc.name` is encountered, it should generally signify the start of a *new* tool call, requiring a new `toolu_` ID and a new `content_block_start` event. Arguments (`fc.args`) without a `name` in the same part should then append to the *most recently started* tool call.\n\n**Suggestion:** Modify the `if (fc.name)` block to always create a new `tool_use` block (new `toolu_` ID and `content_block_start` event) when `fc.name` is present. The `existingToolIdWithName` check should be removed, as it conflates distinct tool calls with the same name.\n\n```javascript\n          if (fc.name) {\n            // A new tool call is starting. Stop any currently active tool calls.\n            // This ensures distinct tool_use blocks for distinct calls.\n            for (const toolId in this.activeToolCalls) {\n                if (this.activeToolCalls[toolId].isStarted) {\n                    anthropicSse += this.emitContentBlockStop(this.activeToolCalls[toolId].index);\n                }\n            }\n            this.activeToolCalls = {}; // Clear all previous tools\n            this.lastActiveToolCallIdForArgs = null; // Reset context\n\n            const newToolId = `toolu_${generateId()}`;\n            toolCallIdForArgs = newToolId; // This tool will receive args if any\n            this.activeToolCalls[newToolId] = {\n                id: newToolId,\n                name: fc.name,\n                index: this.contentBlockIndex,\n                accumulatedArgsJson: \"\",\n                isStarted: true, // Mark as started immediately\n            };\n            anthropicSse += this.emitContentBlockStart(\"tool_use\", this.contentBlockIndex, {\n                id: newToolId,\n                name: fc.name,\n                input: {}\n            });\n            this.hadToolUseContent = true;\n            this.contentBlockIndex++;\n            this.lastActiveToolCallIdForArgs = newToolId; // Set for subsequent args-only parts\n          } else if (fc.args) {\n            // This part only contains args, no name. Assign to the tool that last had its name processed.\n            toolCallIdForArgs = this.lastActiveToolCallIdForArgs;\n          }\n```",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "concurrency"
+      "detected_category_heuristic": "bug"
     }
   ]
 }
