@@ -1,0 +1,47 @@
+{
+  "metadata": {
+    "event_type": "pull_request",
+    "repo": "daoch4n/zen-ai-router-worker",
+    "title": "feat: Implement Anthropic to Gemini function calling transformation",
+    "timestamp_utc": "2025-05-31T14:09:55.399778+00:00",
+    "review_tool": "zen-ai-qa",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false,
+    "pull_number": 9
+  },
+  "review_comments": [
+    {
+      "file_path": "src/transformers/responseAnthropic.mjs",
+      "github_diff_position": 52,
+      "comment_text_md": "**My Confidence: Medium**\n\nFor content filtering blocks indicated by `geminiResp.promptFeedback.blockReason`, consider using Anthropic's specific `content_filter_error` type instead of `invalid_request_error`. This would more accurately reflect the nature of the error to the client.\n\n```javascript\n    return {\n      type: \"error\",\n      error: {\n        type: \"content_filter_error\", // Change from \"invalid_request_error\"\n        message: `Request blocked due to ${geminiResp.promptFeedback.blockReason}. ` +\n                 (geminiResp.promptFeedback.safetyRatings ? `Safety Ratings: ${JSON.stringify(geminiResp.promptFeedback.safetyRatings)}` : '')\n      }\n    };\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "test/transformers/requestAnthropicToGemini.test.mjs",
+      "github_diff_position": 105,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe test `should set mode to NONE if no tools are in the request` correctly asserts that `tool_config` and `tools` are `undefined` when the `tools` property is entirely absent from the Anthropic request.\n\nHowever, it would be beneficial to add a test case for when the Anthropic request explicitly provides an empty `tools` array (`tools: []`). This is a valid scenario in Anthropic API usage and should also result in `tool_config: undefined` and `tools: undefined` in the Gemini request, effectively disabling tool use.\n\nConsider adding a test like this:\n\n```javascript\nit('should set mode to NONE if tools array is empty', () => {\n    const anthropicReq = { model: \"claude-test\", messages: [{ role: \"user\", content: \"Hi\" }], tools: [] };\n    const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);\n    assert.strictEqual(geminiReq.tool_config, undefined, \"tool_config should be undefined when tools array is empty\");\n    assert.strictEqual(geminiReq.tools, undefined, \"tools property should be undefined when tools array is empty\");\n});\n```",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/transformers/streamGeminiToAnthropic.test.mjs",
+      "github_diff_position": 234,
+      "comment_text_md": "**My Confidence: Medium**\n\nConsider adding a test case that simulates a pure text-only stream from Gemini. This would ensure that the transformer correctly handles responses without any function calls, emitting `text` content blocks and the appropriate `stop_reason` (e.g., `end_turn` or `stop`).",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": "test/transformers/streamGeminiToAnthropic.test.mjs",
+      "github_diff_position": 234,
+      "comment_text_md": "**My Confidence: High**\n\nIt would be beneficial to add a test case for a stream that ends with a `finishReason` other than `TOOL_CODE_EXECUTED` or `MAX_TOKENS`, for example, `STOP`. This would verify that the `message_delta` correctly maps other Gemini `finishReason` values to Anthropic's `stop_reason` (e.g., `end_turn` or `stop`).",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    }
+  ]
+}
