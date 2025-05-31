@@ -3,11 +3,10 @@ name: AI Commit Review
 on:
   push:
     branches:
-      - main # Or other relevant branches like 'master', 'develop'
-    # You might want to exclude certain paths or tags
-    # paths-ignore:
-    #   - 'docs/**'
-    #   - '*.md'
+      - master
+    paths-ignore:
+      - 'docs/**'
+      - '*.md'
 
 permissions:
   contents: write       # For committing review.json and auto-formatting/linting
