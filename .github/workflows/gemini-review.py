@@ -751,17 +751,17 @@ HANDLING PREVIOUS REVIEW COMMENTS:
 
 RESPONSE FORMAT:
 Your response must be a valid JSON object with the following structure:
-{
+{{
   "reviews": [
-    {
+    {{
       "hunkIndex": 0,  // 0-based index of the hunk in the diff (matches the 'Hunk X (0-indexed: Y)' header)
       "lineNumber": 1, // 1-based line number within the hunk content (first line after the '@@ ... @@' header)
       "reviewComment": "Your review comment in GitHub Markdown format",
       "confidence": "High" // "High", "Medium", or "Low" based on your certainty and the potential impact
-    },
+    }},
     // Additional review items as needed
   ]
-}
+}}
 
 IMPORTANT NOTES ABOUT LINE NUMBERS:
 - The hunkIndex must be a valid 0-based index within the range of hunks in the diff
