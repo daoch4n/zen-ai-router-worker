@@ -29,7 +29,7 @@ describe('Request Transformers', () => {
       expect(result).toEqual({
         temperature: 0.7,
         maxOutputTokens: 100,
-        topP: 0.9,  // Always forced to 0.9
+        topP: 0.95,  // Always forced to 0.9
         frequencyPenalty: 0.5,
         presencePenalty: 0.3
       });
@@ -45,7 +45,7 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.5,
-        topP: 0.9,
+        topP: 0.95,
         thinkingConfig: {
           thinkingBudget: 24576
         }
@@ -65,7 +65,7 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.7,
-        topP: 0.9,
+        topP: 0.95,
         thinkingConfig: {
           thinkingBudget: 8192,
           includeThoughts: true
@@ -84,15 +84,15 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.7,
-        topP: 0.9
+        topP: 0.95
       });
     });
 
     it('should handle empty request', () => {
       const result = transformConfig({});
       expect(result).toEqual({
-        temperature: 0.1,
-        topP: 0.9
+        temperature: 0.2,
+        topP: 0.95
       });
     });
 
@@ -104,9 +104,9 @@ describe('Request Transformers', () => {
       const result = transformConfig(req);
 
       expect(result).toEqual({
-        temperature: 0.1,
+        temperature: 0.2,
         maxOutputTokens: 100,
-        topP: 0.9
+        topP: 0.95
       });
     });
 
@@ -120,7 +120,7 @@ describe('Request Transformers', () => {
 
       expect(result).toEqual({
         temperature: 0.5,
-        topP: 0.9  // Should be 0.9, not 0.7
+        topP: 0.95  // Should be 0.95, not 0.7
       });
     });
 
@@ -136,7 +136,7 @@ describe('Request Transformers', () => {
       expect(result).toEqual({
         temperature: 0.8,
         maxOutputTokens: 200,
-        topP: 0.9  // Should be 0.9, not 0.5
+        topP: 0.95  // Should be 0.95, not 0.5
       });
     });
   });
@@ -633,7 +633,7 @@ describe('Request Transformers', () => {
       expect(result.generationConfig).toEqual({
         temperature: 0.7,
         maxOutputTokens: 100,
-        topP: 0.9
+        topP: 0.95
       });
     });
 

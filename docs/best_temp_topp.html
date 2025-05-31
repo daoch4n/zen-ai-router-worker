@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Interactive Guide to Gemini 2.5 Coding Parameters</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Visualization & Content Choices: 
+        - Report Info: Recommended settings from Table 3 -> Goal: Allow users to find settings for a specific task -> Viz/Method: Interactive Dashboard with task-selector buttons, sliders, and a dynamic text card -> Interaction: User clicks a task button, all elements update -> Justification: Transforms a static table into an engaging tool for direct, personalized information retrieval -> Library: Vanilla JS.
+        - Report Info: Parameter definitions (Temp & Top_p) -> Goal: Educate users on the fundamentals -> Viz/Method: A clean, tabbed interface -> Interaction: Users click tabs to reveal content -> Justification: Hides complex details by default to keep the UI clean, allowing users to progressively disclose information -> Library: Vanilla JS.
+        - Report Info: Combined parameter effects from Table 4 -> Goal: Explain advanced tuning scenarios -> Viz/Method: A grid of interactive cards -> Interaction: Hovering or clicking reveals details for each scenario -> Justification: Breaks down complex interactions into digestible, comparable chunks -> Library: Vanilla JS.
+        - Report Info: Overall concept of balancing precision vs. creativity -> Goal: Give an intuitive feel for parameter settings -> Viz/Method: A dynamic Radar Chart -> Interaction: Chart updates based on selected task -> Justification: Visually represents the abstract "personality" of a setting (e.g., more creative vs. more precise) which is faster to grasp than numbers alone -> Library: Chart.js (Canvas).
+    -->
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #f8fafc; /* slate-50 */
+            color: #1e293b; /* slate-800 */
+        }
+        .task-button {
+            transition: all 0.2s ease-in-out;
+        }
+        .task-button.active {
+            background-color: #0f172a; /* slate-900 */
+            color: #f8fafc; /* slate-50 */
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+        .tab-button.active {
+            border-color: #0f172a; /* slate-900 */
+            color: #0f172a;
+            font-weight: 600;
+        }
+        .content-card {
+            background: white;
+            border-radius: 0.75rem;
+            border: 1px solid #e2e8f0; /* slate-200 */
+            box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.05);
+            transition: all 0.3s ease-in-out;
+        }
+        .chart-container {
+            position: relative;
+            width: 100%;
+            max-width: 450px;
+            margin-left: auto;
+            margin-right: auto;
+            height: 300px;
+        }
+        @media (min-width: 768px) {
+            .chart-container {
+                height: 350px;
+            }
+        }
+    </style>
+</head>
+<body class="antialiased">
+
+    <div class="container mx-auto px-4 py-8 md:py-12">
+        <header class="text-center mb-10 md:mb-16">
+            <h1 class="text-4xl md:text-5xl font-bold text-slate-900">Interactive Guide to Gemini 2.5 Coding Parameters</h1>
+            <p class="mt-4 text-lg text-slate-600 max-w-3xl mx-auto">An interactive tool to find the optimal `temperature` and `top_p` settings for your coding tasks with Gemini 2.5, based on synthesized research.</p>
+        </header>
+
+        <main>
+            <section id="explorer" class="mb-16 md:mb-24">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-slate-800">Parameter Explorer</h2>
+                    <p class="mt-2 text-slate-500 max-w-2xl mx-auto">Select a coding task to see the recommended parameter settings and understand their impact. This tool helps you move beyond default values to get precise, creative, or explanatory code as needed.</p>
+                </div>
+
+                <div class="flex justify-center flex-wrap gap-2 md:gap-4 mb-8" id="task-selector">
+                    <button data-task="deterministic" class="task-button text-sm md:text-base font-medium py-2 px-4 rounded-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">⚙️ Deterministic Code</button>
+                    <button data-task="exploratory" class="task-button text-sm md:text-base font-medium py-2 px-4 rounded-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">💡 Exploratory Code</button>
+                    <button data-task="debugging" class="task-button text-sm md:text-base font-medium py-2 px-4 rounded-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">🐞 Debugging & Refactoring</button>
+                    <button data-task="explanation" class="task-button text-sm md:text-base font-medium py-2 px-4 rounded-full bg-white border border-slate-300 text-slate-700 hover:bg-slate-100">📖 Code Explanation</button>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                    <div class="content-card p-6 md:p-8">
+                        <h3 id="reco-title" class="text-2xl font-semibold text-slate-800 mb-6">Select a Task</h3>
+                        
+                        <div class="space-y-6">
+                            <div>
+                                <label for="temperature-slider" class="block text-sm font-medium text-slate-700 mb-2">Temperature: <span id="temp-value" class="font-bold">...</span></label>
+                                <div class="flex items-center gap-4">
+                                    <span class="text-xs text-slate-500">More Precise</span>
+                                    <input type="range" id="temperature-slider" min="0" max="2" step="0.05" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" disabled>
+                                    <span class="text-xs text-slate-500">More Creative</span>
+                                </div>
+                                <p class="text-xs text-slate-400 mt-1">Controls randomness. Lower values are more deterministic.</p>
+                            </div>
+                            <div>
+                                <label for="topp-slider" class="block text-sm font-medium text-slate-700 mb-2">Top_p: <span id="topp-value" class="font-bold">...</span></label>
+                                <div class="flex items-center gap-4">
+                                     <span class="text-xs text-slate-500">More Focused</span>
+                                    <input type="range" id="topp-slider" min="0" max="1" step="0.01" class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer" disabled>
+                                    <span class="text-xs text-slate-500">More Diverse</span>
+                                </div>
+                                <p class="text-xs text-slate-400 mt-1">Controls token diversity. Narrows the pool of considered tokens.</p>
+                            </div>
+                        </div>
+
+                        <div id="rationale-card" class="mt-8 p-4 bg-slate-50 rounded-lg border border-slate-200 hidden">
+                            <h4 class="font-semibold text-slate-800 mb-2">Rationale & Key Considerations</h4>
+                            <p id="rationale-text" class="text-sm text-slate-600"></p>
+                        </div>
+                    </div>
+                    <div class="content-card p-6 md:p-8">
+                         <h3 class="text-2xl font-semibold text-slate-800 mb-6 text-center">Output Profile</h3>
+                         <div class="chart-container h-80 md:h-96">
+                            <canvas id="profileChart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <section id="deep-dive" class="mb-16 md:mb-24">
+                 <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-slate-800">Parameter Deep Dive</h2>
+                    <p class="mt-2 text-slate-500 max-w-2xl mx-auto">For those who want to go deeper, this section explains the core concepts behind `temperature` and `top_p`. Understanding these fundamentals is key to mastering parameter tuning.</p>
+                </div>
+                <div class="content-card max-w-4xl mx-auto">
+                    <div class="border-b border-slate-200">
+                        <nav class="-mb-px flex space-x-6 px-6" id="tabs-container">
+                            <button data-tab="temperature" class="tab-button shrink-0 border-b-2 border-transparent px-1 py-4 text-base font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700">What is Temperature?</button>
+                            <button data-tab="top_p" class="tab-button shrink-0 border-b-2 border-transparent px-1 py-4 text-base font-medium text-slate-500 hover:border-slate-300 hover:text-slate-700">What is Top_p?</button>
+                        </nav>
+                    </div>
+                    <div class="p-6 md:p-8">
+                        <div id="tab-content-temperature" class="tab-content space-y-4 text-slate-600">
+                            <p><strong>Temperature controls the randomness of the output.</strong> It works by adjusting the probability distribution of potential next words (tokens). A lower temperature makes the model more confident and deterministic, leading it to pick the most likely words. A higher temperature encourages more diversity and creativity, but also increases the risk of irrelevant or nonsensical output.</p>
+                            <ul class="list-disc list-inside space-y-2">
+                                <li><strong>Low Temperature (e.g., 0.0 - 0.5):</strong> Results in focused, predictable, and often more accurate code. Ideal for tasks where correctness is critical.</li>
+                                <li><strong>High Temperature (e.g., > 1.0):</strong> Produces more random and varied outputs. Generally avoided for coding as it can lead to errors and "hallucinations."</li>
+                            </ul>
+                        </div>
+                        <div id="tab-content-top_p" class="tab-content space-y-4 text-slate-600 hidden">
+                            <p><strong>Top_p (or Nucleus Sampling) controls the diversity of the output by creating a pool of high-probability tokens.</strong> It selects the smallest set of tokens whose cumulative probability is greater than the `top_p` value. The model then samples only from this "nucleus" of tokens.</p>
+                             <ul class="list-disc list-inside space-y-2">
+                                <li><strong>Low Top_p (e.g., 0.1 - 0.5):</strong> Restricts the model to a small, safe set of tokens, leading to more predictable but potentially repetitive text.</li>
+                                <li><strong>High Top_p (e.g., 0.9 - 1.0):</strong> Allows the model to consider a wider range of tokens, including less common ones, which can increase creativity and expressiveness. Gemini's default of 0.95 is a good starting point.</li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+            </section>
+            
+            <section id="advanced-scenarios">
+                <div class="text-center mb-8">
+                    <h2 class="text-3xl font-bold text-slate-800">Advanced Scenarios</h2>
+                    <p class="mt-2 text-slate-500 max-w-2xl mx-auto">While it's best to adjust one parameter at a time, advanced users can combine settings for specific effects. Explore these common combinations and their potential outcomes for coding tasks.</p>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div class="content-card p-6">
+                        <h4 class="font-bold text-lg text-slate-800">Low Temp + High Top_p</h4>
+                        <p class="text-sm text-slate-500 mt-2"><strong>Outcome:</strong> Deterministic, precise code with access to a rich vocabulary.
+                        <br><strong>Use Case:</strong> The default for most coding. Excellent for factual code explanations that need to be both accurate and expressive.</p>
+                    </div>
+                     <div class="content-card p-6">
+                        <h4 class="font-bold text-lg text-slate-800">Low Temp + Low Top_p</h4>
+                        <p class="text-sm text-slate-500 mt-2"><strong>Outcome:</strong> Highly predictable and concise, but potentially simplistic or repetitive code.
+                        <br><strong>Use Case:</strong> Generating boilerplate or extremely constrained code where only the most standard patterns are desired.</p>
+                    </div>
+                     <div class="content-card p-6">
+                        <h4 class="font-bold text-lg text-slate-800">High Temp + Low Top_p</h4>
+                        <p class="text-sm text-slate-500 mt-2"><strong>Outcome:</strong> Creative or surprising combinations of common tokens. Often syntactically valid but semantically odd.
+                        <br><strong>Use Case:</strong> Risky for most coding. Potentially for artistic/experimental code where novelty is the primary goal.</p>
+                    </div>
+                     <div class="content-card p-6">
+                        <h4 class="font-bold text-lg text-slate-800">High Temp + High Top_p</h4>
+                        <p class="text-sm text-slate-500 mt-2"><strong>Outcome:</strong> Highly random, diverse, and often incoherent or error-prone output.
+                        <br><strong>Use Case:</strong> <span class="font-semibold text-red-600">Avoid for practical coding applications.</span> Significantly increases the risk of unusable code.</p>
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <footer class="text-center mt-16 md:mt-24 pt-8 border-t border-slate-200">
+            <p class="text-sm text-slate-500">Built with Tailwind CSS and Chart.js. Content synthesized from public research and documentation on LLM parameters.</p>
+        </footer>
+    </div>
+
+    <script>
+        const recommendationData = {
+            deterministic: {
+                title: 'Deterministic Code Generation',
+                temp: 0.2,
+                tempRange: [0.0, 0.3],
+                top_p: 0.95,
+                top_pRange: [0.75, 0.95],
+                rationale: 'Prioritize precision, correctness, and predictability. A low temperature ensures the model produces the most logical and reliable code, minimizing errors. A high top_p (like the default) is fine, but some studies show reducing it slightly for Python can improve functional correctness.',
+                profile: [5, 2, 5, 2] 
+            },
+            exploratory: {
+                title: 'Exploratory & Creative Code',
+                temp: 0.6,
+                tempRange: [0.4, 0.7],
+                top_p: 0.95,
+                top_pRange: [0.90, 0.95],
+                rationale: 'Allow for controlled exploration and diverse outputs while maintaining reasonable coherence. A moderately higher temperature encourages novel solutions, making it useful for brainstorming algorithms or generating varied examples.',
+                profile: [3, 5, 3, 4]
+            },
+            debugging: {
+                title: 'Debugging & Refactoring',
+                temp: 0.1,
+                tempRange: [0.0, 0.2],
+                top_p: 0.95,
+                top_pRange: [0.90, 0.95],
+                rationale: 'Maximize factual accuracy and avoid introducing new errors or "creative" but incorrect fixes. The output must be highly reliable, so the lowest possible temperature is recommended to ensure deterministic analysis and suggestions.',
+                profile: [5, 1, 5, 1]
+            },
+            explanation: {
+                title: 'Code Explanation & Summarization',
+                temp: 0.4,
+                tempRange: [0.3, 0.5],
+                top_p: 1.0,
+                top_pRange: [0.95, 1.0],
+                rationale: 'Balance factual accuracy with natural, comprehensive, and expressive language. A slightly higher temperature adds a human-like touch to explanations, while a high top_p provides a richer vocabulary for more nuanced descriptions.',
+                profile: [4, 3, 4, 5]
+            }
+        };
+
+        let profileChart;
+
+        function initChart() {
+            const ctx = document.getElementById('profileChart').getContext('2d');
+            profileChart = new Chart(ctx, {
+                type: 'radar',
+                data: {
+                    labels: ['Precision', 'Creativity', 'Safety', 'Verbosity'],
+                    datasets: [{
+                        label: 'Output Profile',
+                        data: [0, 0, 0, 0],
+                        fill: true,
+                        backgroundColor: 'rgba(15, 23, 42, 0.2)',
+                        borderColor: 'rgb(15, 23, 42)',
+                        pointBackgroundColor: 'rgb(15, 23, 42)',
+                        pointBorderColor: '#fff',
+                        pointHoverBackgroundColor: '#fff',
+                        pointHoverBorderColor: 'rgb(15, 23, 42)'
+                    }]
+                },
+                options: {
+                    maintainAspectRatio: false,
+                    scales: {
+                        r: {
+                            angleLines: { color: '#e2e8f0' },
+                            grid: { color: '#e2e8f0' },
+                            pointLabels: {
+                                font: { size: 14, weight: '500' },
+                                color: '#475569'
+                            },
+                            ticks: {
+                                backdropColor: 'rgba(248, 250, 252, 0.75)',
+                                color: '#64748b',
+                                stepSize: 1,
+                                font: { size: 10 }
+                            },
+                            min: 0,
+                            max: 5
+                        }
+                    },
+                    plugins: {
+                        legend: {
+                            display: false
+                        },
+                        tooltip: {
+                           enabled: false
+                        }
+                    }
+                }
+            });
+        }
+        
+        function updateExplorer(taskKey) {
+            const data = recommendationData[taskKey];
+            if (!data) return;
+
+            document.getElementById('reco-title').textContent = data.title;
+            
+            const tempSlider = document.getElementById('temperature-slider');
+            const tempValue = document.getElementById('temp-value');
+            tempSlider.value = data.temp;
+            tempValue.textContent = data.temp.toFixed(2);
+
+            const toppSlider = document.getElementById('topp-slider');
+            const toppValue = document.getElementById('topp-value');
+            toppSlider.value = data.top_p;
+            toppValue.textContent = data.top_p.toFixed(2);
+            
+            const rationaleCard = document.getElementById('rationale-card');
+            const rationaleText = document.getElementById('rationale-text');
+            rationaleText.textContent = data.rationale;
+            rationaleCard.classList.remove('hidden');
+
+            profileChart.data.datasets[0].data = data.profile;
+            profileChart.update();
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            initChart();
+
+            const taskSelector = document.getElementById('task-selector');
+            const taskButtons = taskSelector.querySelectorAll('.task-button');
+            
+            taskSelector.addEventListener('click', (e) => {
+                if (e.target.matches('.task-button')) {
+                    const taskKey = e.target.dataset.task;
+                    
+                    taskButtons.forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+
+                    updateExplorer(taskKey);
+                }
+            });
+
+            const tabsContainer = document.getElementById('tabs-container');
+            const tabButtons = tabsContainer.querySelectorAll('.tab-button');
+            const tabContents = document.querySelectorAll('.tab-content');
+
+            tabsContainer.addEventListener('click', (e) => {
+                if (e.target.matches('.tab-button')) {
+                    const tabKey = e.target.dataset.tab;
+                    
+                    tabButtons.forEach(btn => btn.classList.remove('active'));
+                    e.target.classList.add('active');
+                    
+                    tabContents.forEach(content => {
+                        if (content.id === `tab-content-${tabKey}`) {
+                            content.classList.remove('hidden');
+                        } else {
+                            content.classList.add('hidden');
+                        }
+                    });
+                }
+            });
+
+            taskButtons[0].click();
+            tabButtons[0].click();
+        });
+    </script>
+</body>
+</html>

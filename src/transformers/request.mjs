@@ -47,10 +47,10 @@ export const transformConfig = (req, thinkingConfig = null) => {
 
   // Set temperature if not provided
   if (cfg.temperature === undefined) {
-    cfg.temperature = 0.1;
+    cfg.temperature = 0.2;
   }
   // Force ovveride topP
-  cfg.topP = 0.9;
+  cfg.topP = 0.95;
 
   // Apply thinking configuration from model name parsing
   if (thinkingConfig) {
