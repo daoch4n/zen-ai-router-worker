@@ -100,7 +100,7 @@ jobs:
             # if --config is not specified.
             wrangler deploy "src/worker.mjs" \
               --name "${WORKER_NAME}" \
-              --compatibility-date "2024-05-01" \
+              --compatibility-date "2025-01-01" \
               --compatibility-flags nodejs_compat \
               ${WORKER_VARS}
           done
@@ -310,7 +310,7 @@ jobs:
           # This will use the wrangler.toml created in the previous step if it exists
           wrangler deploy "src/worker.mjs" \
             --name "${WORKER_NAME}" \
-            --compatibility-date "2024-05-01" \
+            --compatibility-date "2025-01-01" \
             --compatibility-flags nodejs_compat \
             ${WORKER_VARS}
 

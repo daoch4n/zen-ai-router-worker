@@ -11,6 +11,9 @@ name = "TTS_JOB_DO"
 class_name = "TtsJobDurableObject"
 
 [[migrations]]
+tag = "v1-tts-job-do-delete-old-if-exists"
+deleted_classes = ["TtsJobDurableObject"]
+[[migrations]]
 tag = "v1-tts-job-do-initial-setup"
 new_classes = ["TtsJobDurableObject"]
 # --- Development Environment ---
