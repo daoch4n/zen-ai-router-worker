@@ -1238,7 +1238,7 @@ def save_review_results_to_json(review_context: ReviewContext, comments: List[Di
             "repo": review_context.get_full_repo_name(),
             "title": review_context.title,
             "timestamp_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
-            "review_tool": "I'm your Gemini AI Reviewer",
+            "review_tool": "zen-ai-qa",
             "model_used": os.environ.get('GEMINI_MODEL', 'N/A'),
             "api_key_used": api_key_info,
             "rate_limited": rate_limited
