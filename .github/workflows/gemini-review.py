@@ -466,7 +466,11 @@ def get_diff(review_context: ReviewContext, comparison_sha: Optional[str] = None
     """
     repo = review_context.repo_obj
     pr = review_context.pr_obj
-    head_sha = pr.head.sha if pr and pr.head else None # This will be None for push events, handled below
+    head_sha = None
+    if review_context.event_type == "pull_request" and review_context.pr_obj:
+        head_sha = review_context.pr_obj.head.sha
+    elif review_context.event_type == "push" and review_context.commit_obj:
+        head_sha = review_context.commit_sha # Use the current commit SHA for push events
 
     # Strategy 1: Use repo.compare if comparison_sha is provided
     if comparison_sha:
@@ -1660,14 +1664,18 @@ def create_review_and_summary_comment(review_context: ReviewContext, comments_fo
     # Post the summary comment
     try:
         if target_obj:
-            try:
-                target_obj.create_issue_comment(summary_body)
-                logger.info("Successfully created summary comment.")
-            except GithubException as e:
-                logger.error(f"Error creating summary comment: {e}. Status: {e.status}, Data: {e.data}")
-            except Exception as e:
-                logger.error(f"Unexpected error creating summary comment: {e}")
-                traceback.print_exc()
+            if review_context.event_type == "pull_request" or review_context.event_type == "issue_comment":
+                try:
+                    target_obj.create_issue_comment(summary_body)
+                    logger.info("Successfully created summary comment on PR/Issue.")
+                except GithubException as e:
+                    logger.error(f"Error creating summary comment on PR/Issue: {e}. Status: {e.status}, Data: {e.data}")
+                except Exception as e:
+                    logger.error(f"Unexpected error creating summary comment on PR/Issue: {e}")
+                    traceback.print_exc()
+            elif review_context.event_type == "push":
+                logger.warning("Summary comments are not directly supported for bare commits via create_issue_comment. Skipping summary comment.")
+                # The review results are still saved to the JSON file.
         else:
             logger.error("Cannot post summary comment: No valid target object (PR or Commit) available.")
     except Exception as e:
