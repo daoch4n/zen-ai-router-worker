@@ -6,6 +6,13 @@ compatibility_flags = [ "nodejs_compat" ]
 [placement]
 mode = "smart"
 
+[[durable_objects.bindings]]
+name = "TTS_JOB_DO"
+class_name = "TtsJobDurableObject"
+
+[[migrations]]
+tag = "v1-tts-job-do-initial-setup"
+new_classes = ["TtsJobDurableObject"]
 # --- Development Environment ---
 # Use only 'npx run dev' for debug!
 
@@ -28,25 +35,7 @@ routes = [
 [env.production.vars]
 PASS = "sk-proj-MASKED"
 KEY1 = "AIzaSyMASKED"
-KEY2 = "AIzaSyMASKED"
-KEY3 = "AIzaSyMASKED"
-KEY4 = "AIzaSyMASKED"
-KEY5 = "AIzaSyMASKED"
-KEY6 = "AIzaSyMASKED"
-KEY7 = "AIzaSyMASKED"
-KEY8 = "AIzaSyMASKED"
-KEY9 = "AIzaSyMASKED"
-KEY10 = "AIzaSyMASKED"
-KEY11 = "AIzaSyMASKED"
-KEY12 = "AIzaSyMASKED"
-KEY13 = "AIzaSyMASKED"
-KEY14 = "AIzaSyMASKED"
-KEY15 = "AIzaSyMASKED"
-KEY16 = "AIzaSyMASKED"
-KEY17 = "AIzaSyMASKED"
-KEY18 = "AIzaSyMASKED"
-KEY19 = "AIzaSyMASKED"
-KEY20 = "AIzaSyMASKED"
+
 DEFAULT_MODEL = "gemini-2.5-flash-preview-05-20"
 
 [[env.production.d1_databases]]
