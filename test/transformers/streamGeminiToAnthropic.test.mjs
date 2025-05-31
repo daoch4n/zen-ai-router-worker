@@ -222,10 +222,9 @@ describe('GeminiToAnthropicStreamTransformer', () => {
     });
 
     it('should correctly transform a pure text-only stream from Gemini', () => {
-        // Mock original request for input token calculation in message_start
+        const specificInputTokens = 123;
         const mockOriginalRequest = {
-            messages: [{ role: "user", content: "Test prompt" }]
-            // input_tokens for this would be roughly len("Test prompt")/4 = ~3 if using rough calc
+            usage: { input_tokens: specificInputTokens }
         };
         const transformer = createGeminiToAnthropicStreamTransformer(
             anthropicModelName,
@@ -260,7 +259,7 @@ describe('GeminiToAnthropicStreamTransformer', () => {
         assert.strictEqual(events[0].data.message.id, originalRequestId);
         assert.strictEqual(events[0].data.message.role, "assistant");
         assert.strictEqual(events[0].data.message.model, anthropicModelName);
-        assert.ok(events[0].data.message.usage.input_tokens > 0, "Input tokens should be estimated");
+        assert.strictEqual(events[0].data.message.usage.input_tokens, specificInputTokens, "Input tokens in message_start should match originalRequest");
 
         // 2. content_block_start (for text)
         assert.strictEqual(events[1].type, "content_block_start");
@@ -351,6 +350,91 @@ describe('GeminiToAnthropicStreamTransformer', () => {
 
         const messageStopEvent = events.find(e => e.type === "message_stop");
         assert.ok(messageStopEvent, "message_stop event not found");
+    });
+
+    it('should correctly serialize multiple functionCalls from a single Gemini chunk', () => {
+        const mockOriginalRequest = { messages: [{ role: "user", content: "Call two tools" }] };
+        const transformer = createGeminiToAnthropicStreamTransformer(
+            anthropicModelName,
+            originalRequestId,
+            true,
+            mockOriginalRequest
+        );
+
+        const singleGeminiChunkWithMultipleTools = {
+            candidates: [{
+              content: {
+                role: "model",
+                parts: [
+                  { functionCall: { name: "get_weather", args: { "location": "London" } } },
+                  { functionCall: { name: "get_time", args: { "timezone": "GMT" } } }
+                ]
+              },
+              finishReason: "TOOL_CODE_EXECUTED"
+            }],
+            usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 20 }
+          };
+
+        // Process the single chunk. The transformer's transform method itself should handle the full processing
+        // including emitting start/delta/stop for each part and then final message_delta/stop due to finishReason.
+        const sseOutput = transformer.transform(singleGeminiChunkWithMultipleTools);
+        const events = parseSseEvents(sseOutput);
+
+        // Expected:
+        // 1. message_start
+        // Tool 1:
+        // 2. content_block_start (get_weather, index 0)
+        // 3. content_block_delta (get_weather args)
+        // 4. content_block_stop (get_weather) - because a new functionCall part for get_time follows
+        // Tool 2:
+        // 5. content_block_start (get_time, index 1)
+        // 6. content_block_delta (get_time args)
+        // 7. content_block_stop (get_time) - because finishReason is in the same chunk.
+        // Final:
+        // 8. message_delta
+        // 9. message_stop
+        assert.strictEqual(events.length, 9, "Should be 9 SSE events for two tools in one chunk");
+
+        // 1. message_start
+        assert.strictEqual(events[0].type, "message_start");
+        assert.strictEqual(events[0].data.message.role, "assistant");
+
+        // Tool 1: get_weather
+        assert.strictEqual(events[1].type, "content_block_start");
+        assert.strictEqual(events[1].data.index, 0);
+        assert.strictEqual(events[1].data.content_block.type, "tool_use");
+        assert.strictEqual(events[1].data.content_block.name, "get_weather");
+        assert.deepStrictEqual(events[1].data.content_block.input, {});
+
+        assert.strictEqual(events[2].type, "content_block_delta");
+        assert.strictEqual(events[2].data.index, 0);
+        assert.strictEqual(events[2].data.delta.type, "input_json_delta");
+        assert.strictEqual(events[2].data.delta.partial_json, '{"location":"London"}');
+
+        assert.strictEqual(events[3].type, "content_block_stop");
+        assert.strictEqual(events[3].data.index, 0);
+
+        // Tool 2: get_time
+        assert.strictEqual(events[4].type, "content_block_start");
+        assert.strictEqual(events[4].data.index, 1);
+        assert.strictEqual(events[4].data.content_block.type, "tool_use");
+        assert.strictEqual(events[4].data.content_block.name, "get_time");
+        assert.deepStrictEqual(events[4].data.content_block.input, {});
+
+        assert.strictEqual(events[5].type, "content_block_delta");
+        assert.strictEqual(events[5].data.index, 1);
+        assert.strictEqual(events[5].data.delta.type, "input_json_delta");
+        assert.strictEqual(events[5].data.delta.partial_json, '{"timezone":"GMT"}');
+
+        assert.strictEqual(events[6].type, "content_block_stop");
+        assert.strictEqual(events[6].data.index, 1);
+
+        // Final events
+        assert.strictEqual(events[7].type, "message_delta");
+        assert.strictEqual(events[7].data.delta.stop_reason, "tool_use");
+        assert.deepStrictEqual(events[7].data.usage, { output_tokens: 20 });
+
+        assert.strictEqual(events[8].type, "message_stop");
     });
 });
 

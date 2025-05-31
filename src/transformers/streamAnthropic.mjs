@@ -29,12 +29,17 @@ export class GeminiToAnthropicStreamTransformer {
     this.finalFinishReason = null;
     this.finalUsage = null; // To store usage from Gemini's last chunk if available
 
-    // Rough input token calculation (similar to original)
-    if (originalRequest && originalRequest.messages) {
+    // Prioritize direct input_tokens if available in originalRequest.usage
+    if (originalRequest && originalRequest.usage && typeof originalRequest.usage.input_tokens === 'number') {
+      this.inputTokens = originalRequest.usage.input_tokens;
+    } else if (originalRequest && originalRequest.messages) {
+      // Fallback to rough input token calculation
       this.inputTokens = JSON.stringify(originalRequest.messages).length / 4;
       if (originalRequest.system) {
         this.inputTokens += originalRequest.system.length / 4;
       }
+    } else {
+      this.inputTokens = 0; // Default if no info
     }
   }
 
