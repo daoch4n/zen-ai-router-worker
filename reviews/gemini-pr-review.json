@@ -1,0 +1,55 @@
+{
+  "metadata": {
+    "event_type": "pull_request",
+    "repo": "daoch4n/zen-ai-tts",
+    "title": "Fix: Improve API key handling and text processing",
+    "timestamp_utc": "2025-05-31T21:49:03.637279+00:00",
+    "review_tool": "zen-ai-qa",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false,
+    "pull_number": 15
+  },
+  "review_comments": [
+    {
+      "file_path": "src/durable_objects/TtsJobDurableObject.mjs",
+      "github_diff_position": 13,
+      "comment_text_md": "**My Confidence: High**\n\nThe constant `MAX_TEXT_LENGTH_CHAR_COUNT` is being compared against `getTextByteCount(sentence)`. This creates an inconsistency:\n\n1.  **Naming:** The constant name `CHAR_COUNT` suggests a character limit, but it's now being used with a byte count.\n2.  **Error Message:** The error message `A single sentence exceeds the maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters.` still refers to \"characters\".\n\nIf the intention is to enforce a byte limit, then `MAX_TEXT_LENGTH_CHAR_COUNT` should be renamed to `MAX_TEXT_LENGTH_BYTE_COUNT` (or similar) and the error message updated to reflect bytes. Otherwise, if the limit is truly character-based, `getTextCharacterCount` should be used here instead of `getTextByteCount`.\n\nThis inconsistency could lead to text being rejected prematurely if it contains multi-byte characters, as 1500 bytes will be a smaller effective character count than 1500 characters.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "src/utils/auth.mjs",
+      "github_diff_position": 72,
+      "comment_text_md": "**My Confidence: High**\n\nThe `selectAnthropicApiKey` and `selectOpenAiApiKey` functions currently select the API key by sorting the retrieved keys alphabetically and picking the first one (`apiKeys.sort()[0]`). This is inconsistent with `selectRandomGoogleApiKey` which picks a key randomly.\n\nConsider the intended behavior when multiple keys are configured for Anthropic or OpenAI:\n\n1.  **If only one key should ever be used:** Using `apiKeys[0]` would be simpler and more performant than `apiKeys.sort()[0]`, as `Object.keys()` generally provides a stable order. The `sort()` operation is unnecessary overhead.\n2.  **If multiple keys are intended for load balancing or failover:** Similar to Google API keys, these functions should implement a random or round-robin selection strategy to distribute requests or provide redundancy. The current approach effectively uses only one key if multiple are provided.\n\nIt's important to align the key selection strategy across all providers for consistency and predictable behavior.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": "src/utils/textProcessing.mjs",
+      "github_diff_position": 5,
+      "comment_text_md": "**My Confidence: High**\n\nThe updated regex `/(?<=[.?!])(?=(?:\\s+[\"']?|[A-Z])|$|[.!?\"']+)/g` uses `\\s+` (one or more whitespace characters) when checking for a quote. The PR description states the regex should allow for `\\s*` (zero or more whitespace characters) to handle cases like \"Hello!How are you?\".\n\nWhile the `[A-Z]` part correctly handles \"Hello!How are you?\", the `\\s+[\"']?` part might prevent correct splitting if a sentence ends with a terminator and is immediately followed by a quote *without* any whitespace (e.g., \"Hello!\"How are you?\").\n\nConsider changing `\\s+` to `\\s*` in the regex to align with the PR description's intent and handle such edge cases more robustly.\n\nProposed change:\n```diff\n-  const sentences = text.split(/(?<=[.?!])(?=(?:\\s+[\"']?|[A-Z])|$|[.!?\"']+)/g)\n+  const sentences = text.split(/(?<=[.?!])(?=(?:\\s*[\"']?|[A-Z])|$|[.!?\"']+)/g)\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": "test/utils/auth.test.mjs",
+      "github_diff_position": 161,
+      "comment_text_md": "**My Confidence: High**\n\nThe tests for `selectAnthropicApiKey` and `selectOpenAiApiKey` (specifically the ones titled `should return the alphabetically first key if multiple ... keys exist`) imply that the selection logic prioritizes API keys based on the alphabetical order of their *values*, rather than their key names or a specific primary key.\n\nFor example, in `selectAnthropicApiKey`, with `ANTHROPIC_API_KEY_B: 'key_b_value'`, `ANTHROPIC_API_KEY_A: 'key_a_value'`, and `ANTHROPIC_API_KEY: 'key_primary_value'`, the test expects `'key_a_value'`. This means `key_a_value` is chosen because 'a' comes before 'b' and 'primary'.\n\nThis approach is highly unusual and can lead to non-deterministic behavior if API key values change, or if a new key with an alphabetically 'earlier' value is added. A more common and robust approach would be:\n1. Prioritize the primary key (e.g., `ANTHROPIC_API_KEY` or `OPENAI_API_KEY`) if it exists.\n2. If not, then select from suffixed keys (e.g., `ANTHROPIC_API_KEY_1`, `ANTHROPIC_API_KEY_2`) either randomly (like Google keys) or deterministically by key name (e.g., `ANTHROPIC_API_KEY_A` before `ANTHROPIC_API_KEY_B`).\n\nPlease clarify the intended API key selection strategy for these functions. If the current behavior is intentional, consider the implications for stability and maintainability. If not, the implementation and tests should be adjusted.\n\nFor example, if the intention is to prioritize the primary key first, then fall back to alphabetically sorted suffixed keys:\n```javascript\n// Example of a more robust selection logic (pseudocode)\nfunction selectSpecificApiKey(env, primaryKeyName, pattern) {\n  const primaryKey = env[primaryKeyName];\n  if (primaryKey && typeof primaryKey === 'string' && primaryKey.length > 0) {\n    return primaryKey;\n  }\n\n  const matchingKeys = getApiKeysFromEnv(env, pattern); // This should return key names\n  const validValues = matchingKeys\n    .filter(keyName => keyName !== primaryKeyName) // Exclude primary key if it was already checked\n    .map(keyName => env[keyName])\n    .filter(value => typeof value === 'string' && value.length > 0)\n    .sort(); // Sort by value if that's the desired fallback, or by key name\n\n  if (validValues.length > 0) {\n    return validValues[0];\n  }\n\n  throw new HttpError(`No ${primaryKeyName} or matching keys configured.`, 500);\n}\n```\nThe current test comments also state \"alphabetically first among the values\" which is correct for the expectation, but the underlying design choice is questionable.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/utils/textProcessing.test.mjs",
+      "github_diff_position": 67,
+      "comment_text_md": "**My Confidence: High**\n\nThe tests for abbreviation handling in `splitIntoSentences` (e.g., `it('should correctly handle abbreviations and not split them internally or incorrectly', ...)`) appear to have expectations that are not met by the current regex `/(?<=[.?!])(?=\\s*[\"']?|$|[.!?\"']+|[A-Z])/g`.\n\nThis regex, by splitting after a period if followed by a capital letter, will incorrectly split abbreviations like `Mr. Smith` into `['Mr.', 'Smith']` or `Gen. Motors` into `['Gen.', 'Motors']`. For example, in the test case:\n\n```javascript\nconst text = 'Mr. Smith went to Washington. Dr. Jones also went. They saw the U.S. Capitol building. Later, Gen. Motors made a statement. This is approx. correct.';\nexpect(splitIntoSentences(text)).toEqual([\n  'Mr. Smith went to Washington.',\n  'Dr. Jones also went.',\n  'They saw the U.S. Capitol building.',\n  'Later, Gen. Motors made a statement.',\n  'This is approx. correct.'\n]);\n```\n\nThe current regex would likely produce a different output for `Mr. Smith` and `Gen. Motors` due to the capital letter following the period.\n\nTo correctly handle abbreviations, the `splitIntoSentences` function often requires a more sophisticated approach, such as a list of common abbreviations to avoid splitting after them, or a more complex regex that uses negative lookaheads/lookbehinds for specific patterns.\n\nConsider either:\n1.  Adjusting these specific test cases to reflect the actual behavior of the current regex (if abbreviation handling is explicitly out of scope for this regex update).\n2.  Enhancing the `splitIntoSentences` function and its regex to properly handle abbreviations, which is a common requirement for robust sentence splitting. This might involve a more advanced regex or a two-pass approach (e.g., first split, then re-join based on abbreviation rules).",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    }
+  ]
+}
