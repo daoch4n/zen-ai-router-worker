@@ -2,46 +2,30 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Commit: \ud83d\udd27",
-    "timestamp_utc": "2025-05-31T12:59:47.704926+00:00",
+    "title": "Commit: Merge pull request #9 from daoch4n/feat/gemini-function-calling",
+    "timestamp_utc": "2025-05-31T15:24:26.677185+00:00",
     "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "6ef104dbf3967aead01894e7e41d12df62b1c6b1"
+    "commit_sha": "c3231eba4a2805ecf7c663cfaf09dc7c48381111"
   },
   "review_comments": [
     {
-      "file_path": ".github/workflows/gemini-review.py",
-      "github_diff_position": 155,
-      "comment_text_md": "**My Confidence: High**\n\nThis change correctly escapes the literal curly braces `{{` and `}}` within the f-string that defines the `RESPONSE FORMAT` block. This is a critical fix as unescaped curly braces in f-strings would cause a `ValueError` or incorrect parsing, preventing the model from receiving the correct JSON schema. This ensures the prompt is correctly formatted for Gemini's structured output feature.",
+      "file_path": "src/transformers/requestAnthropic.mjs",
+      "github_diff_position": 92,
+      "comment_text_md": "**My Confidence: High**\n\nThe logic for mapping Anthropic `tool_result` to Gemini `functionResponse` uses a two-pass approach to resolve the `tool_use_id` to a `functionName` within the current request's messages. While this is a good attempt for stateless transformation, it has a significant limitation:\n\nIf the corresponding `tool_use` message (from the assistant) occurred in a *previous* API call and is not included in the current `anthropicReq.messages` array, the `toolIdToNameMap` will not contain the necessary mapping. In such cases, the code falls back to using `block.tool_use_id` as the function name. Gemini's `functionResponse` expects the actual function name (e.g., `get_weather`), not an internal `tool_use_id` (e.g., `toolu_01A09s9901s9s9s9s9s9s9s9`). This discrepancy will likely lead to errors when Gemini attempts to process the `functionResponse`.\n\nThis is a fundamental limitation for handling multi-turn tool use in a stateless proxy. The current `console.warn` is helpful, but users should be aware that multi-turn tool interactions might fail if the full conversation history (including the `tool_use` turn) is not consistently sent in each request.",
       "ai_confidence": "High",
-      "detected_severity_heuristic": "critical",
+      "detected_severity_heuristic": "high",
       "detected_category_heuristic": "concurrency"
     },
     {
-      "file_path": ".github/workflows/gemini-review.py",
-      "github_diff_position": 104,
-      "comment_text_md": "**My Confidence: High**\n\nThe logic for determining `head_sha` in `get_diff` has been improved to correctly account for `push` events by using `review_context.commit_sha`. Previously, `head_sha` would remain `None` for push events, potentially limiting the effectiveness of the `repo.compare` strategy. This makes the diff retrieval more robust across different event types.",
-      "ai_confidence": "High",
-      "detected_severity_heuristic": "low",
-      "detected_category_heuristic": "general"
-    },
-    {
-      "file_path": ".github/workflows/gemini-review.py",
-      "github_diff_position": 89,
-      "comment_text_md": "**My Confidence: Medium**\n\nAdding a check for `commit_message.strip()` before attempting to split lines and access the first element is a good defensive programming practice. This prevents an `IndexError` if `commit_message` is empty or contains only whitespace, making the title extraction more robust.",
-      "ai_confidence": "Medium",
-      "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "bug"
-    },
-    {
-      "file_path": ".github/workflows/gemini-review.py",
-      "github_diff_position": 6,
-      "comment_text_md": "**My Confidence: High**\n\nThe consistent change across multiple hunks to use `logger.error` with string formatting (`%s`) and `exc_info=True` is a significant improvement for error logging. This ensures that full traceback information is included in the logs, which is invaluable for debugging and understanding the context of exceptions.",
+      "file_path": "src/transformers/streamAnthropic.mjs",
+      "github_diff_position": 115,
+      "comment_text_md": "**My Confidence: High**\n\nThe logic for handling `part.functionCall` when `fc.name` is present might lead to incorrect Anthropic output for distinct tool calls. \n\nCurrently, if `fc.name` is present, the code attempts to find an `existingToolIdWithName` and reuse that `tool_use` block. However, Anthropic's `tool_use` blocks are identified by a unique `id`. If Gemini sends multiple distinct `functionCall` parts with the same `name` (implying separate calls to the same tool), the current logic would merge them into a single `tool_use` block, which is a mismatch with Anthropic's expected behavior.\n\nEach time `fc.name` is encountered, it should generally signify the start of a *new* tool call, requiring a new `toolu_` ID and a new `content_block_start` event. Arguments (`fc.args`) without a `name` in the same part should then append to the *most recently started* tool call.\n\n**Suggestion:** Modify the `if (fc.name)` block to always create a new `tool_use` block (new `toolu_` ID and `content_block_start` event) when `fc.name` is present. The `existingToolIdWithName` check should be removed, as it conflates distinct tool calls with the same name.\n\n```javascript\n          if (fc.name) {\n            // A new tool call is starting. Stop any currently active tool calls.\n            // This ensures distinct tool_use blocks for distinct calls.\n            for (const toolId in this.activeToolCalls) {\n                if (this.activeToolCalls[toolId].isStarted) {\n                    anthropicSse += this.emitContentBlockStop(this.activeToolCalls[toolId].index);\n                }\n            }\n            this.activeToolCalls = {}; // Clear all previous tools\n            this.lastActiveToolCallIdForArgs = null; // Reset context\n\n            const newToolId = `toolu_${generateId()}`;\n            toolCallIdForArgs = newToolId; // This tool will receive args if any\n            this.activeToolCalls[newToolId] = {\n                id: newToolId,\n                name: fc.name,\n                index: this.contentBlockIndex,\n                accumulatedArgsJson: \"\",\n                isStarted: true, // Mark as started immediately\n            };\n            anthropicSse += this.emitContentBlockStart(\"tool_use\", this.contentBlockIndex, {\n                id: newToolId,\n                name: fc.name,\n                input: {}\n            });\n            this.hadToolUseContent = true;\n            this.contentBlockIndex++;\n            this.lastActiveToolCallIdForArgs = newToolId; // Set for subsequent args-only parts\n          } else if (fc.args) {\n            // This part only contains args, no name. Assign to the tool that last had its name processed.\n            toolCallIdForArgs = this.lastActiveToolCallIdForArgs;\n          }\n```",
       "ai_confidence": "High",
       "detected_severity_heuristic": "high",
-      "detected_category_heuristic": "bug"
+      "detected_category_heuristic": "concurrency"
     }
   ]
 }
