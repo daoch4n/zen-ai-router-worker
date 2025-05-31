@@ -28,6 +28,31 @@ export function authenticateClientRequest(request, env) {
 }
 
 /**
+ * Generic function to extract API keys from environment variables based on a prefix or pattern.
+ *
+ * @param {Object} env - Cloudflare Worker environment variables.
+ * @param {string|RegExp} prefixOrPattern - A string prefix or a RegExp pattern to match keys.
+ * @returns {string[]} An array of valid, non-empty API key strings.
+ * @internal
+ */
+function getApiKeysFromEnv(env, prefixOrPattern) {
+  const keys = Object.keys(env);
+  let filteredKeys;
+
+  if (typeof prefixOrPattern === 'string') {
+    filteredKeys = keys.filter(key => key.startsWith(prefixOrPattern));
+  } else if (prefixOrPattern instanceof RegExp) {
+    filteredKeys = keys.filter(key => prefixOrPattern.test(key));
+  } else {
+    return []; // Or throw an error for invalid prefixOrPattern
+  }
+
+  return filteredKeys
+    .map(key => env[key])
+    .filter(value => typeof value === 'string' && value.trim() !== '');
+}
+
+/**
  * Extracts and filters Google API keys from environment variables.
  * Looks for keys starting with "KEY" or "GOOGLE_API_KEY".
  *
@@ -36,11 +61,42 @@ export function authenticateClientRequest(request, env) {
  * @internal
  */
 function getGoogleApiKeysFromEnv(env) {
-  const apiKeys = Object.keys(env)
-    .filter(key => key.startsWith("KEY") || key.startsWith("GOOGLE_API_KEY"))
-    .map(key => env[key])
-    .filter(value => typeof value === 'string' && value.trim() !== '');
-  return apiKeys;
+  // Now uses the generic function with a RegExp for Google keys
+  return getApiKeysFromEnv(env, /^(KEY|GOOGLE_API_KEY)/);
+}
+
+/**
+ * Selects the first Anthropic API key from the worker's environment variables.
+ * Considers keys starting with "ANTHROPIC_API_KEY".
+ *
+ * @param {Object} env - Cloudflare Worker environment variables.
+ * @returns {string} The first Anthropic API key found.
+ * @throws {HttpError} If no Anthropic API keys are configured.
+ */
+export function selectAnthropicApiKey(env) {
+  const apiKeys = getApiKeysFromEnv(env, "ANTHROPIC_API_KEY");
+
+  if (apiKeys.length === 0) {
+    throw new HttpError("No Anthropic API keys (ANTHROPIC_API_KEY...) configured.", 500);
+  }
+  return apiKeys[0]; // Return the first key
+}
+
+/**
+ * Selects the first OpenAI API key from the worker's environment variables.
+ * Considers keys starting with "OPENAI_API_KEY".
+ *
+ * @param {Object} env - Cloudflare Worker environment variables.
+ * @returns {string} The first OpenAI API key found.
+ * @throws {HttpError} If no OpenAI API keys are configured.
+ */
+export function selectOpenAiApiKey(env) {
+  const apiKeys = getApiKeysFromEnv(env, "OPENAI_API_KEY");
+
+  if (apiKeys.length === 0) {
+    throw new HttpError("No OpenAI API keys (OPENAI_API_KEY...) configured.", 500);
+  }
+  return apiKeys[0]; // Return the first key
 }
 
 /**
@@ -83,13 +139,11 @@ export function selectGoogleApiKeyRoundRobin(env, currentIndex) {
  * @deprecated Prefer using `selectGoogleApiKeyRoundRobin` for more controlled key distribution in worker environments.
  */
 export function selectRandomGoogleApiKey(env) {
-  // This function specifically looks for KEYn patterns, not GOOGLE_API_KEY...
-  const apiKeys = Object.entries(env)
-    .filter(([key, value]) => /^KEY\d+$/.test(key) && value) // Ensure value is also truthy
-    .map(([, value]) => value);
+  const apiKeys = getGoogleApiKeysFromEnv(env); // Use the new function
 
   if (apiKeys.length === 0) {
-    throw new HttpError("No Google API keys (pattern KEYn) configured for random selection in worker environment.", 500);
+    // Updated error message
+    throw new HttpError("No Google API keys (KEY... or GOOGLE_API_KEY...) configured for random selection in worker environment.", 500);
   }
 
   return apiKeys[Math.floor(Math.random() * apiKeys.length)];

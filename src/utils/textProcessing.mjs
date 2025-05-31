@@ -23,7 +23,7 @@ export function splitIntoSentences(text) {
   // Adjusted to better handle cases like "Hello!How are you?" vs "Hello! How are you?"
   // It now looks for a terminator followed by either whitespace, a quote, or end of string.
   // Or, it handles multiple terminators like "!!?"
-  const sentences = text.split(/(?<=[.?!])(?=(\s+["']?|$)|[.!?"']+)/g)
+  const sentences = text.split(/(?<=[.?!])(?=\s*["']?|$|[.!?"']+|[A-Z])/g)
     .map(s => s.trim())
     .filter(s => s.length > 0);
 

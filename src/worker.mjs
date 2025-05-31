@@ -23,6 +23,8 @@ import {
   // getRandomApiKey, // Removed
   authenticateClientRequest, // Added
   selectGoogleApiKeyRoundRobin, // Added
+  selectAnthropicApiKey, // Added for Anthropic
+  selectOpenAiApiKey, // Added for OpenAI
   forceSetWorkerLocation,
   fixCors,
   errorHandler,
@@ -83,7 +85,8 @@ async function fetch(request, env) {
           throw new HttpError("Method Not Allowed", 405);
         }
         authenticateClientRequest(request, env);
-        return handleAnthropicCompletions(await request.json(), googleApiKeyForBackend, env)
+        const anthropicApiKey = selectAnthropicApiKey(env); // Select Anthropic key
+        return handleAnthropicCompletions(await request.json(), anthropicApiKey, env)
           .catch(errHandler);
 
       case url.pathname.endsWith("/chat/completions"):
@@ -91,7 +94,8 @@ async function fetch(request, env) {
           throw new HttpError("Method Not Allowed for /chat/completions, expected POST", 405);
         }
         authenticateClientRequest(request, env);
-        return handleCompletions(await request.json(), googleApiKeyForBackend)
+        const openAiApiKeyCompletions = selectOpenAiApiKey(env); // Select OpenAI key
+        return handleCompletions(await request.json(), openAiApiKeyCompletions)
           .catch(errHandler);
 
       case url.pathname.endsWith("/embeddings"):
@@ -100,7 +104,8 @@ async function fetch(request, env) {
           throw new HttpError("Method Not Allowed for /embeddings, expected POST", 405);
         }
         authenticateClientRequest(request, env);
-        return handleEmbeddings(await request.json(), googleApiKeyForBackend)
+        const openAiApiKeyEmbeddings = selectOpenAiApiKey(env); // Select OpenAI key
+        return handleEmbeddings(await request.json(), openAiApiKeyEmbeddings)
           .catch(errHandler);
 
       case url.pathname.endsWith("/models"):
