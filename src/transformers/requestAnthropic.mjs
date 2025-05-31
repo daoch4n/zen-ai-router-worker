@@ -2,12 +2,24 @@ import {
   DEFAULT_ANTHROPIC_VERSION
 } from '../constants/index.mjs';
 
+// Defines canonical model name mappings from Anthropic to Gemini.
+// These are baseline mappings; the actual model used in requests might be
+// further influenced by environment variables or specific configurations if needed by the proxy.
+export const anthropicToGeminiModelMap = {
+  "claude-3-opus-20240229": "gemini-1.5-pro-latest", // Example, confirm actual target
+  "claude-3-sonnet-20240229": "gemini-1.0-pro-latest",  // Example, confirm actual target
+  "claude-3-haiku-20240307": "gemini-1.0-pro-vision-latest", // Example, confirm actual target (Haiku might map to Flash or a specific vision/lite model)
+  "claude-2.1": "gemini-1.0-pro", // Example
+  "claude-2.0": "gemini-1.0-pro", // Example
+  "claude-instant-1.2": "gemini-1.0-pro" // Example, or a "flash"/"lite" equivalent
+};
+
 /**
  * Recursively removes unsupported fields from a JSON schema for Gemini.
  * @param {Object} schema - The JSON schema to clean.
  * @returns {Object} The cleaned schema.
  */
-function cleanGeminiSchema(schema) {
+export function cleanGeminiSchema(schema) { // Added export
   if (typeof schema !== 'object' || schema === null) {
     return schema;
   }
@@ -44,155 +56,192 @@ function cleanGeminiSchema(schema) {
 }
 
 /**
- * Transforms an Anthropic request body into an OpenAI-compatible request body.
+ * Transforms an Anthropic request body into a Gemini-compatible request body.
  * This function handles role mapping, content block conversion, system prompts,
- * and tool definitions as described in the mapping document.
+ * and tool definitions.
  * @param {Object} anthropicReq - The incoming Anthropic request body.
- * @returns {Object} The transformed OpenAI-compatible request body.
+ * @param {Object} env - Environment variables, potentially containing model mappings.
+ * @returns {Object} The transformed Gemini-compatible request body.
  */
-export function transformAnthropicToOpenAIRequest(anthropicReq, env) {
-  const openAIReq = {};
+export function transformAnthropicToGeminiRequest(anthropicReq, env) {
+  const geminiReq = {};
+  const toolIdToNameMap = new Map(); // Step 1: Initialize map
 
-  // 1. Model mapping
-  // The mapping document suggests mapping Claude model names to OpenAI model names.
-  // Explicit model mapping: Map Anthropic model names to OpenAI/Gemini equivalents.
-  // This ensures the downstream system receives recognized model identifiers.
+  // 1. Model mapping (using env for flexibility, though not strictly part of Gemini direct mapping)
+  // It's good practice to allow model aliasing or selection via environment.
   const modelMap = {
-    "claude-3-opus-20240229": env.MODEL_MAP_OPUS,
-    "claude-3-sonnet-20240229": env.MODEL_MAP_SONNET,
-    "claude-3-haiku-20240307": env.MODEL_MAP_HAIKU,
+    "claude-3-opus-20240229": env.MODEL_MAP_OPUS || "gemini-pro", // Default to gemini-pro or specified
+    "claude-3-sonnet-20240229": env.MODEL_MAP_SONNET || "gemini-pro",
+    "claude-3-haiku-20240307": env.MODEL_MAP_HAIKU || "gemini-pro",
   };
-  openAIReq.model = modelMap[anthropicReq.model] || anthropicReq.model; // Use mapped model or fallback to original
+  // Gemini model names are typically simpler, e.g., "gemini-pro", "gemini-ultra".
+  // The actual model name for Gemini will be part of the URL, not the request body usually.
+  // However, if a specific version or model is passed, we can retain it.
+  // For this transformer, we'll assume the final endpoint construction handles the model.
+  // We don't add `geminiReq.model` here as it's part of the URL path in Gemini API.
 
-  // 2. Messages and System Prompt
-  openAIReq.messages = [];
+  // 2. Content (Messages) and System Prompt
+  geminiReq.contents = [];
 
-  // Handle Anthropic system prompt
-  if (anthropicReq.system) {
-    openAIReq.messages.push({
-      role: "system",
-      content: anthropicReq.system
-    });
+  // Map Anthropic messages to Gemini format
+  // Gemini uses a 'parts' array for content.
+  // First pass to populate toolIdToNameMap from assistant messages
+  for (const message of anthropicReq.messages) {
+    if (message.role === 'assistant' && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === 'tool_use' && block.id && block.name) {
+          toolIdToNameMap.set(block.id, block.name); // Step 2: Populate map
+        }
+      }
+    }
   }
 
-  // Map Anthropic messages to OpenAI format
+  // Second pass to build Gemini contents, using the map
   for (const message of anthropicReq.messages) {
-    const openAIMessage = {
-      role: message.role
+    const geminiMessage = {
+      role: message.role === "assistant" ? "model" : message.role,
+      parts: []
     };
 
     if (typeof message.content === "string") {
-      openAIMessage.content = message.content;
+      geminiMessage.parts.push({ text: message.content });
     } else if (Array.isArray(message.content)) {
-      // Handle content blocks
-      let textContent = [];
       for (const block of message.content) {
         if (block.type === "text") {
-          textContent.push(block.text);
-        } else if (block.type === "tool_result" && message.role === "user") {
-          // Map Anthropic tool_result (user turn) to OpenAI function role
-          // The name of the tool needs to be tracked from the assistant's previous tool_use.
-          // CRITICAL BUG: Tool name mapping for tool_result messages is complex in a stateless proxy.
-          // The `tool_use_id` is an internal identifier. To get the actual tool `name` for OpenAI's `function` role,
-          // the proxy would ideally need to track the `tool_use_id` to `tool_name` mapping from the *previous*
-          // assistant's `tool_use` message. This requires state management across turns.
-          //
-          // CURRENT LIMITATION: Without state, we cannot reliably infer the tool name.
-          // For now, a placeholder name is used. This will likely cause failures in downstream systems
-          // that rely on accurate tool names.
-          //
-          // A robust solution would involve:
-          // 1. Storing the `tool_use_id` to `tool_name` mapping in a cache or database when the assistant
-          //    returns a `tool_use` message.
-          // 2. Retrieving the `tool_name` using the `tool_use_id` when a `tool_result` message is received.
-          //
-          // For this stateless proxy, this remains a significant gap.
-          openAIReq.messages.push({
-            role: "function",
-            name: `UNKNOWN_TOOL_NAME_FOR_${block.tool_use_id}`, // Placeholder due to stateless nature
-            content: JSON.stringify(block.content) // OpenAI expects stringified JSON
+          geminiMessage.parts.push({ text: block.text });
+        } else if (message.role === "user" && block.type === "tool_result") {
+          const functionName = toolIdToNameMap.get(block.tool_use_id);
+          if (!functionName) {
+            // TODO: This warning indicates a tool_result for an ID not found in assistant's
+            // tool_use blocks in the current request history. This will likely cause errors
+            // with Gemini if the name isn't the one it expects.
+            // This highlights the limitation of stateless transformation for multi-turn tool use
+            // that might span multiple separate API request-response cycles.
+            console.warn(`[transformAnthropicToGeminiRequest] Function name for tool_use_id '${block.tool_use_id}' not found in current request history. Using ID as name.`);
+          }
+          geminiMessage.parts.push({
+            functionResponse: {
+              name: functionName || block.tool_use_id, // Step 3: Use map, fallback to ID
+              response: block.content // Corrected structure: direct assignment
+            }
+          });
+        } else if (message.role === "assistant" && block.type === "tool_use") {
+          geminiMessage.parts.push({
+            functionCall: {
+              name: block.name,
+              args: block.input
+            }
           });
         }
-        // Image blocks are not directly supported by standard OpenAI Chat API
-        // As per mapping.md, they should be omitted or handled via a separate Vision API.
-        // For now, we will omit them.
-      }
-      if (textContent.length > 0) {
-        openAIMessage.content = textContent.join("\n"); // Concatenate multiple text blocks
-      } else if (openAIMessage.role !== "function") {
-        // If no text content and not a function call, content might be null
-        openAIMessage.content = null;
+        // Image blocks omitted for now
       }
     }
-
-    // Only push if content is not null (unless it's an assistant message with only function_call)
-    // and not a tool_result that's already pushed as a function role message
-    if (openAIMessage.content !== null || openAIMessage.role === "assistant") {
-      openAIReq.messages.push(openAIMessage);
-    }
+    geminiReq.contents.push(geminiMessage);
   }
 
-  // 3. Max Tokens
+  // Handle Anthropic system prompt - Gemini takes this as a separate top-level field
+  if (anthropicReq.system) {
+    geminiReq.systemInstruction = {
+      role: "system", // Gemini expects "system" role for system instructions
+      parts: [{
+        text: anthropicReq.system
+      }]
+    };
+  }
+
+
+  // 3. Generation Config (Max Tokens, Stop Sequences, Temperature, Top P, Top K)
+  geminiReq.generationConfig = {};
+
   if (anthropicReq.max_tokens) {
-    openAIReq.max_tokens = anthropicReq.max_tokens;
+    geminiReq.generationConfig.maxOutputTokens = anthropicReq.max_tokens;
   }
-
-  // 4. Stop Sequences
-  if (anthropicReq.stop_sequences) {
-    openAIReq.stop = anthropicReq.stop_sequences;
+  if (anthropicReq.stop_sequences && anthropicReq.stop_sequences.length > 0) {
+    geminiReq.generationConfig.stopSequences = anthropicReq.stop_sequences;
   }
-
-  // 5. Stream
-  if (anthropicReq.stream !== undefined) {
-    openAIReq.stream = anthropicReq.stream;
-    // Anthropic's stream_options is not directly supported by OpenAI
-    // Usage will be handled by the proxy at the end of the stream.
-  }
-
-  // 6. Temperature
   if (anthropicReq.temperature !== undefined) {
-    openAIReq.temperature = anthropicReq.temperature;
+    geminiReq.generationConfig.temperature = anthropicReq.temperature;
   }
-
-  // 7. Top P
   if (anthropicReq.top_p !== undefined) {
-    openAIReq.top_p = anthropicReq.top_p;
+    geminiReq.generationConfig.topP = anthropicReq.top_p;
   }
-
-  // 8. Top K
   if (anthropicReq.top_k !== undefined) {
-    openAIReq.top_k = anthropicReq.top_k;
+    geminiReq.generationConfig.topK = anthropicReq.top_k;
   }
+  // Stream is not part of generationConfig, it's handled by appending ":stream" to the URL.
 
-  // 9. Metadata.user_id
-  if (anthropicReq.metadata && anthropicReq.metadata.user_id) {
-    openAIReq.user = anthropicReq.metadata.user_id;
-  }
+  // Metadata.user_id is not directly mapped to a standard Gemini field in the request body.
+  // It might be passed as a header or handled differently depending on the application.
 
-  // 10. Tools and Tool Choice
+  // 4. Tools and Tool Configuration
   if (anthropicReq.tools && anthropicReq.tools.length > 0) {
-    openAIReq.functions = anthropicReq.tools.map(tool => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: cleanGeminiSchema(tool.input_schema) // Clean schema for Gemini compatibility
-    }));
+    geminiReq.tools = [{ // Gemini expects an array of Tool objects
+      functionDeclarations: anthropicReq.tools.map(tool => ({
+        name: tool.name,
+        description: tool.description,
+        parameters: cleanGeminiSchema(tool.input_schema)
+      }))
+    }];
+
+    // Default to AUTO if tool_choice is not specified
+    geminiReq.tool_config = {
+      function_calling_config: {
+        mode: "AUTO"
+      }
+    };
 
     if (anthropicReq.tool_choice) {
-      if (anthropicReq.tool_choice.type === "auto" || anthropicReq.tool_choice.type === "any") {
-        openAIReq.function_call = "auto";
-      } else if (anthropicReq.tool_choice.type === "tool" && anthropicReq.tool_choice.name) {
-        openAIReq.function_call = {
-          name: anthropicReq.tool_choice.name
-        };
-      } else if (anthropicReq.tool_choice.type === "none") {
-        openAIReq.function_call = "none";
+      const choiceType = anthropicReq.tool_choice.type;
+      if (choiceType === "auto") {
+        geminiReq.tool_config.function_calling_config.mode = "AUTO";
+      } else if (choiceType === "any") {
+        geminiReq.tool_config.function_calling_config.mode = "ANY";
+      } else if (choiceType === "tool" && anthropicReq.tool_choice.name) {
+        geminiReq.tool_config.function_calling_config.mode = "ANY"; // For specific tool, Gemini uses ANY and allowed_function_names
+        geminiReq.tool_config.function_calling_config.allowed_function_names = [anthropicReq.tool_choice.name];
       }
-    } else {
-      // If Anthropic tool_choice is omitted, OpenAI defaults to "auto"
-      openAIReq.function_call = "auto";
+      // If type is "none", tools should not be sent, or mode should be NONE.
+      // However, Anthropic's "none" usually implies tools *could* have been defined but are not to be used.
+      // If Anthropic sends tools but tool_choice.type is "none", this is ambiguous for Gemini.
+      // The safest is to set mode to NONE if "none" is explicitly chosen.
+      // The problem description implies if tools are present, mode defaults to AUTO if tool_choice is missing.
+      // If tool_choice.type is "none", it means no tools should be called.
+      else if (choiceType === "none") {
+         // If tools are present but choice is "none", set mode to NONE
+        geminiReq.tool_config.function_calling_config.mode = "NONE";
+      }
     }
+  } else {
+    // If no tools are provided in Anthropic request, set mode to NONE for Gemini.
+    geminiReq.tool_config = {
+      function_calling_config: {
+        mode: "NONE"
+      }
+    };
+  }
+
+  // Remove empty generationConfig if no sub-fields were set
+  if (Object.keys(geminiReq.generationConfig).length === 0) {
+    delete geminiReq.generationConfig;
+  }
+
+  // Remove empty tool_config if mode is NONE and no tools were defined (it would be set to NONE by default if tools were absent)
+  // Or if tools are present but mode became NONE due to tool_choice
+  if (geminiReq.tool_config && geminiReq.tool_config.function_calling_config.mode === "NONE" && (!anthropicReq.tools || anthropicReq.tools.length === 0)) {
+     // If no tools were ever present, no need to send tool_config with mode NONE
+     delete geminiReq.tool_config;
+  } else if (geminiReq.tool_config && geminiReq.tool_config.function_calling_config.mode === "NONE" && anthropicReq.tools && anthropicReq.tools.length > 0 && anthropicReq.tool_choice && anthropicReq.tool_choice.type === "none") {
+    // If tools were present, but choice is "none", then tool_config with mode NONE is appropriate.
+    // So, do nothing here, let it pass.
   }
 
 
-  return openAIReq;
+  // Specific handling for stream parameter: In Gemini, this is often part of the URL,
+  // e.g., /v1beta/models/gemini-pro:generateContent vs /v1beta/models/gemini-pro:streamGenerateContent.
+  // The core request body doesn't include `stream`. This needs to be handled by the caller
+  // when constructing the HTTP request to the Gemini API.
+  // We can return it as a hint if needed, or the caller can inspect original anthropicReq.stream.
+  // For now, we'll assume the caller handles the endpoint based on anthropicReq.stream.
+
+  return geminiReq;
 }
