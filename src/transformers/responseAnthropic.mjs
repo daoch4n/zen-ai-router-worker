@@ -3,133 +3,162 @@ import {
 } from '../utils/helpers.mjs';
 
 /**
- * Transforms an OpenAI chat completion response into an Anthropic-compatible response body.
- * This function handles role mapping, content block conversion, stop reasons, and usage statistics.
- * @param {Object} openAIRes - The incoming OpenAI response body.
+ * Transforms a Gemini API response into an Anthropic-compatible response body.
+ * This function handles content mapping (text and function calls), stop reasons, and usage statistics.
+ * @param {Object} geminiResp - The incoming Gemini API response body.
  * @param {string} anthropicModelName - The original Anthropic model name requested by the client.
- * @param {string} openAIRequestId - The ID from the OpenAI request, for traceability.
+ * @param {string} originalRequestId - The ID from the original request, for traceability.
  * @returns {Object} The transformed Anthropic-compatible response body.
  */
-export function transformOpenAIToAnthropicResponse(openAIRes, anthropicModelName, openAIRequestId) {
+export function transformGeminiToAnthropicResponse(geminiResp, anthropicModelName, originalRequestId) {
   const anthropicRes = {
-    id: openAIRequestId || `msg_${generateId()}`, // Use OpenAI ID or generate new Anthropic ID
-    type: "message", // Fixed type for successful response
-    role: "assistant", // Fixed role for assistant responses
-    model: anthropicModelName, // Return the original Anthropic model name
-    content: [], // Array of content blocks
-    stop_reason: null, // Reason generation stopped
-    stop_sequence: null, // Sequence that caused stop, if applicable
+    id: originalRequestId || `msg_${generateId()}`, // Use original ID or generate new Anthropic ID
+    type: "message",
+    role: "assistant",
+    model: anthropicModelName,
+    content: [],
+    stop_reason: null,
+    stop_sequence: null, // Gemini doesn't explicitly return the stop sequence matched
     usage: {
       input_tokens: 0,
       output_tokens: 0
     }
   };
 
-  // Handle top-level errors from the upstream API (e.g., Gemini errors)
-  if (openAIRes.error) {
-    let errorType = "api_error";
-    if (openAIRes.error.code === 429) {
-      errorType = "rate_limit_error";
-    } else if (openAIRes.error.code === 400) {
+  // Handle top-level errors from Gemini (structure might vary, this is a guess)
+  // Gemini often returns 200 OK with an error object in the body for some errors.
+  if (geminiResp.error) {
+    let errorType = "api_error"; // Default error type
+    // Example: Gemini might use codes like 'INVALID_ARGUMENT', 'PERMISSION_DENIED', etc.
+    // This mapping would need to be more specific based on actual Gemini error codes.
+    if (geminiResp.error.status === 'INVALID_ARGUMENT' || (geminiResp.error.code >= 400 && geminiResp.error.code < 500 && geminiResp.error.code !== 429)) {
       errorType = "invalid_request_error";
-    } else if (openAIRes.error.code === 401 || openAIRes.error.code === 403) {
+    } else if (geminiResp.error.status === 'PERMISSION_DENIED' || geminiResp.error.code === 401 || geminiResp.error.code === 403) {
       errorType = "authentication_error";
-    } else if (openAIRes.error.code >= 500 && openAIRes.error.code < 600) {
+    } else if (geminiResp.error.status === 'RESOURCE_EXHAUSTED' || geminiResp.error.code === 429) {
+      errorType = "rate_limit_error";
+    } else if (geminiResp.error.code >= 500) {
       errorType = "api_error";
     }
+
     return {
       type: "error",
       error: {
         type: errorType,
-        message: `Upstream error: ${openAIRes.error.message || 'Unknown'}` +
-                 (openAIRes.error.param ? ` (Param: ${openAIRes.error.param})` : '') +
-                 (openAIRes.error.type ? ` (Type: ${openAIRes.error.type})` : '') +
-                 (openAIRes.error.details ? ` (Details: ${JSON.stringify(openAIRes.error.details)})` : '')
+        message: `Upstream Gemini error: ${geminiResp.error.message || 'Unknown error'}` +
+                 (geminiResp.error.details ? ` (Details: ${JSON.stringify(geminiResp.error.details)})` : '')
       }
     };
   }
 
-  if (!openAIRes.choices || openAIRes.choices.length === 0) {
-    // Handle cases where no choices are returned, though typically an error would be thrown upstream
-    return anthropicRes;
+  // Check for promptFeedback for blockages
+  if (geminiResp.promptFeedback && geminiResp.promptFeedback.blockReason) {
+    return {
+      type: "error",
+      error: {
+        type: "content_filter_error", // Changed to content_filter_error
+        message: `Request blocked due to ${geminiResp.promptFeedback.blockReason}. ` +
+                 (geminiResp.promptFeedback.safetyRatings ? `Safety Ratings: ${JSON.stringify(geminiResp.promptFeedback.safetyRatings)}` : '')
+      }
+    };
   }
 
-  const choice = openAIRes.choices[0];
-  const message = choice.message;
 
-  // 1. Map content
-  if (message.tool_calls && message.tool_calls.length > 0) {
-    // Handle OpenAI's newer `message.tool_calls` (array of tool calls)
-    message.tool_calls.forEach(toolCall => {
-      try {
+  if (!geminiResp.candidates || geminiResp.candidates.length === 0) {
+    // If no candidates and no specific error, this might be an unexpected response
+    // or a content filter that doesn't set promptFeedback.blockReason but results in no candidates.
+     if (geminiResp.promptFeedback && geminiResp.promptFeedback.safetyRatings && geminiResp.promptFeedback.safetyRatings.some(r => r.severity !== 'NEGLIGIBLE' && r.severity !== 'LOW')) {
+        anthropicRes.stop_reason = "content_filter";
+        // Add a text message indicating content filtering if possible, though Anthropic typically doesn't have content for this.
+        anthropicRes.content.push({ type: "text", text: "[Message blocked due to content filtering]" });
+        return anthropicRes; // Return with content_filter stop reason
+    }
+    return { // Fallback generic error if no candidates and no clear block reason
+        type: "error",
+        error: { type: "api_error", message: "No content generated by the model." }
+    };
+  }
+
+  const candidate = geminiResp.candidates[0];
+
+  // 1. Map content from parts
+  let hasToolUse = false;
+  if (candidate.content && candidate.content.parts) {
+    candidate.content.parts.forEach(part => {
+      if (part.functionCall) {
+        hasToolUse = true;
         anthropicRes.content.push({
           type: "tool_use",
-          id: toolCall.id || `toolu_${generateId()}`, // Use tool call ID or generate new
-          name: toolCall.function.name,
-          input: JSON.parse(toolCall.function.arguments) // Parse JSON string into object
+          id: `toolu_${generateId()}`, // Gemini's functionCall doesn't have an ID
+          name: part.functionCall.name,
+          input: part.functionCall.args || {} // .args is already an object
         });
-      } catch (e) {
-        console.error("Failed to parse tool_calls arguments:", e, toolCall.function.arguments);
+      } else if (part.text !== undefined && part.text !== null) {
         anthropicRes.content.push({
-          type: "tool_use",
-          id: toolCall.id || `toolu_${generateId()}`,
-          name: toolCall.function.name,
-          input: {} // Fallback to empty object on parsing failure
+          type: "text",
+          text: part.text
         });
       }
-    });
-    anthropicRes.stop_reason = "tool_use"; // Set stop reason for tool calls
-  } else if (message.function_call) {
-    // Keep legacy support for `message.function_call`
-    try {
-      anthropicRes.content.push({
-        type: "tool_use",
-        id: `toolu_${generateId()}`, // Generate a unique ID for this tool call
-        name: message.function_call.name,
-        input: JSON.parse(message.function_call.arguments) // Parse JSON string into object
-      });
-    } catch (e) {
-      console.error("Failed to parse function_call arguments:", e, message.function_call.arguments);
-      anthropicRes.content.push({
-        type: "tool_use",
-        id: `toolu_${generateId()}`,
-        name: message.function_call.name,
-        input: {} // Fallback to empty object on parsing failure
-      });
-    }
-  } else if (message.content !== null) {
-    // Text Content
-    anthropicRes.content.push({
-      type: "text",
-      text: message.content
     });
   }
 
   // 2. Map stop reasons
-  if (choice.finish_reason) {
-    switch (choice.finish_reason) {
-      case "stop":
+  // If a tool call was made, Anthropic's stop_reason is "tool_use".
+  // This should take precedence over Gemini's finishReason if it's generic like "STOP".
+  if (hasToolUse) {
+    anthropicRes.stop_reason = "tool_use";
+  } else if (candidate.finishReason) {
+    switch (candidate.finishReason) {
+      case "STOP":
         anthropicRes.stop_reason = "end_turn";
-        // If a stop sequence was hit, the proxy needs to detect this from the original request
-        // and set anthropicRes.stop_sequence accordingly. OpenAI doesn't return the matched sequence.
         break;
-      case "length":
+      case "MAX_TOKENS":
         anthropicRes.stop_reason = "max_tokens";
         break;
-      case "content_filter":
-        // As per mapping.md, Anthropic has `stop_reason: "content_filter"`
+      case "SAFETY": // Safety settings blocked the response.
         anthropicRes.stop_reason = "content_filter";
+         // If content is empty and safety is the reason, add a placeholder text.
+        if (anthropicRes.content.length === 0) {
+             anthropicRes.content.push({ type: "text", text: "[Message blocked due to safety concerns]" });
+        }
         break;
-      default:
+      case "RECITATION": // Response blocked due to recitation policy.
+        anthropicRes.stop_reason = "content_filter"; // Or potentially a new custom reason if important to distinguish
+         if (anthropicRes.content.length === 0) {
+            anthropicRes.content.push({ type: "text", text: "[Message blocked due to recitation policy]" });
+        }
+        break;
+      case "TOOL_CODE_EXECUTED": // This is Gemini's specific reason when it executes a tool.
+        anthropicRes.stop_reason = "tool_use"; // Should have been caught by hasToolUse, but good to have explicit mapping.
+        break;
+      default: // OTHER or unspecified
         anthropicRes.stop_reason = "end_turn";
+        break;
+    }
+  } else if (anthropicRes.content.length > 0) {
+    // If there's content but no specific finish reason, assume "end_turn"
+    anthropicRes.stop_reason = "end_turn";
+  }
+
+
+  // 3. Map usage statistics (Gemini provides these in `usageMetadata`)
+  if (geminiResp.usageMetadata) {
+    anthropicRes.usage.input_tokens = geminiResp.usageMetadata.promptTokenCount || 0;
+    anthropicRes.usage.output_tokens = geminiResp.usageMetadata.candidatesTokenCount || 0;
+    // If only totalTokenCount is available, it's harder to split.
+    // Some models/endpoints might only return totalTokenCount.
+    if (!geminiResp.usageMetadata.promptTokenCount && !geminiResp.usageMetadata.candidatesTokenCount && geminiResp.usageMetadata.totalTokenCount) {
+        // Cannot accurately split, could leave as 0 or assign total to output if input is unknown.
+        // For now, leave as 0 if not specified.
     }
   }
 
-  // 3. Map usage statistics
-  if (openAIRes.usage) {
-    anthropicRes.usage.input_tokens = openAIRes.usage.prompt_tokens || 0;
-    anthropicRes.usage.output_tokens = openAIRes.usage.completion_tokens || 0;
+  // If no content was added (e.g. empty parts array) and no specific stop reason indicated an error/filter,
+  // it's an empty valid response.
+  if (anthropicRes.content.length === 0 && anthropicRes.stop_reason === null) {
+      anthropicRes.stop_reason = "end_turn"; // Default for empty but valid assistant message
   }
+
 
   return anthropicRes;
 }
