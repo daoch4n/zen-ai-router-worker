@@ -2,13 +2,46 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Commit: tests: adapt tests to feat/claude",
-    "timestamp_utc": "2025-05-31T12:29:03.951924+00:00",
+    "title": "Commit: \ud83d\udd27",
+    "timestamp_utc": "2025-05-31T12:59:47.704926+00:00",
     "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "25041b22248bb4ea78d2e00cad0bcdab22e33162"
+    "commit_sha": "6ef104dbf3967aead01894e7e41d12df62b1c6b1"
   },
-  "review_comments": []
+  "review_comments": [
+    {
+      "file_path": ".github/workflows/gemini-review.py",
+      "github_diff_position": 155,
+      "comment_text_md": "**My Confidence: High**\n\nThis change correctly escapes the literal curly braces `{{` and `}}` within the f-string that defines the `RESPONSE FORMAT` block. This is a critical fix as unescaped curly braces in f-strings would cause a `ValueError` or incorrect parsing, preventing the model from receiving the correct JSON schema. This ensures the prompt is correctly formatted for Gemini's structured output feature.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "critical",
+      "detected_category_heuristic": "concurrency"
+    },
+    {
+      "file_path": ".github/workflows/gemini-review.py",
+      "github_diff_position": 104,
+      "comment_text_md": "**My Confidence: High**\n\nThe logic for determining `head_sha` in `get_diff` has been improved to correctly account for `push` events by using `review_context.commit_sha`. Previously, `head_sha` would remain `None` for push events, potentially limiting the effectiveness of the `repo.compare` strategy. This makes the diff retrieval more robust across different event types.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "general"
+    },
+    {
+      "file_path": ".github/workflows/gemini-review.py",
+      "github_diff_position": 89,
+      "comment_text_md": "**My Confidence: Medium**\n\nAdding a check for `commit_message.strip()` before attempting to split lines and access the first element is a good defensive programming practice. This prevents an `IndexError` if `commit_message` is empty or contains only whitespace, making the title extraction more robust.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": ".github/workflows/gemini-review.py",
+      "github_diff_position": 6,
+      "comment_text_md": "**My Confidence: High**\n\nThe consistent change across multiple hunks to use `logger.error` with string formatting (`%s`) and `exc_info=True` is a significant improvement for error logging. This ensures that full traceback information is included in the logs, which is invaluable for debugging and understanding the context of exceptions.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    }
+  ]
 }
