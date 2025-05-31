@@ -15,7 +15,7 @@ tag = "v1-tts-job-do-delete-old-if-exists"
 deleted_classes = ["TtsJobDurableObject"]
 [[migrations]]
 tag = "v1-tts-job-do-initial-setup"
-new_classes = ["TtsJobDurableObject"]
+new_sqlite_classes = ["TtsJobDurableObject"]
 # --- Development Environment ---
 # Use only 'npx run dev' for debug!
 
