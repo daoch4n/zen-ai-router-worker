@@ -183,18 +183,20 @@ async function callGoogleTTSAPI(model, requestBody, apiKey) {
  *
  * @param {Request} request - The incoming HTTP request containing TTS parameters
  * @param {string} apiKey - Google API key for Gemini access
+ * @param {Object} env - Cloudflare worker environment variables (currently unused in this handler but passed for consistency)
+ * @param {URL} url - The parsed URL of the incoming request
  * @returns {Promise<Response>} HTTP response with audio data or error information
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleTTS(request, apiKey) {
+export async function handleTTS(request, apiKey, env, url) {
   try {
     // Verify apiKey is provided (should be handled by worker, but defensive check)
     if (!apiKey) {
       throw new HttpError("API key is required", 401);
     }
 
-    // Parse query parameters for voice configuration
-    const url = new URL(request.url);
+    // Use passed URL object for query parameters
+    // const url = new URL(request.url); // No longer needed, use passed url
     const voiceName = url.searchParams.get('voiceName');
     const secondVoiceName = url.searchParams.get('secondVoiceName');
 
@@ -206,7 +208,7 @@ export async function handleTTS(request, apiKey) {
       throw new HttpError("Invalid JSON in request body", 400);
     }
 
-    const { text, model } = requestBody;
+    const { text, model, jobId, sentenceIndex } = requestBody;
 
     // Validate required fields
     if (!voiceName) {
@@ -219,6 +221,16 @@ export async function handleTTS(request, apiKey) {
 
     if (!model) {
       throw new HttpError("model field is required in request body", 400);
+    }
+
+    // Validate jobId
+    if (typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new HttpError("jobId field is required in request body and must be a non-empty string", 400);
+    }
+
+    // Validate sentenceIndex
+    if (typeof sentenceIndex !== 'number' || sentenceIndex < 0 || !Number.isInteger(sentenceIndex)) {
+      throw new HttpError("sentenceIndex field is required in request body and must be a non-negative integer", 400);
     }
 
     // Enhanced validation using new validation functions
@@ -287,18 +299,20 @@ export async function handleTTS(request, apiKey) {
  *
  * @param {Request} request - The incoming HTTP request containing TTS parameters
  * @param {string} apiKey - Google API key for Gemini access
+ * @param {Object} env - Cloudflare worker environment variables (currently unused in this handler but passed for consistency)
+ * @param {URL} url - The parsed URL of the incoming request
  * @returns {Promise<Response>} HTTP response with raw audio data or error information
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleRawTTS(request, apiKey) {
+export async function handleRawTTS(request, apiKey, env, url) {
   try {
     // Verify apiKey is provided (should be handled by worker, but defensive check)
     if (!apiKey) {
       throw new HttpError("API key is required", 401);
     }
 
-    // Parse query parameters for voice configuration
-    const url = new URL(request.url);
+    // Use passed URL object for query parameters
+    // const url = new URL(request.url); // No longer needed, use passed url
     const voiceName = url.searchParams.get('voiceName');
     const secondVoiceName = url.searchParams.get('secondVoiceName');
 
@@ -357,12 +371,35 @@ export async function handleRawTTS(request, apiKey) {
       apiKey
     );
 
-    // Return the base64 audio data directly with the correct mimeType
-    return new Response(base64Audio, fixCors({
+    // Decode the base64 audio
+    const audioBinary = decodeBase64Audio(base64Audio);
+
+    // Retrieve the R2 bucket from environment variables
+    const bucket = env.TTS_AUDIO_BUCKET;
+    if (!bucket) {
+      throw new HttpError('R2 bucket TTS_AUDIO_BUCKET is not configured', 500);
+    }
+
+    // Define the R2 key
+    const r2Key = `tts_audio/${jobId}/${sentenceIndex}.audio`;
+
+    // Store the audio in R2
+    try {
+      await bucket.put(r2Key, audioBinary.buffer, { httpMetadata: { contentType: mimeType } });
+    } catch (r2Error) {
+      console.error(`R2 put error for key ${r2Key}:`, r2Error);
+      throw new HttpError(`Failed to store audio in R2: ${r2Error.message}`, 500);
+    }
+
+    // Return JSON response with R2 key and other details
+    return new Response(JSON.stringify({
+      r2Key: r2Key,
+      mimeType: mimeType,
+      jobId: jobId,
+      sentenceIndex: sentenceIndex
+    }), fixCors({
       status: 200,
-      headers: {
-        'Content-Type': mimeType
-      }
+      headers: { 'Content-Type': 'application/json' }
     }));
 
   } catch (err) {

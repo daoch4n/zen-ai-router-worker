@@ -1,87 +1,210 @@
-# Detailed Plan for Orchestrator Durable Object State Management Optimization
+# TTS System Architecture with Durable Objects and R2
 
-**Goal:** Optimize the existing `TTSStateDurableObject` and its interaction patterns within the orchestrator to ensure efficient and resilient handling of "long TTS requests" under Cloudflare Workers free tier CPU time limits (10ms).
+## 1. Overview
 
-**Current State Analysis:**
+This document outlines the architecture of the Text-to-Speech (TTS) generation system. The primary goal is to provide a robust, scalable, and resilient solution for converting text into audible speech.
 
-*   **Existing `TTSStateDurableObject`:** Already manages `text`, `voiceId`, `currentSentenceIndex`, and `audioChunks`. It provides `initialize`, `updateProgress`, `getJobState`, and `deleteState` methods.
-*   **Orchestrator Interaction:** The orchestrator worker interacts with `TTSStateDurableObject` to store and retrieve state, and stream audio chunks via Server-Sent Events.
-*   **Cloudflare Workers Free Tier Limits (Critical Impact):**
-    *   **CPU Time:** 10ms per request (very restrictive for I/O-bound or compute-intensive tasks).
-    *   **Memory:** 128 MB.
-    *   **KV Storage:** 100,000 reads, 1,000 writes per day; 1 GB total.
-*   **"Long TTS Requests" Definition:** Based on the 10ms CPU limit, even a moderately long multi-sentence TTS request (e.g., more than a few sentences, or sentences requiring significant backend processing time) could exceed this limit due to:
-    *   Multiple `fetch` calls to backend TTS services.
-    *   Durable Object `state.storage.get()` and `state.storage.put()` operations (which consume CPU time).
-    *   JSON serialization/deserialization of state and audio chunks.
-    *   SSE streaming logic.
+The system leverages Cloudflare Workers, Durable Objects (DO) for state management, and R2 for storing audio data. Key components include:
+*   **Frontend Application:** User interface for TTS requests.
+*   **Orchestrator Worker:** Handles client requests, coordinates the workflow, and streams audio back to the client.
+*   **Backend Worker(s):** Responsible for the actual TTS generation using external APIs (e.g., Google TTS) and storing results in R2.
+*   **`TtsJobDurableObject`:** A Durable Object class that manages the state and lifecycle of each TTS job.
+*   **R2 Bucket:** Stores the generated audio chunks.
 
-**Problem Statement:** While the `TTSStateDurableObject` technically manages state, its current synchronous `loadState()` on every `fetch` and direct storage of all `audioChunks` could lead to CPU time limit violations and potential memory pressure (though less critical than CPU) for "long TTS requests" on the Cloudflare Workers free tier. The orchestrator's `fetch` handler for TTS requests, which involves multiple subrequests and state updates, is also susceptible.
+## 2. Core Architectural Principles
 
-**Proposed Enhancements and Strategy:**
+The architecture is designed around the following principles:
 
-The core strategy is to minimize synchronous CPU-intensive operations and data transfer within a single Worker invocation, leveraging Durable Object's isolated execution and asynchronous capabilities more effectively.
+*   **`TtsJobDurableObject` as State Manager:** The `TtsJobDurableObject` is central to managing the state of each TTS job. This includes:
+    *   Breaking down the input text into processable sentences or chunks based on client preference.
+    *   Maintaining the list of these sentences.
+    *   Tracking the status of each sentence (e.g., pending, processing, completed, failed).
+    *   Storing metadata for each successfully generated audio chunk, specifically its R2 storage key and MIME type.
+    *   Managing the overall status of the job (e.g., initialized, processing, completed, failed).
+*   **R2 for Audio Storage:** Actual binary audio data for each sentence/chunk is stored in an R2 bucket. This keeps the Durable Object lightweight, as DOs are optimized for state management rather than large binary data storage. The DO only stores pointers (R2 keys) to the audio data.
+*   **Orchestrator for Workflow Coordination:** The Orchestrator Worker acts as the primary coordinator. It:
+    *   Receives the initial TTS request from the client.
+    *   Interacts with the `TtsJobDurableObject` to initialize the job, request sentences for processing, and mark sentences as processed.
+    *   Dispatches sentence processing tasks to Backend Workers.
+    *   Once a backend worker signals completion and provides an R2 key, the Orchestrator fetches the audio data from R2.
+    *   Streams the audio data (typically encoded as Base64) back to the client via Server-Sent Events (SSE).
+*   **Backend Workers for TTS Generation & R2 Storage:** Backend Workers are stateless and focus on:
+    *   Receiving a sentence (or text chunk) and relevant parameters (jobId, sentenceIndex, voice model) from the Orchestrator.
+    *   Calling the external Google TTS API to generate the audio.
+    *   Decoding the audio data (e.g., from Base64 if returned by the API).
+    *   Storing the binary audio chunk directly into the R2 bucket.
+    *   Returning the R2 storage key and MIME type to the Orchestrator.
 
-1.  **Asynchronous State Loading/Saving within Durable Object:**
-    *   **Refinement:** Instead of `await this.loadState()` at the beginning of *every* `fetch` in `TTSStateDurableObject`, implement a lazy loading mechanism or ensure state is loaded only once per instance lifetime (similar to `RouterCounter`). The `constructor` or an explicit `connect` method might be more suitable for initial load. Subsequent requests can operate on the in-memory state, persisting changes as needed. This significantly reduces redundant `storage.get` calls.
-    *   **Rationale:** Reduces synchronous I/O operations and CPU time spent on state loading for subsequent requests to the same DO instance.
+## 3. Component Responsibilities
 
-2.  **Optimized Audio Chunk Storage and Retrieval:**
-    *   **Refinement:** For very long TTS jobs where `audioChunks` could grow significantly, consider alternatives to storing the entire `audioChunks` array directly in a single KV key.
-        *   **Option A: Chunking Audio Chunks:** Store `audioChunks` in smaller, indexed segments (e.g., `audioChunks_0`, `audioChunks_1`). The DO would manage indices, and the orchestrator would request ranges. This adds complexity but mitigates large single KV object sizes.
-        *   **Option B: External Storage References:** If audio chunks become extremely large, store references (e.g., URLs to R2 buckets or other blob storage) in the `audioChunks` array, rather than the base64 encoded data itself. This would offload storage and retrieval of large binaries from Durable Object storage, reducing KV operations and memory footprint within the DO. **This is likely an overkill for typical TTS and introduces external dependencies.**
-    *   **Recommendation (Initial):** For now, focus on efficient in-memory management within the DO. The current approach of storing the `audioChunks` array is acceptable given the 128MB memory limit, as long as the cumulative size of audio chunks doesn't approach this limit for a *single* Durable Object instance. The primary concern is the *CPU cost of serializing/deserializing* this array and transferring it on `get-state`.
+*   **Frontend (`tts-frontend/index.html` or similar):**
+    *   Provides the user interface for inputting text, selecting voice, and choosing splitting preferences.
+    *   Initiates the `/api/tts-stream` request to the Orchestrator.
+    *   Establishes an SSE connection to receive audio chunks and status updates.
+    *   Plays received audio chunks sequentially.
+    *   May handle assembling and downloading the full audio.
 
-3.  **Streamlined Orchestrator-Durable Object Interaction:**
-    *   **Refinement:** The orchestrator's `handleTtsRequest` already fetches state. The concern is the cumulative CPU usage.
-    *   **Progress Updates:** Ensure `updateProgress` in the DO is efficient. It currently updates two keys (`currentSentenceIndex`, `audioChunks`). This is reasonable.
-    *   **Batching `audioChunks` Updates (Advanced):** Instead of updating `audioChunks` on every single sentence completion, consider batching updates. For example, update the Durable Object every N sentences or after a certain time interval. This would reduce `storage.put` calls but increases the risk of losing progress if the Worker fails between batches. Given the `MAX_CONCURRENT_SENTENCE_FETCHES`, updating per sentence might be acceptable if the individual `put` operations are fast enough.
+*   **Orchestrator Worker (`orchestrator/src/index.mjs`):**
+    *   Exposes the `/api/tts-stream` endpoint.
+    *   Receives the TTS request (text, voiceId, splitting preference).
+    *   Generates a unique `jobId`.
+    *   Interacts with the `TtsJobDurableObject` using the `jobId`:
+        *   Initializes the job via `POST /tts-job/{jobId}/initialize`.
+        *   Fetches sentences sequentially via `GET /tts-job/{jobId}/next-sentence`.
+        *   Marks sentences as processed (with R2 metadata) via `POST /tts-job/{jobId}/sentence-processed`.
+        *   Optionally, queries job state via `GET /tts-job/{jobId}/state` or chunk metadata via `GET /tts-job/{jobId}/chunk/{sentenceIndex}/metadata`.
+    *   Manages a pool of concurrent requests to Backend Workers.
+    *   Selects an available Backend Worker (e.g., using `ROUTER_COUNTER` for simple load balancing).
+    *   Dispatches tasks (jobId, sentenceIndex, text chunk, voice model) to Backend Workers.
+    *   Upon receiving R2 metadata from a Backend Worker, it informs the `TtsJobDurableObject`.
+    *   Fetches the binary audio data directly from the R2 bucket using the provided key.
+    *   Encodes the audio data (e.g., to Base64) and streams it to the client via SSE.
+    *   Sends control messages (e.g., `event: end`) on the SSE stream.
 
-4.  **Robust Error Handling and Resumability:**
-    *   **Refinement:** The existing `index.mjs` handles retries for backend services and logs errors. The `TTSStateDurableObject` should store more detailed error information (e.g., last error message, timestamp of error, attempts made) to facilitate better debugging and potential resume points.
-    *   **`currentSentenceIndex` Reliability:** The `currentSentenceIndex` is crucial for resumability. Ensure its updates are atomic and reliable.
+*   **Backend Worker (`src/worker.mjs` & `src/handlers/tts.mjs`, e.g., `gemini-openai-adapter`):**
+    *   Exposes an endpoint like `/api/rawtts`.
+    *   Receives `jobId`, `sentenceIndex`, `text` chunk, and `model` (voice name might be in URL or body) from the Orchestrator.
+    *   Authenticates and calls the Google TTS API to generate audio for the given text chunk.
+    *   Receives audio data (e.g., Base64 encoded) and MIME type from Google API.
+    *   Decodes the audio data to its binary form.
+    *   Constructs an R2 key (e.g., `tts_audio/{jobId}/{sentenceIndex}.audio`).
+    *   Stores the binary audio data into the `TTS_AUDIO_BUCKET` in R2.
+    *   Returns a JSON response to the Orchestrator containing `{ r2Key, mimeType, jobId, sentenceIndex }`.
 
-**Architectural Diagram (Conceptual):**
+*   **`TtsJobDurableObject` (`src/durable_objects/TtsJobDurableObject.mjs`):**
+    *   Instantiated per unique `jobId`.
+    *   **`initializeJob(jobId, text, voiceId, model, splittingPreference)`:**
+        *   Validates inputs.
+        *   Performs text splitting based on `splittingPreference` ('tokenCount', 'none', or default sentence splitting) using copied/internal text utilities (`splitIntoSentences`, `getTextCharacterCount`).
+        *   Stores `originalText`, the array of `sentences` (text chunks).
+        *   Initializes `processedAudioChunks` as an array of objects, one for each sentence, e.g., `{ r2Key: null, mimeType: null, status: 'pending' }`.
+        *   Sets `currentSentenceIndex = 0` (tracks the next sentence to dispatch).
+        *   Sets `processedSentenceCount = 0`.
+        *   Sets `status = 'initialized'`.
+    *   **`getNextSentenceToProcess()`:**
+        *   Returns `{ sentence, index, done: false }` for the `currentSentenceIndex` if available.
+        *   Increments `currentSentenceIndex`.
+        *   Changes job `status` to 'processing' if it was 'initialized'.
+        *   Returns `{ done: true }` if all sentences have been dispatched.
+    *   **`markSentenceAsProcessed(index, r2Key, mimeType)`:**
+        *   Updates `processedAudioChunks[index]` with `{ r2Key, mimeType, status: 'completed' }`.
+        *   Increments `processedSentenceCount`.
+        *   If `processedSentenceCount === totalSentences`, sets job `status = 'completed'`.
+    *   **`getAudioChunkMetadata(sentenceIndex)`:**
+        *   Returns the stored `{ r2Key, mimeType, status }` for the specified `sentenceIndex`.
+    *   **`getJobState()`:**
+        *   Returns the overall job status, counts, and potentially a summary of chunk statuses.
+    *   **`updateJobStatus({ status, errorMessage, sentenceIndexToFail })`:**
+        *   Allows updating the overall job status or marking a specific sentence as 'failed'.
+
+*   **R2 Bucket (`TTS_AUDIO_BUCKET`):**
+    *   Stores the binary audio data for each successfully synthesized sentence/chunk.
+    *   Objects are named using a convention like `tts_audio/{jobId}/{sentenceIndex}.audio`.
+
+## 4. Workflow Diagram
 
 ```mermaid
-graph TD
-    A[Client Request: /api/tts] --> B(Orchestrator Worker)
-    B -- Fetch Job ID (crypto.randomUUID) --> C{Is Job ID new or resuming?}
-    C -- New Job --> D[Initialize TTSStateDurableObject]
-    C -- Resuming --> E[Load TTSStateDurableObject State]
+sequenceDiagram
+    participant Client
+    participant Orchestrator
+    participant TtsJobDO
+    participant BackendWorker
+    participant GoogleTTSAPI
+    participant R2Bucket
 
-    D -- Store Initial State (text, voiceId) --> F(TTSStateDurableObject Instance)
-    E -- Retrieve State (currentSentenceIndex, audioChunks) --> F
+    Client->>Orchestrator: /api/tts-stream (text, voice, splitting)
+    Orchestrator->>Orchestrator: Generate jobId
+    Orchestrator->>TtsJobDO: POST /tts-job/{jobId}/initialize (jobId, text, ...)
+    TtsJobDO->>TtsJobDO: Split text, store sentences & initial metadata
+    TtsJobDO-->>Orchestrator: { jobId, status, totalSentences }
 
-    F -- State Data --> B
-    B -- Split Text into Sentences --> G[Sentence Processing Loop]
+    loop For each sentence (concurrently, managed by Orchestrator)
+        Orchestrator->>TtsJobDO: GET /tts-job/{jobId}/next-sentence
+        TtsJobDO-->>Orchestrator: { sentence, index, done }
+        alt if done
+            Orchestrator->>Orchestrator: Note no more sentences for this task
+        else
+            Orchestrator->>BackendWorker: POST /api/rawtts (jobId, index, sentence, model, voiceId)
+            BackendWorker->>GoogleTTSAPI: Generate TTS Content
+            GoogleTTSAPI-->>BackendWorker: { base64Audio, mimeType }
+            BackendWorker->>BackendWorker: Decode base64 to binary
+            BackendWorker->>R2Bucket: PUT audio chunk (key: tts_audio/{jobId}/{index}.audio)
+            R2Bucket-->>BackendWorker: Store Success
+            BackendWorker-->>Orchestrator: { r2Key, mimeType, jobId, index }
 
-    G -- Process Sentence (index) --> H(Fetch Backend TTS Service)
-    H -- Audio Chunk --> I(Send SSE Message to Client)
-    H -- Success --> J(Update TTSStateDurableObject Progress)
-    J -- Persist (currentSentenceIndex, audioChunks[index]) --> F
+            Orchestrator->>TtsJobDO: POST /tts-job/{jobId}/sentence-processed (index, r2Key, mimeType)
+            TtsJobDO->>TtsJobDO: Update chunk metadata (r2Key, mimeType, status='completed'), increment processedSentenceCount
+            alt if all sentences processed
+                 TtsJobDO->>TtsJobDO: Set job status to 'completed'
+            end
+            TtsJobDO-->>Orchestrator: { status } // Confirmation
 
-    H -- Failure (Retry Logic) --> G
-    G -- All Sentences Processed --> K(Close SSE Stream)
-    K --> L[Client Receives Full Audio]
+            Orchestrator->>R2Bucket: GET audio chunk (using r2Key)
+            R2Bucket-->>Orchestrator: Binary audio data
+            Orchestrator->>Orchestrator: Encode audio to base64
+            Orchestrator-->>Client: SSE event: message, data: { audioChunk, index, mimeType }
+        end
+    end
 
-    style A fill:#f9f,stroke:#333,stroke-width:2px
-    style B fill:#bbf,stroke:#333,stroke-width:2px
-    style F fill:#fbb,stroke:#333,stroke-width:2px
-    style K fill:#9f9,stroke:#333,stroke-width:2px
+    alt All sentences successfully streamed or job completion detected
+        Orchestrator-->>Client: SSE event: end, data: {}
+    end
 ```
 
-**Test Strategy (if enhancements are implemented):**
+*Note: The Orchestrator might periodically check job status with TtsJobDO (`/state`) or determine completion based on `successfullyStreamedSentenceCount` reaching `totalSentences`.*
 
-If enhancements are implemented based on the above, the test strategy would focus on:
 
-1.  **CPU Time Limit Compliance:**
-    *   **Unit Tests:** For `TTSStateDurableObject` methods (`initialise`, `updateProgress`, `getJobState`, `loadState`), mock `state.storage` operations and measure their CPU consumption.
-    *   **Integration Tests:** Simulate "long TTS requests" with varying sentence counts and text lengths. Measure the total CPU time of the orchestrator's `fetch` handler. Introduce assertions to fail if CPU time exceeds the 10ms limit for single invocations. This will likely require a custom test runner that can measure CPU time.
-2.  **State Management Robustness:**
-    *   **Resumability Tests:** Simulate partial TTS generation, worker crashes, and then attempt to resume from the last known good state. Verify that the correct `currentSentenceIndex` and `audioChunks` are loaded and processing continues correctly.
-    *   **Concurrency Tests:** Simulate multiple concurrent requests to the same `TTSStateDurableObject` instance to ensure state updates are handled correctly and no race conditions occur.
-    *   **Data Integrity:** Verify that `text`, `voiceId`, `currentSentenceIndex`, and `audioChunks` are persisted and retrieved accurately, especially with large `audioChunks` arrays.
-3.  **Error Handling and Retry Logic:**
-    *   **Backend Service Failures:** Simulate various backend TTS service failures (e.g., 500 errors, 429 rate limits, network timeouts) and verify that the retry logic in `index.mjs` functions as expected, and that `TTSStateDurableObject` accurately reflects any persistent error states.
-    *   **Durable Object Failures (Edge Case):** Though rare, consider how the system would behave if the Durable Object itself experiences an unhandled error during a state update.
+## 5. Configuration (`wrangler.toml` essentials)
+
+Key bindings required for the services:
+
+*   **Orchestrator Worker:**
+    ```toml
+    [[durable_object_bindings]]
+    name = "TTS_JOB_DO"
+    class_name = "TtsJobDurableObject"
+    # script_name = "gemini-openai-adapter" # If DO class is defined in another worker
+
+    [[r2_buckets]]
+    binding = "TTS_AUDIO_BUCKET"
+    bucket_name = "your-tts-audio-bucket-name"
+
+    [[durable_object_bindings]] # For backend worker routing if used
+    name = "ROUTER_COUNTER"
+    class_name = "RouterCounter"
+    # script_name = "orchestrator" # If RouterCounter is in the orchestrator itself
+    ```
+
+*   **Backend Worker (e.g., `gemini-openai-adapter` if it defines `TtsJobDurableObject`):**
+    ```toml
+    # If this worker defines TtsJobDurableObject, it needs to declare it:
+    # [[migrations]]
+    # tag = "v1-ttsjobdo"
+    # new_classes = ["TtsJobDurableObject"]
+
+    [[r2_buckets]]
+    binding = "TTS_AUDIO_BUCKET"
+    bucket_name = "your-tts-audio-bucket-name"
+
+    # If the Backend Worker also needs to call the DO (e.g. for direct updates, though current flow is Orchestrator->DO)
+    # [[durable_object_bindings]]
+    # name = "TTS_JOB_DO"
+    # class_name = "TtsJobDurableObject"
+    ```
+    Ensure `script_name` is used for DO bindings if the DO class is defined in a different worker than the one binding to it. If the class is in the same worker, `script_name` is not needed. The worker that *defines* the DO class needs the `new_classes` in a migration.
+
+## 6. Benefits of this Architecture
+
+*   **Scalability:**
+    *   R2 provides scalable and durable storage for audio files, which can grow large.
+    *   Durable Objects are designed for scalable state management, handling many concurrent jobs.
+    *   Stateless Orchestrator and Backend Workers can be scaled out easily.
+*   **Resilience & Reliability:**
+    *   Durable Objects persist job state, allowing jobs to potentially resume or their status to be reliably queried even if workers restart.
+    *   R2 provides high durability for the stored audio chunks.
+*   **Reduced Worker Load:**
+    *   Stateless workers (Orchestrator, Backend) have reduced CPU and memory footprints as they don't hold large audio data or complex job states in memory.
+*   **Clear Separation of Concerns:**
+    *   Each component has a well-defined responsibility, simplifying development, testing, and maintenance.
+    *   DO for state, R2 for binary data, Workers for logic and coordination.
+*   **Improved Stream Management:** The Orchestrator can manage the streaming of audio chunks more effectively by fetching them from R2 as needed, rather than holding many audio chunks in memory.

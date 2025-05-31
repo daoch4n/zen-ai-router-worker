@@ -107,223 +107,295 @@ if (request.method === 'OPTIONS') {
 const jobId = crypto.randomUUID();
 console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
 
-const MIN_TEXT_LENGTH_TOKEN_COUNT = 1;
-const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
+const jobId = crypto.randomUUID();
+console.log(`Orchestrator: New TTS Job ID generated: ${jobId}`);
 
-let sentences;
-console.log(`Orchestrator: Starting text splitting with option: ${splitting}`);
-if (splitting === 'tokenCount') {
-    const initialSentences = splitIntoSentences(text);
-    const batchedSentences = [];
-    let currentBatch = '';
-    let currentBatchLength = 0;
+// Durable Object setup
+if (!env.TTS_JOB_DO) {
+    console.error("Orchestrator: TTS_JOB_DO is not bound.");
+    throw new HttpError("TTS service misconfigured (DO not bound)", 500);
+}
+const doId = env.TTS_JOB_DO.idFromName(jobId);
+const doStub = env.TTS_JOB_DO.get(doId);
 
-    for (const sentence of initialSentences) {
-        const sentenceLength = getTextCharacterCount(sentence);
-
-        if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
-            // If a single sentence is too long, send it as its own batch
-            if (currentBatch.length > 0) {
-                batchedSentences.push(currentBatch.trim());
-                currentBatch = '';
-                currentBatchLength = 0;
-            }
-            batchedSentences.push(sentence.trim());
-            console.log(`Orchestrator: Sentence too long (${sentenceLength} chars), sent as single batch.`);
-        } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
-            // If adding the current sentence exceeds the limit, push the current batch
-            batchedSentences.push(currentBatch.trim());
-            currentBatch = sentence;
-            currentBatchLength = sentenceLength;
-            console.log(`Orchestrator: Batch full, starting new batch for sentence.`);
-        } else {
-            // Otherwise, add to the current batch
-            currentBatch += (currentBatch.length > 0 ? ' ' : '') + sentence;
-            currentBatchLength += sentenceLength;
-            console.log(`Orchestrator: Added sentence to current batch. Current batch length: ${currentBatchLength}`);
-        }
-    }
-
-    // Add any remaining batch
-    if (currentBatch.length > 0) {
-        batchedSentences.push(currentBatch.trim());
-    }
-
-    sentences = batchedSentences.filter(s => s.length > 0);
-    console.log(`Orchestrator: Using 'Sentence by Token Count' splitting. Text split into ${sentences.length} batches with max length ${MAX_TEXT_LENGTH_TOKEN_COUNT}.`);
-} else if (splitting === 'none') {
-    sentences = [text];
-    console.log("Orchestrator: Using 'No Splitting' option. Text will be sent as a single block.");
-} else {
-    sentences = splitIntoSentences(text);
-    console.log(`Orchestrator: Using 'Sentence by Sentence' splitting. Text split into ${sentences.length} sentences.`);
+// R2 Bucket check
+if (!env.TTS_AUDIO_BUCKET) {
+    console.error("Orchestrator: TTS_AUDIO_BUCKET is not bound.");
+    // Optionally inform DO to mark job as failed
+    // Consider: await doStub.fetch(`https://do-placeholder/tts-job/${jobId}/update-status`, { method: 'POST', body: JSON.stringify({ status: 'failed', errorMessage: 'TTS_AUDIO_BUCKET not bound' }) });
+    throw new HttpError("TTS service misconfigured (R2 bucket not bound)", 500);
 }
 
-// Adjust sentences and audioChunks if resuming
+const { readable, writable } = new TransformStream();
+const writer = writable.getWriter();
+const encoder = new TextEncoder();
+const responseOptions = fixCors({
+        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
+        status: 200
+    });
 
+// Initialize Job with Durable Object
+console.log(`Orchestrator: Initializing job ${jobId} with DO.`);
+const initResponse = await doStub.fetch(`https://do-placeholder/tts-job/${jobId}/initialize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+        jobId,
+        text,
+        voiceId,
+        model: DEFAULT_TTS_MODEL,
+        splittingPreference: splitting
+    }),
+});
+
+if (!initResponse.ok) {
+    const errorData = await initResponse.text();
+    console.error(`Orchestrator: Failed to initialize job with DO ${jobId}. Status: ${initResponse.status}. Error: ${errorData}`);
+    // No writer.close() or readable stream response if init fails before stream starts properly.
+    throw new HttpError(`Failed to initialize TTS job: ${errorData}`, initResponse.status);
+}
+
+const initResult = await initResponse.json();
+const totalSentences = initResult.totalSentences;
+console.log(`Orchestrator: Job ${jobId} initialized by DO. Total sentences: ${totalSentences}`);
+
+if (totalSentences === 0) {
+    console.log(`Orchestrator: Job ${jobId} has no sentences. Sending end event immediately.`);
+    writer.write(encoder.encode('event: end\ndata: \n\n'));
+    writer.close();
+    return new Response(readable, responseOptions);
+}
+
+const sendSseMessage = (data, event = 'message') => {
+    let message = `event: ${event}\n`;
+    // SSE 'id' should be unique for each message if possible, or related to the chunk index
+    message += `id: ${jobId}-${data.index || Date.now()}\n`;
+    message += `data: ${JSON.stringify(data)}\n\n`;
+    writer.write(encoder.encode(message));
+    console.log(`Orchestrator: SSE message sent for job ${jobId}, index ${data.index}, event: ${event}`);
+};
 
 
 const MAX_CONCURRENT_SENTENCE_FETCHES = 5;
 const MAX_RETRIES = 3;
 const RETRY_INITIAL_DELAY_MS = 1000;
 let activeFetches = 0;
-let fetchQueue = [];
-const sentenceFetchPromises = sentences.map((sentence, index) => {
-    const originalIndex = index + jobCurrentSentenceIndex;
-    return new Promise((resolve, reject) => {
-        fetchQueue.push({ sentence, index: originalIndex, resolve, reject });
-        console.log(`Orchestrator: Added sentence ${originalIndex} to fetch queue. Queue size: ${fetchQueue.length}`);
-    });
-});
+let successfullyStreamedSentenceCount = 0;
+let jobCompletedSuccessfully = false; // Flag to prevent processing after job end
 
-const { readable, writable } = new TransformStream();
-const writer = writable.getWriter();
-const encoder = new TextEncoder();
+// Helper for DO URL
+const getDoUrl = (action, queryParams = "") => `https://do-placeholder/tts-job/${jobId}/${action}${queryParams}`;
 
-const sendSseMessage = (data, event = 'message') => {
-    let message = `event: ${event}\n`;
-    message += `id: ${data.index}\n`;
-    message += `data: ${JSON.stringify(data)}\n\n`;
-    writer.write(encoder.encode(message));
-    console.log(`Orchestrator: SSE message sent for index ${data.index}, event: ${event}`);
-};
+const processSentenceTask = async () => {
+    if (jobCompletedSuccessfully || successfullyStreamedSentenceCount >= totalSentences) {
+        return; // All sentences processed or job ended
+    }
 
+    console.log(`Orchestrator: Job ${jobId} - Attempting to fetch next sentence from DO. Active fetches: ${activeFetches}`);
+    let nextSentenceData;
+    try {
+        const nextSentenceResponse = await doStub.fetch(getDoUrl('next-sentence'));
+        if (!nextSentenceResponse.ok) {
+            const errorText = await nextSentenceResponse.text();
+            console.error(`Orchestrator: Job ${jobId} - Error fetching next sentence from DO. Status: ${nextSentenceResponse.status}, Error: ${errorText}`);
+            // This is a critical error with DO, might need to abort the job.
+            // For now, log and stop fetching more sentences for this worker.
+            // Consider marking job failed in DO if this persists.
+            throw new HttpError(`DO error fetching next sentence: ${errorText}`, nextSentenceResponse.status);
+        }
+        nextSentenceData = await nextSentenceResponse.json();
+    } catch (e) {
+        console.error(`Orchestrator: Job ${jobId} - Exception fetching next sentence from DO: ${e.message}`);
+        activeFetches--;
+        dispatchNextTasks(); // Try to keep other tasks going if possible
+        return; // Stop this specific task
+    }
 
-const outstandingPromises = new Set();
+    const { sentence, index: sentenceIndex, done } = nextSentenceData;
 
-const processQueue = async () => {
-    console.log(`Orchestrator: Processing queue. Active fetches: ${activeFetches}, Queue size: ${fetchQueue.length}`);
-    while (fetchQueue.length > 0 && activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES) {
-        const { sentence, index, resolve, reject } = fetchQueue.shift();
-        activeFetches++;
-        console.log(`Orchestrator: Starting fetch for sentence ${index}. Active fetches: ${activeFetches}`);
+    if (done) {
+        console.log(`Orchestrator: Job ${jobId} - DO indicates no more sentences. Active fetches: ${activeFetches}`);
+        // If all active fetches complete and done is true from all, then job is finished.
+        // This specific task ends. If activeFetches becomes 0 and all tasks reported 'done', the main loop control will handle job completion.
+        return;
+    }
 
-        const currentPromise = (async () => {
-            const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
-            const stub = env.ROUTER_COUNTER.get(id);
-            const currentCounterResponse = await stub.fetch("https://dummy-url/increment");
-            const currentCounter = parseInt(await currentCounterResponse.text());
+    console.log(`Orchestrator: Job ${jobId} - Received sentence ${sentenceIndex} from DO.`);
 
-            const targetWorkerIndex = currentCounter % numSrcWorkers;
-            const targetService = backendServices[targetWorkerIndex];
-            console.log(`Orchestrator: Sentence ${index} - Selected targetWorkerIndex: ${targetWorkerIndex}, targetService: ${targetService}`);
+    try {
+        // b. Send to Backend Worker
+        const id = env.ROUTER_COUNTER.idFromName("global-router-counter");
+        const rcStub = env.ROUTER_COUNTER.get(id);
+        const currentCounterResponse = await rcStub.fetch("https://dummy-url/increment");
+        const currentCounter = parseInt(await currentCounterResponse.text());
+        const targetWorkerIndex = currentCounter % numSrcWorkers;
+        const targetService = backendServices[targetWorkerIndex];
 
-            let result = { index, audioContentBase64: null, error: null };
-            let finalErrMsg = null;
+        let backendResponseData;
+        let r2Key, mimeType;
 
-            if (!targetService) {
-                finalErrMsg = "Failed to select target worker.";
-                console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}.`);
-                result.error = finalErrMsg;
-            } else {
-                let attempts = 0;
-                let delay = RETRY_INITIAL_DELAY_MS;
+        if (!targetService) {
+            throw new Error("Failed to select target worker.");
+        }
 
-                while (attempts <= MAX_RETRIES) {
+        let attempts = 0;
+        let lastError = null;
+        while (attempts <= MAX_RETRIES) {
+            try {
+                const backendTtsUrl = new URL(request.url); // Base URL from original request
+                backendTtsUrl.pathname = '/api/rawtts';
+                backendTtsUrl.searchParams.set('voiceName', voiceId); // voiceId from outer scope
+
+                const headersToSend = { 'Content-Type': 'application/json' };
+                console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Sending to backend worker: ${targetService} at ${backendTtsUrl.toString()}`);
+
+                const backendResponse = await targetService.fetch(new Request(backendTtsUrl.toString(), {
+                    method: 'POST',
+                    headers: headersToSend,
+                    body: JSON.stringify({
+                        text: sentence.trim(),
+                        model: DEFAULT_TTS_MODEL,
+                        jobId: jobId,
+                        sentenceIndex: sentenceIndex
+                    }),
+                }));
+
+                if (!backendResponse.ok) {
+                    let errorData;
+                    let rawErrorMessage = `HTTP error Status ${backendResponse.status}`;
                     try {
-                        const backendTtsUrl = new URL(request.url);
-                                backendTtsUrl.pathname = '/api/rawtts'; // Corrected path for backend worker
-                                // Pass voiceId as voiceName in URL query parameters
-                                backendTtsUrl.searchParams.set('voiceName', voiceId);
-                                // Clear other search parameters if needed, or explicitly set only required ones
-                                // backendTtsUrl.search = `voiceName=${encodeURIComponent(voiceId)}`;
-
-                                console.log(`Orchestrator: Sentence ${index} - Backend TTS URL: ${backendTtsUrl.toString()}`);
-                                console.log(`Orchestrator: Sentence ${index} - API Key being sent to backend: ${apiKey ? 'Present' : 'Missing'}`);
-                                 const headersToSend = {
-                                    'Content-Type': 'application/json',
-                                    'Authorization': `Bearer ${apiKey}`
-                                 };
-                                 console.log(`Orchestrator: Sentence ${index} - Headers sent to backend: ${JSON.stringify(headersToSend)}`);
-                                 const response = await targetService.fetch(new Request(backendTtsUrl.toString(), {
-                                    method: 'POST',
-                                    headers: headersToSend,
-                                    body: JSON.stringify({
-                                        text: sentence.trim(),
-                                        model: DEFAULT_TTS_MODEL // Pass the default model name
-                                    }),
-                                }));
-                        
-                        console.log(`Orchestrator: Sentence ${index} - Response status from backend: ${response.status}`);
-
-                        if (!response.ok) {
-                            let errorData;
-                            let rawErrorMessage = `HTTP error Status ${response.status}`;
-                            try {
-                                errorData = await response.json();
-                                rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
-                            } catch (e) {
-                                rawErrorMessage = await response.text() || rawErrorMessage;
-                            }
-
-                            if (response.status >= 500 || response.status === 429) {
-                                console.warn(`Orchestrator: Backend error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${rawErrorMessage}`);
-                                attempts++;
-                                if (attempts <= MAX_RETRIES) {
-                                    await new Promise(res => setTimeout(res, delay));
-                                    delay *= 2;
-                                    continue;
-                                }
-                            }
-                            finalErrMsg = `Backend Error: ${rawErrorMessage}`;
-                            console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}`);
-                            result.error = finalErrMsg;
-                        } else {
-                            const data = await response.json();
-                            console.log(`Orchestrator: Sentence ${index} - Successfully received audio data from backend.`);
-                            result.audioContentBase64 = data.audioContentBase64;
-                            result.error = null;
-                        }
-                        break;
+                        errorData = await backendResponse.json();
+                        rawErrorMessage = errorData.error?.message || errorData.message || rawErrorMessage;
                     } catch (e) {
-                        finalErrMsg = `Fetch Exception: ${e.message}`;
-                        console.warn(`Orchestrator: Fetch error for sentence ${index}, attempt ${attempts + 1}/${MAX_RETRIES + 1}. Retrying... Error: ${e.message}`);
+                        rawErrorMessage = await backendResponse.text() || rawErrorMessage;
+                    }
+                    lastError = new Error(rawErrorMessage);
+                    if (backendResponse.status >= 500 || backendResponse.status === 429) {
                         attempts++;
                         if (attempts <= MAX_RETRIES) {
-                            await new Promise(res => setTimeout(res, delay));
-                            delay *= 2;
+                            console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Backend error (attempt ${attempts}/${MAX_RETRIES+1}), retrying. Error: ${rawErrorMessage}`);
+                            await new Promise(res => setTimeout(res, RETRY_INITIAL_DELAY_MS * (2 ** (attempts-1)) ));
                             continue;
                         }
-                        console.error(`Orchestrator: ${finalErrMsg} for sentence ${index}:`, e);
-                        result.error = finalErrMsg;
-                        break;
                     }
+                    throw lastError; // Non-retryable or max retries exceeded
+                }
+                backendResponseData = await backendResponse.json();
+                break; // Success
+            } catch (e) {
+                lastError = e;
+                attempts++;
+                 if (attempts <= MAX_RETRIES) {
+                    console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Backend fetch exception (attempt ${attempts}/${MAX_RETRIES+1}), retrying. Error: ${e.message}`);
+                    await new Promise(res => setTimeout(res, RETRY_INITIAL_DELAY_MS * (2 ** (attempts-1)) ));
+                } else {
+                    throw e; // Max retries exceeded
                 }
             }
+        }
 
-            
+        if (!backendResponseData || !backendResponseData.r2Key) {
+             throw new Error(`Backend worker did not return r2Key. Last error: ${lastError?.message}`);
+        }
 
-            if (result.error) {
-                sendSseMessage({ index, message: `Synthesis failed for sentence ${index}: ${result.error}`, audioContentBase64: null }, 'error');
-            } else {
-                sendSseMessage({ audioChunk: result.audioContentBase64, index, mimeType: "audio/opus" });
-            }
-            return result;
-        })();
-        outstandingPromises.add(currentPromise);
-        
-        currentPromise.finally(() => {
-            activeFetches--;
-            console.log(`Orchestrator: Fetch for sentence ${index} completed. Active fetches: ${activeFetches}`);
-            outstandingPromises.delete(currentPromise);
-            processQueue();
+        r2Key = backendResponseData.r2Key;
+        mimeType = backendResponseData.mimeType;
+
+        if (backendResponseData.jobId !== jobId || backendResponseData.sentenceIndex !== sentenceIndex) {
+            console.warn(`Orchestrator: Job ${jobId} - Mismatch in jobId/sentenceIndex from backend. Expected ${jobId}/${sentenceIndex}, got ${backendResponseData.jobId}/${backendResponseData.sentenceIndex}`);
+            // Potentially throw error or handle as critical failure
+        }
+        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Received r2Key ${r2Key} from backend.`);
+
+        // c. Inform DO of Processed Sentence
+        const markProcessedResponse = await doStub.fetch(getDoUrl('sentence-processed'), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index: sentenceIndex, r2Key, mimeType }),
         });
+        if (!markProcessedResponse.ok) {
+            const errorText = await markProcessedResponse.text();
+            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Failed to mark as processed in DO. Status: ${markProcessedResponse.status}, Error: ${errorText}`);
+            // This is a significant issue, data in R2 might not be tracked by DO.
+            // Consider how to handle this - potentially retry, or flag for reconciliation.
+            // For now, proceed to stream if R2 fetch is okay, but log error.
+        }
+        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Marked as processed in DO.`);
 
-        currentPromise.then(resolve, reject);
+        // d. Fetch Audio from R2
+        const r2Object = await env.TTS_AUDIO_BUCKET.get(r2Key);
+        if (!r2Object) {
+            throw new Error(`R2 object not found for key ${r2Key}`);
+        }
+        const audioArrayBuffer = await r2Object.arrayBuffer();
+
+        let binary = '';
+        const bytes = new Uint8Array(audioArrayBuffer);
+        for (let i = 0; i < bytes.byteLength; i++) {
+            binary += String.fromCharCode(bytes[i]);
+        }
+        const base64AudioChunk = btoa(binary);
+        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Fetched audio from R2 and converted to base64.`);
+
+        // e. Send SSE Message to Client
+        sendSseMessage({ audioChunk: base64AudioChunk, index: sentenceIndex, mimeType });
+        successfullyStreamedSentenceCount++;
+
+    } catch (error) {
+        console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Error in processing task: ${error.message}`, error.stack);
+        try {
+            await doStub.fetch(getDoUrl('update-status'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status: 'error', errorMessage: `Failed to process sentence ${sentenceIndex}: ${error.message}`, sentenceIndexToFail: sentenceIndex })
+            });
+        } catch (doError) {
+            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - CRITICAL: Failed to update DO status after task error: ${doError.message}`);
+        }
+        sendSseMessage({ index: sentenceIndex, error: { message: `Failed to process sentence ${sentenceIndex}: ${error.message}` } }, 'error');
+    } finally {
+        activeFetches--;
+        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Task finished. Active fetches: ${activeFetches}. Streamed count: ${successfullyStreamedSentenceCount}/${totalSentences}`);
+        // Check for job completion after each task.
+        if (successfullyStreamedSentenceCount >= totalSentences && !jobCompletedSuccessfully) {
+            jobCompletedSuccessfully = true;
+            console.log(`Orchestrator: Job ${jobId} - All ${totalSentences} sentences successfully streamed. Sending end event.`);
+            writer.write(encoder.encode('event: end\ndata: \n\n'));
+            writer.close();
+        } else if (!jobCompletedSuccessfully) {
+            dispatchNextTasks(); // Attempt to dispatch more tasks
+        }
     }
 };
 
-processQueue();
+const dispatchNextTasks = () => {
+    console.log(`Orchestrator: Job ${jobId} - Dispatching next tasks. Active: ${activeFetches}, Max: ${MAX_CONCURRENT_SENTENCE_FETCHES}, Streamed: ${successfullyStreamedSentenceCount}/${totalSentences}`);
+    while (activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES && successfullyStreamedSentenceCount < totalSentences && !jobCompletedSuccessfully) {
+        // Check if we expect more sentences. This check is implicitly handled by processSentenceTask's 'done' flag.
+        // If 'done' is received consistently and successfullyStreamedSentenceCount < totalSentences, it implies an issue.
+        // However, the primary condition is successfullyStreamedSentenceCount.
 
-Promise.allSettled(sentenceFetchPromises).then(() => {
-    console.log("Orchestrator: All sentence fetch promises settled. Sending end event to SSE.");
-    writer.write(encoder.encode('event: end\ndata: \n\n'));
-    writer.close();
-});
+        // A more robust check here would be to ask DO for job status if many 'done' flags appear before count is met.
+        // For now, we rely on successfullyStreamedSentenceCount and totalSentences.
 
-const responseOptions = fixCors({
-        headers: { 'Content-Type': 'text/event-stream; charset=utf-8' },
-        status: 200
-    });
-    return new Response(readable, responseOptions);
+        activeFetches++;
+        console.log(`Orchestrator: Job ${jobId} - Incrementing active fetches to ${activeFetches}, starting new task.`);
+        processSentenceTask(); // Intentionally not awaited, runs in background
+    }
+
+    // If no active fetches are running, and not all sentences were streamed, and job not marked complete,
+    // it might mean all available sentences from DO returned 'done' prematurely or tasks failed.
+    if (activeFetches === 0 && successfullyStreamedSentenceCount < totalSentences && !jobCompletedSuccessfully) {
+        console.warn(`Orchestrator: Job ${jobId} - All tasks finished but not all sentences streamed (${successfullyStreamedSentenceCount}/${totalSentences}). Sending end event.`);
+        // This could be due to errors in all tasks or DO prematurely reporting 'done'.
+        writer.write(encoder.encode('event: end\ndata: \n\n')); // Ensure stream closes
+        writer.close();
+        jobCompletedSuccessfully = true; // Mark as ended to prevent further operations
+    }
+};
+
+// Start the initial dispatch
+dispatchNextTasks();
+
+return new Response(readable, responseOptions);
 }
