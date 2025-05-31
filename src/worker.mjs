@@ -102,4 +102,5 @@ async function fetch(request, env) {
   }
 }
 
-export default { fetch, TtsJobDurableObject };
+export { TtsJobDurableObject };
+export default { fetch };
