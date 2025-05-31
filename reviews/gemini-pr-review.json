@@ -1,0 +1,47 @@
+{
+  "metadata": {
+    "event_type": "pull_request",
+    "repo": "daoch4n/zen-ai-tts",
+    "title": "Fix: Improve API key handling and text processing",
+    "timestamp_utc": "2025-05-31T21:38:34.906812+00:00",
+    "review_tool": "zen-ai-qa",
+    "model_used": "gemini-2.5-flash-preview-05-20",
+    "api_key_used": "primary",
+    "rate_limited": false,
+    "pull_number": 15
+  },
+  "review_comments": [
+    {
+      "file_path": "src/utils/textProcessing.mjs",
+      "github_diff_position": 4,
+      "comment_text_md": "**My Confidence: High**\n\nThe updated regex `/(?<=[.?!])(?=\\s*[\"']?|$|[.!?\"']+|[A-Z])/g` correctly addresses the issue of sentences concatenated without whitespace (e.g., \"Hello!How are you?\") by adding `|[A-Z]` to the lookahead.\n\nHowever, changing `\\s+` to `\\s*` in the `\\s*[\"']?` part of the lookahead introduces a regression for abbreviations. For instance, \"Dr. Smith\" would now be incorrectly split after \"Dr.\" because `.` is followed by `\\s*` (the space) and then `S` (which is not `[A-Z]` but the `\\s*` part causes the split).\n\nTo fix this, we need to ensure that a split occurs after a terminator followed by one or more spaces (for standard sentence breaks) OR immediately by a capital letter (for concatenated sentences), but not after abbreviations followed by a space.\n\nConsider changing the regex to:\n\n```regex\n/(?<=[.?!])(?=(?:\\s+[\"']?|[A-Z])|$|[.!?\"']+)/g\n```\n\n**Explanation of proposed change:**\n\n*   `\\s+[\"']?`: This part specifically matches one or more whitespace characters followed by an optional quote. This ensures that \"Dr. Smith\" does *not* split after \"Dr.\" because `S` is not a quote, and the `\\s+` requires at least one space.\n*   `|[A-Z]`: This part handles the case where a sentence ends with a terminator and is immediately followed by a capital letter (e.g., \"Hello!How\"). This is crucial for the intended fix.\n*   `(?:\\s+[\"']?|[A-Z])`: This non-capturing group combines the two main conditions for splitting: either a standard space-separated sentence break or a direct capital letter concatenation.\n*   `|$|[.!?\"']+`: These parts remain the same, handling end-of-string and multiple terminators, respectively.\n\nThis refined regex should correctly handle both the new concatenated sentence cases and prevent regressions with abbreviations.",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "high",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/utils/auth.test.mjs",
+      "github_diff_position": 63,
+      "comment_text_md": "**My Confidence: Low**\n\nIn this test, the comment `// Assuming Object.keys returns: GOOGLE_API_KEY_MAIN, KEY1, KEY_EXTRA` and the subsequent prediction `So, KEY1.` relies on the iteration order of `Object.keys`, which is not strictly guaranteed for non-integer keys in JavaScript. While modern engines often preserve insertion order, it's safer to avoid relying on it for deterministic predictions in comments, especially since the actual assertion `expect(keys).toContain(selectedKey);` is robust and correctly checks if the selected key is *any* of the valid ones. Consider removing or rephrasing the specific prediction in the comment to avoid potential confusion if `Object.keys` order varies.",
+      "ai_confidence": "Low",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    },
+    {
+      "file_path": "test/utils/auth.test.mjs",
+      "github_diff_position": 126,
+      "comment_text_md": "**My Confidence: Medium**\n\nThe test `should return the first key if multiple ANTHROPIC_API_KEY_n keys exist` (and its equivalent for OpenAI) asserts `expect(selectAnthropicApiKey(env)).toBe(keys[0]);`. This directly relies on the iteration order of `Object.keys` when populating `keys`. If the `selectAnthropicApiKey` (or underlying `getApiKeysFromEnv`) function does not explicitly sort the keys before selecting the 'first' one, this test could become flaky if `Object.keys` iteration order changes across JavaScript engines or versions.\n\nIf the intention is to pick a deterministic 'first' key (e.g., `ANTHROPIC_API_KEY` first, then alphabetically by suffix), consider making this explicit in the `selectAnthropicApiKey` function itself by sorting the retrieved keys. Otherwise, if the 'first' is truly non-deterministic (just whatever `Object.keys` returns first), this test is correctly reflecting that behavior, but it might be worth noting the non-determinism in the function's documentation.",
+      "ai_confidence": "Medium",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "bug"
+    },
+    {
+      "file_path": "test/utils/textProcessing.test.mjs",
+      "github_diff_position": 115,
+      "comment_text_md": "**My Confidence: High**\n\nThe `getTextCharacterCount` function and its corresponding tests appear to be counting bytes rather than Unicode characters (code points or grapheme clusters). For example, `getTextCharacterCount('\u4f60\u597d\u4e16\u754c')` returns 12, which is the byte length for UTF-8, not the character count (which is 4). Similarly, `getTextCharacterCount('\ud83d\ude0a')` returns 4 bytes, while it's a single emoji character (represented by 2 UTF-16 code units).\n\nThis is a common source of confusion. If the intention is to count bytes (e.g., for network transmission size), the function should be renamed to `getTextByteCount` for clarity. However, if the intention is to count actual 'characters' (as is common for API limits in services like TTS), the implementation needs to be adjusted to correctly count Unicode code points or grapheme clusters.\n\nFor counting Unicode code points, `text.length` in JavaScript counts UTF-16 code units, which is usually sufficient for most characters but fails for surrogate pairs (like many emojis). For true Unicode character count (grapheme clusters), a more robust approach is needed (e.g., `Array.from(text).length`).\n\nPlease clarify the intended purpose of this function and adjust either the name or the implementation/tests accordingly.\n\nExample of counting Unicode code points (excluding surrogate pair issues):\n```javascript\nfunction getUnicodeCharacterCount(text) {\n  if (!text) return 0;\n  // For basic multilingual plane characters, text.length works.\n  // For surrogate pairs (like emojis), text.length counts 2 code units.\n  // To count actual Unicode code points, you might use:\n  // return [...text].length; // This correctly handles surrogate pairs\n  return text.length; // If counting UTF-16 code units is acceptable\n}\n\n// Example for '\u4f60\u597d\u4e16\u754c':\n// getUnicodeCharacterCount('\u4f60\u597d\u4e16\u754c') -> 4\n// Example for '\ud83d\ude0a':\n// getUnicodeCharacterCount('\ud83d\ude0a') -> 1 (using [...text].length)\n// getUnicodeCharacterCount('\ud83d\ude0a') -> 2 (using text.length)\n\n// Example for byte count:\n// function getTextByteCount(text) {\n//   if (!text) return 0;\n//   return new TextEncoder().encode(text).length;\n// }\n```",
+      "ai_confidence": "High",
+      "detected_severity_heuristic": "low",
+      "detected_category_heuristic": "testing"
+    }
+  ]
+}
