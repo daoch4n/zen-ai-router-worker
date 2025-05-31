@@ -4,8 +4,7 @@ import { v4 as uuidv4 } from 'uuid'; // Assuming uuidv4 is used for job IDs
 import { HttpError } from '../utils/error.mjs'; // Assuming HttpError is defined here
 
 const TTL_SECONDS = 24 * 60 * 60; // 24 hours
-const MAX_TEXT_LENGTH_TOKEN_COUNT = 1500;
-const MIN_TEXT_LENGTH_TOKEN_COUNT = 1; // Currently not used in splitting logic but defined for consistency
+const MAX_TEXT_LENGTH_CHAR_COUNT = 1500;
 
 // Text processing utilities (copied from orchestrator/src/utils/textProcessing.mjs)
 const abbreviationPattern = new RegExp(
@@ -73,14 +72,14 @@ export class TtsJobDurableObject {
 
         for (const sentence of initialSentences) {
             const sentenceLength = getTextCharacterCount(sentence);
-            if (sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            if (sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) {
                 if (currentBatch.length > 0) {
                     batchedSentences.push(currentBatch.trim());
                     currentBatch = '';
                     currentBatchLength = 0;
                 }
                 batchedSentences.push(sentence.trim());
-            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_TOKEN_COUNT) {
+            } else if (currentBatchLength + sentenceLength > MAX_TEXT_LENGTH_CHAR_COUNT) {
                 batchedSentences.push(currentBatch.trim());
                 currentBatch = sentence;
                 currentBatchLength = sentenceLength;
@@ -208,10 +207,26 @@ export class TtsJobDurableObject {
     jobData.processedAudioChunks[index] = { r2Key, mimeType, status: 'completed' };
     jobData.processedSentenceCount = (jobData.processedSentenceCount || 0) + 1;
 
-    if (jobData.processedSentenceCount === jobData.sentences.length) {
-        jobData.status = 'completed';
-        console.log(`Job ${jobIdFromPath} completed. All ${jobData.sentences.length} sentences processed and metadata stored.`);
+    // Check if all sentences have reached a terminal state
+    let finalizedSentenceCount = 0;
+    jobData.processedAudioChunks.forEach(chunk => {
+        if (chunk.status === 'completed' || chunk.status === 'failed') {
+            finalizedSentenceCount++;
+        }
+    });
+
+    if (finalizedSentenceCount === jobData.sentences.length) {
+        const hasAnyFailedSentences = jobData.processedAudioChunks.some(chunk => chunk.status === 'failed');
+        if (hasAnyFailedSentences) {
+            jobData.status = 'completed_with_errors';
+            console.log(`Job ${jobIdFromPath} finalized with errors. All ${jobData.sentences.length} sentences attempted.`);
+        } else {
+            jobData.status = 'completed';
+            console.log(`Job ${jobIdFromPath} finalized successfully. All ${jobData.sentences.length} sentences processed.`);
+        }
     }
+    // If not all finalized, jobData.status remains 'processing' or 'processing_with_errors' (from updateJobStatus)
+
 
     await this.storage.put(jobIdFromPath, jobData, { expirationTtl: TTL_SECONDS });
 
@@ -302,12 +317,35 @@ export class TtsJobDurableObject {
             // Note: processedSentenceCount is not incremented for failed sentences.
             // Overall job status might become 'failed' or 'partial_success' based on this.
             // For now, we just mark the chunk. The job status itself is handled below.
+
+            // Check if this failure leads to all sentences being finalized
+            let finalizedSentenceCount = 0;
+            jobData.processedAudioChunks.forEach(chunk => {
+                if (chunk.status === 'completed' || chunk.status === 'failed') {
+                    finalizedSentenceCount++;
+                }
+            });
+
+            if (finalizedSentenceCount === jobData.sentences.length) {
+                // Since we just marked one as failed, it must be completed_with_errors
+                // This will be overridden if a more general 'status' (like 'failed') is also part of this request.
+                if (!status || status === 'completed_with_errors' || status === 'processing_with_errors') {
+                    jobData.status = 'completed_with_errors';
+                }
+                console.log(`Job ${jobIdFromPath} finalized with errors due to sentence ${sentenceIndexToFail} failure. All ${jobData.sentences.length} sentences attempted.`);
+            } else if (jobData.status !== 'failed' && jobData.status !== 'completed_with_errors' && jobData.status !== 'processing_error' && (!status || (status !== 'failed' && status !== 'completed_with_errors'))) {
+                // Don't override a more terminal overall status unless it's also a terminal one.
+                // Also, don't override if 'status' in request is already setting a terminal state.
+                jobData.status = 'processing_with_errors';
+            }
+
         } else {
             throw new HttpError(`Cannot mark sentence ${sentenceIndexToFail} as failed, no such chunk data initialized.`, 400);
         }
     }
 
-    if (status) { // Update overall job status if provided
+    // This allows the incoming 'status' to override any logic above (e.g. if orchestrator wants to set job to 'failed')
+    if (status) {
         jobData.status = status;
     }
 
@@ -315,11 +353,13 @@ export class TtsJobDurableObject {
       jobData.errorMessage = errorMessage;
     }
 
-    // Example: if any chunk fails, mark job status as 'failed' or 'processing_error'
-    // This logic can be more sophisticated depending on requirements.
-    if (jobData.processedAudioChunks.some(c => c.status === 'failed') && jobData.status !== 'completed') {
-        // jobData.status = 'processing_error'; // Or a more specific error status
-    }
+    // The following check is largely covered by the logic above when sentenceIndexToFail is processed.
+    // It might offer some safety if 'status' is directly set to 'processing' while there are failed chunks,
+    // but the above logic should handle setting 'processing_with_errors' or 'completed_with_errors' appropriately.
+    // Consider removing if confident in the above. For now, it's harmless.
+    // if (jobData.processedAudioChunks.some(c => c.status === 'failed') && jobData.status === 'processing') {
+    //     jobData.status = 'processing_with_errors';
+    // }
 
 
     await this.storage.put(jobIdFromPath, jobData, { expirationTtl: TTL_SECONDS });

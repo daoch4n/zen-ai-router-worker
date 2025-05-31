@@ -120,9 +120,24 @@ const doStub = env.TTS_JOB_DO.get(doId);
 
 // R2 Bucket check
 if (!env.TTS_AUDIO_BUCKET) {
-    console.error("Orchestrator: TTS_AUDIO_BUCKET is not bound.");
-    // Optionally inform DO to mark job as failed
-    // Consider: await doStub.fetch(`https://do-placeholder/tts-job/${jobId}/update-status`, { method: 'POST', body: JSON.stringify({ status: 'failed', errorMessage: 'TTS_AUDIO_BUCKET not bound' }) });
+    console.error(`Orchestrator: Job ${jobId} - TTS_AUDIO_BUCKET is not bound.`);
+    try {
+        // Attempt to inform DO job has failed
+        const updateStatusResponse = await doStub.fetch(`https://do-placeholder/tts-job/${jobId}/update-status`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                status: 'failed',
+                errorMessage: 'Orchestrator: TTS_AUDIO_BUCKET is not configured on orchestrator.'
+            })
+        });
+        if (!updateStatusResponse.ok) {
+            const errorText = await updateStatusResponse.text();
+            console.error(`Orchestrator: Job ${jobId} - Failed to update DO status to 'failed' (R2 bucket unbound). DO Status: ${updateStatusResponse.status}, Error: ${errorText}`);
+        }
+    } catch (doError) {
+        console.error(`Orchestrator: Job ${jobId} - CRITICAL: Error calling DO to update status for R2 bucket unbound issue: ${doError.message}`);
+    }
     throw new HttpError("TTS service misconfigured (R2 bucket not bound)", 500);
 }
 
@@ -183,37 +198,84 @@ let activeFetches = 0;
 let successfullyStreamedSentenceCount = 0;
 let jobCompletedSuccessfully = false; // Flag to prevent processing after job end
 
+let nextSentenceDoFailureCount = 0;
+const MAX_NEXT_SENTENCE_DO_FAILURES = 2 * MAX_CONCURRENT_SENTENCE_FETCHES; // e.g., 10 if MAX_CONCURRENT_SENTENCE_FETCHES is 5
+let doNextSentenceEndpointConsideredUnhealthy = false;
+
 // Helper for DO URL
 const getDoUrl = (action, queryParams = "") => `https://do-placeholder/tts-job/${jobId}/${action}${queryParams}`;
 
 const processSentenceTask = async () => {
     if (jobCompletedSuccessfully || successfullyStreamedSentenceCount >= totalSentences) {
-        return; // All sentences processed or job ended
+        return;
     }
 
-    console.log(`Orchestrator: Job ${jobId} - Attempting to fetch next sentence from DO. Active fetches: ${activeFetches}`);
+    if (doNextSentenceEndpointConsideredUnhealthy) {
+        console.log(`Orchestrator: Job ${jobId} - Task not starting as DO /next-sentence endpoint is considered unhealthy.`);
+        // This task effectively does nothing. The main error handler of processSentenceTask
+        // (specifically its finally block) will decrement activeFetches.
+        // No specific error needs to be thrown here for this task slot.
+        return;
+    }
+
+    console.log(`Orchestrator: Job ${jobId} - Attempting to fetch next sentence from DO. Active fetches: ${activeFetches}, DO failure count: ${nextSentenceDoFailureCount}`);
     let nextSentenceData;
+    let sentenceIndex = -1; // Initialize for error reporting if sentence fetch fails
+    // This variable is now also used in the main catch/finally of processSentenceTask
+
     try {
-        const nextSentenceResponse = await doStub.fetch(getDoUrl('next-sentence'));
-        if (!nextSentenceResponse.ok) {
-            const errorText = await nextSentenceResponse.text();
-            console.error(`Orchestrator: Job ${jobId} - Error fetching next sentence from DO. Status: ${nextSentenceResponse.status}, Error: ${errorText}`);
-            // This is a critical error with DO, might need to abort the job.
-            // For now, log and stop fetching more sentences for this worker.
-            // Consider marking job failed in DO if this persists.
-            throw new HttpError(`DO error fetching next sentence: ${errorText}`, nextSentenceResponse.status);
+        // This try is for the /next-sentence call specifically
+        try {
+            const nextSentenceResponse = await doStub.fetch(getDoUrl('next-sentence'));
+            if (!nextSentenceResponse.ok) {
+                const errorText = await nextSentenceResponse.text();
+                nextSentenceDoFailureCount++;
+                console.error(`Orchestrator: Job ${jobId} - Failed to get /next-sentence (attempt ${nextSentenceDoFailureCount}/${MAX_NEXT_SENTENCE_DO_FAILURES}). Status: ${nextSentenceResponse.status}, Error: ${errorText}`);
+                if (nextSentenceDoFailureCount >= MAX_NEXT_SENTENCE_DO_FAILURES && !doNextSentenceEndpointConsideredUnhealthy) {
+                    doNextSentenceEndpointConsideredUnhealthy = true;
+                    console.error(`Orchestrator: Job ${jobId} - DO /next-sentence endpoint failed ${nextSentenceDoFailureCount} times. Marking DO unhealthy for this job and aborting.`);
+                    try {
+                        await doStub.fetch(getDoUrl('update-status'), {
+                            method: 'POST', headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ status: 'failed', errorMessage: 'Orchestrator: Consistently failed to fetch next sentence from DO. Job aborted by orchestrator.' })
+                        });
+                    } catch (doUpdateErr) {
+                        console.error(`Orchestrator: Job ${jobId} - CRITICAL: Failed to update DO status after /next-sentence became unhealthy: ${doUpdateErr.message}`);
+                    }
+                }
+                throw new HttpError(`DO error fetching next sentence (attempt ${nextSentenceDoFailureCount}): ${errorText}`, nextSentenceResponse.status);
+            }
+            // If successful:
+            nextSentenceDoFailureCount = 0; // Reset on success
+            nextSentenceData = await nextSentenceResponse.json();
+        } catch (e) { // Catches network errors for fetch or the HttpError thrown above
+            if (!(e instanceof HttpError)) { // If it's not the HttpError we constructed, it's likely a network issue for the fetch itself
+                nextSentenceDoFailureCount++;
+                console.error(`Orchestrator: Job ${jobId} - Exception on /next-sentence (attempt ${nextSentenceDoFailureCount}/${MAX_NEXT_SENTENCE_DO_FAILURES}): ${e.message}`);
+            }
+            // Check threshold again if it was a network error that incremented the count
+            if (nextSentenceDoFailureCount >= MAX_NEXT_SENTENCE_DO_FAILURES && !doNextSentenceEndpointConsideredUnhealthy) {
+                 doNextSentenceEndpointConsideredUnhealthy = true;
+                 console.error(`Orchestrator: Job ${jobId} - DO /next-sentence endpoint failed ${nextSentenceDoFailureCount} times (network issues). Marking DO unhealthy for this job and aborting.`);
+                 try {
+                     await doStub.fetch(getDoUrl('update-status'), {
+                         method: 'POST', headers: { 'Content-Type': 'application/json' },
+                         body: JSON.stringify({ status: 'failed', errorMessage: 'Orchestrator: Consistently failed to fetch next sentence from DO (network issues). Job aborted by orchestrator.' })
+                     });
+                 } catch (doUpdateErr) {
+                     console.error(`Orchestrator: Job ${jobId} - CRITICAL: Failed to update DO status after /next-sentence became unhealthy (network issues): ${doUpdateErr.message}`);
+                 }
+            }
+            // IMPORTANT: Re-throw the error so it's caught by the main try/catch of processSentenceTask.
+            // This ensures activeFetches is decremented and dispatchNextTasks is called.
+            throw e;
         }
-        nextSentenceData = await nextSentenceResponse.json();
-    } catch (e) {
-        console.error(`Orchestrator: Job ${jobId} - Exception fetching next sentence from DO: ${e.message}`);
-        activeFetches--;
-        dispatchNextTasks(); // Try to keep other tasks going if possible
-        return; // Stop this specific task
-    }
 
-    const { sentence, index: sentenceIndex, done } = nextSentenceData;
+        // Deconstruct here after successful fetch and parse
+        const { sentence, index, done } = nextSentenceData;
+        sentenceIndex = index; // Assign to the broader scoped sentenceIndex
 
-    if (done) {
+        if (done) {
         console.log(`Orchestrator: Job ${jobId} - DO indicates no more sentences. Active fetches: ${activeFetches}`);
         // If all active fetches complete and done is true from all, then job is finished.
         // This specific task ends. If activeFetches becomes 0 and all tasks reported 'done', the main loop control will handle job completion.
@@ -302,25 +364,52 @@ const processSentenceTask = async () => {
         mimeType = backendResponseData.mimeType;
 
         if (backendResponseData.jobId !== jobId || backendResponseData.sentenceIndex !== sentenceIndex) {
-            console.warn(`Orchestrator: Job ${jobId} - Mismatch in jobId/sentenceIndex from backend. Expected ${jobId}/${sentenceIndex}, got ${backendResponseData.jobId}/${backendResponseData.sentenceIndex}`);
-            // Potentially throw error or handle as critical failure
+            const errorMsg = `Critical mismatch in backend response. Expected Job/Sentence: ${jobId}/${sentenceIndex}, Got: ${backendResponseData.jobId}/${backendResponseData.sentenceIndex}. R2Key: ${r2Key}`;
+            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - ${errorMsg}`);
+            throw new Error(errorMsg); // This will be caught by the task's main try-catch
         }
         console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Received r2Key ${r2Key} from backend.`);
 
         // c. Inform DO of Processed Sentence
-        const markProcessedResponse = await doStub.fetch(getDoUrl('sentence-processed'), {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ index: sentenceIndex, r2Key, mimeType }),
-        });
-        if (!markProcessedResponse.ok) {
-            const errorText = await markProcessedResponse.text();
-            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Failed to mark as processed in DO. Status: ${markProcessedResponse.status}, Error: ${errorText}`);
-            // This is a significant issue, data in R2 might not be tracked by DO.
-            // Consider how to handle this - potentially retry, or flag for reconciliation.
-            // For now, proceed to stream if R2 fetch is okay, but log error.
+        let markProcessedOk = false;
+        const maxDoRetries = 2; // Total 3 attempts
+        let currentDoRetry = 0;
+        let doUpdateDelay = 500; // Initial delay
+
+        while (currentDoRetry <= maxDoRetries) {
+            try {
+                const markProcessedResponse = await doStub.fetch(getDoUrl(`sentence-processed`), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ index: sentenceIndex, r2Key, mimeType }),
+                });
+
+                if (markProcessedResponse.ok) {
+                    markProcessedOk = true;
+                    console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Marked as processed in DO successfully.`);
+                    break; // Success
+                } else {
+                    const errorText = await markProcessedResponse.text();
+                    console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Attempt ${currentDoRetry + 1}/${maxDoRetries + 1} to mark as processed in DO failed. Status: ${markProcessedResponse.status}, Error: ${errorText}`);
+                }
+            } catch (err) {
+                console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Attempt ${currentDoRetry + 1}/${maxDoRetries + 1} to mark as processed in DO threw: ${err.message}`);
+            }
+
+            currentDoRetry++;
+            if (currentDoRetry <= maxDoRetries) {
+                await new Promise(resolve => setTimeout(resolve, doUpdateDelay));
+                doUpdateDelay *= 2; // Exponential backoff
+            }
         }
-        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Marked as processed in DO.`);
+
+        if (!markProcessedOk) {
+            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - All attempts to mark as processed in DO failed. R2 Key: ${r2Key}.`);
+            // Best effort to mark the specific sentence as failed in DO - this will be caught by the main try-catch of processSentenceTask
+            // The main try-catch already calls update-status. Here we throw a specific error.
+            // The existing main catch block will then use this error message.
+            throw new Error(`Persistent failure to mark sentence ${sentenceIndex} as processed in DO. R2 Key: ${r2Key}`);
+        }
 
         // d. Fetch Audio from R2
         const r2Object = await env.TTS_AUDIO_BUCKET.get(r2Key);
@@ -342,20 +431,27 @@ const processSentenceTask = async () => {
         successfullyStreamedSentenceCount++;
 
     } catch (error) {
-        console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Error in processing task: ${error.message}`, error.stack);
+        console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex !== -1 ? sentenceIndex : 'unknown'} - Error in processing task: ${error.message}`, error.stack);
         try {
+            const statusUpdateBody = {
+                status: 'error',
+                errorMessage: `Failed to process sentence ${sentenceIndex !== -1 ? sentenceIndex : 'unknown'}: ${error.message}`
+            };
+            if (sentenceIndex !== -1) {
+                statusUpdateBody.sentenceIndexToFail = sentenceIndex;
+            }
             await doStub.fetch(getDoUrl('update-status'), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'error', errorMessage: `Failed to process sentence ${sentenceIndex}: ${error.message}`, sentenceIndexToFail: sentenceIndex })
+                body: JSON.stringify(statusUpdateBody)
             });
         } catch (doError) {
-            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - CRITICAL: Failed to update DO status after task error: ${doError.message}`);
+            console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex !== -1 ? sentenceIndex : 'unknown'} - CRITICAL: Failed to update DO status after task error: ${doError.message}`);
         }
-        sendSseMessage({ index: sentenceIndex, error: { message: `Failed to process sentence ${sentenceIndex}: ${error.message}` } }, 'error');
+        sendSseMessage({ index: (sentenceIndex !== -1 ? sentenceIndex : 'job'), error: { message: `Failed to process sentence ${sentenceIndex !== -1 ? sentenceIndex : 'unknown'}: ${error.message}` } }, 'error');
     } finally {
         activeFetches--;
-        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Task finished. Active fetches: ${activeFetches}. Streamed count: ${successfullyStreamedSentenceCount}/${totalSentences}`);
+        console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex !== -1 ? sentenceIndex : 'N/A'} - Task finished. Active fetches: ${activeFetches}. Streamed count: ${successfullyStreamedSentenceCount}/${totalSentences}`);
         // Check for job completion after each task.
         if (successfullyStreamedSentenceCount >= totalSentences && !jobCompletedSuccessfully) {
             jobCompletedSuccessfully = true;
@@ -369,6 +465,19 @@ const processSentenceTask = async () => {
 };
 
 const dispatchNextTasks = () => {
+    if (doNextSentenceEndpointConsideredUnhealthy) {
+        console.log(`Orchestrator: Job ${jobId} - Not dispatching new tasks as DO /next-sentence endpoint is unhealthy.`);
+        if (activeFetches === 0 && !jobCompletedSuccessfully) {
+            console.warn(`Orchestrator: Job ${jobId} - All active tasks finished and DO /next-sentence is unhealthy. Closing stream.`);
+            if (writer && !writer.closed) {
+                writer.write(encoder.encode('event: end\ndata: \n\n')).catch(e => console.error(`Orchestrator: Job ${jobId} - Error writing end event (DO unhealthy): ${e.message}`));
+                writer.close().catch(e => console.error(`Orchestrator: Job ${jobId} - Error closing writer (DO unhealthy): ${e.message}`));
+            }
+            jobCompletedSuccessfully = true; // Mark as completed/aborted to prevent other completion logic
+        }
+        return;
+    }
+
     console.log(`Orchestrator: Job ${jobId} - Dispatching next tasks. Active: ${activeFetches}, Max: ${MAX_CONCURRENT_SENTENCE_FETCHES}, Streamed: ${successfullyStreamedSentenceCount}/${totalSentences}`);
     while (activeFetches < MAX_CONCURRENT_SENTENCE_FETCHES && successfullyStreamedSentenceCount < totalSentences && !jobCompletedSuccessfully) {
         // Check if we expect more sentences. This check is implicitly handled by processSentenceTask's 'done' flag.
@@ -386,11 +495,33 @@ const dispatchNextTasks = () => {
     // If no active fetches are running, and not all sentences were streamed, and job not marked complete,
     // it might mean all available sentences from DO returned 'done' prematurely or tasks failed.
     if (activeFetches === 0 && successfullyStreamedSentenceCount < totalSentences && !jobCompletedSuccessfully) {
-        console.warn(`Orchestrator: Job ${jobId} - All tasks finished but not all sentences streamed (${successfullyStreamedSentenceCount}/${totalSentences}). Sending end event.`);
-        // This could be due to errors in all tasks or DO prematurely reporting 'done'.
-        writer.write(encoder.encode('event: end\ndata: \n\n')); // Ensure stream closes
-        writer.close();
-        jobCompletedSuccessfully = true; // Mark as ended to prevent further operations
+        const prematureEndMessage = `Orchestrator: Job ${jobId} - All tasks finished, but not all sentences streamed (${successfullyStreamedSentenceCount}/${totalSentences}). Marking job as failed in DO and sending end event.`;
+        console.warn(prematureEndMessage);
+
+        try {
+            // Attempt to update DO status to reflect premature, unsuccessful completion
+            const updateStatusResponse = await doStub.fetch(getDoUrl('update-status'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    status: 'failed', // Or consider 'completed_with_errors'
+                    errorMessage: `Job completed prematurely in orchestrator. Streamed ${successfullyStreamedSentenceCount} of ${totalSentences} sentences.`
+                })
+            });
+            if (!updateStatusResponse.ok) {
+                const errorText = await updateStatusResponse.text();
+                console.error(`Orchestrator: Job ${jobId} - Failed to update DO status to 'failed' on premature job end. DO Status: ${updateStatusResponse.status}, Error: ${errorText}`);
+            }
+        } catch (doError) {
+            console.error(`Orchestrator: Job ${jobId} - CRITICAL: Error calling DO to update status on premature job end: ${doError.message}`);
+        }
+
+        // Proceed to close the client connection
+        if (writer && !writer.closed) { // Check if writer is defined and not already closed
+            writer.write(encoder.encode('event: end\ndata: \n\n')).catch(e => console.error(`Orchestrator: Job ${jobId} - Error writing end event: ${e.message}`));
+            writer.close().catch(e => console.error(`Orchestrator: Job ${jobId} - Error closing writer: ${e.message}`));
+        }
+        jobCompletedSuccessfully = true; // Mark as handled to prevent re-entry
     }
 };
 
