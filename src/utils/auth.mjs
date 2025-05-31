@@ -79,7 +79,7 @@ export function selectAnthropicApiKey(env) {
   if (apiKeys.length === 0) {
     throw new HttpError("No Anthropic API keys (ANTHROPIC_API_KEY...) configured.", 500);
   }
-  return apiKeys[0]; // Return the first key
+  return apiKeys.sort()[0]; // Return the alphabetically first key
 }
 
 /**
@@ -96,7 +96,7 @@ export function selectOpenAiApiKey(env) {
   if (apiKeys.length === 0) {
     throw new HttpError("No OpenAI API keys (OPENAI_API_KEY...) configured.", 500);
   }
-  return apiKeys[0]; // Return the first key
+  return apiKeys.sort()[0]; // Return the alphabetically first key
 }
 
 /**

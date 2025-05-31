@@ -2,7 +2,7 @@
 
 import { v4 as uuidv4 } from 'uuid'; // Assuming uuidv4 is used for job IDs
 import { HttpError } from '../utils/error.mjs'; // Assuming HttpError is defined here
-import { splitIntoSentences, getTextCharacterCount } from '../utils/textProcessing.mjs';
+import { splitIntoSentences, getTextByteCount } from '../utils/textProcessing.mjs';
 
 const TTL_SECONDS = 24 * 60 * 60; // 24 hours
 const MAX_TEXT_LENGTH_CHAR_COUNT = 1500;
@@ -52,7 +52,7 @@ export class TtsJobDurableObject {
 
         // First, check if any single sentence exceeds the character limit.
         for (const sentence of initialSentences) {
-            if (getTextCharacterCount(sentence) > MAX_TEXT_LENGTH_CHAR_COUNT) {
+            if (getTextByteCount(sentence) > MAX_TEXT_LENGTH_CHAR_COUNT) {
                 throw new HttpError(
                     `A single sentence exceeds the maximum allowed length of ${MAX_TEXT_LENGTH_CHAR_COUNT} characters.`,
                     400
@@ -65,7 +65,7 @@ export class TtsJobDurableObject {
         let currentBatchLength = 0;
 
         for (const sentence of initialSentences) {
-            const sentenceLength = getTextCharacterCount(sentence);
+            const sentenceLength = getTextByteCount(sentence);
             // This existing logic handles batching for sentences that are individually within the limit
             // but collectively might exceed it, or super long sentences that couldn't be split further.
             // The check above ensures no single sentence is *initially* too long.

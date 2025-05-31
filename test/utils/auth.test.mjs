@@ -68,13 +68,12 @@ describe('Auth Utilities', () => {
         OTHER_VAR: 'not_a_key'
       });
       const selectedKey = selectRandomGoogleApiKey(env);
-      // With Math.random mocked to 0.5, it will select the middle key if count is odd,
-      // or second of two if even. Order is determined by Object.keys.
-      // Assuming Object.keys returns: GOOGLE_API_KEY_MAIN, KEY1, KEY_EXTRA
-      // Total 3 keys. 0.5 * 3 = 1.5. Math.floor(1.5) = 1. So, KEY1.
-      const keys = ['google_main', 'key_one', 'key_extra'].sort(); // Actual order depends on Object.keys
-      // Let's check if it's one of the valid keys
-      expect(keys).toContain(selectedKey);
+      // With Math.random mocked to 0.5 and an array of 3 keys, it will select index 1 (0-indexed).
+      // The actual key depends on the (unpredictable) order from Object.keys() before getApiKeysFromEnv sorts them internally if needed.
+      // However, getGoogleApiKeysFromEnv (and thus getApiKeysFromEnv with RegExp) does not sort.
+      // The important part is that a valid key is selected.
+      const expectedKeys = ['google_main', 'key_one', 'key_extra'];
+      expect(expectedKeys).toContain(selectedKey);
     });
 
     it('should select from only KEYn if only those exist', () => {
@@ -83,8 +82,9 @@ describe('Auth Utilities', () => {
         KEY2: 'key_two',
       });
       const selectedKey = selectRandomGoogleApiKey(env);
-       // Math.random = 0.5, 0.5 * 2 = 1. Math.floor(1) = 1. So, KEY2 (if order is KEY1, KEY2)
-      expect(['key_one', 'key_two']).toContain(selectedKey);
+      // With Math.random mocked to 0.5 and an array of 2 keys, it will select index 1.
+      const expectedKeys = ['key_one', 'key_two'];
+      expect(expectedKeys).toContain(selectedKey);
     });
 
     it('should select from only GOOGLE_API_KEY_... if only those exist', () => {
@@ -140,17 +140,14 @@ describe('Auth Utilities', () => {
       });
 
 
-    it('should return the first key if multiple ANTHROPIC_API_KEY_n keys exist', () => {
-      // Object.keys order is not guaranteed, but typically insertion order for non-numeric like keys
+    it('should return the alphabetically first key if multiple ANTHROPIC_API_KEY_n keys exist', () => {
       const env = createMockEnv({
-        ANTHROPIC_API_KEY_B: 'key_b',
-        ANTHROPIC_API_KEY_A: 'key_a', // Assuming "ANTHROPIC_API_KEY" prefix is used
+        ANTHROPIC_API_KEY_B: 'key_b_value', // Value 'key_b_value'
+        ANTHROPIC_API_KEY_A: 'key_a_value', // Value 'key_a_value'
+        ANTHROPIC_API_KEY: 'key_primary_value' // Value 'key_primary_value'
       });
-      // The test for getApiKeysFromEnv ensures it finds all, this tests selection of first
-      // The actual first depends on Object.keys, so we check if it's one of them.
-      // Given the implementation returns apiKeys[0]
-      const keys = Object.keys(env).filter(k => k.startsWith("ANTHROPIC_API_KEY")).map(k => env[k]);
-      expect(selectAnthropicApiKey(env)).toBe(keys[0]);
+      // Expected: 'key_a_value' because 'key_a_value' is alphabetically first among the values.
+      expect(selectAnthropicApiKey(env)).toBe('key_a_value');
     });
 
     it('should throw HttpError if no ANTHROPIC_API_KEY is found', () => {
@@ -193,13 +190,14 @@ describe('Auth Utilities', () => {
         expect(selectOpenAiApiKey(env)).toBe('openai_secondary');
       });
 
-    it('should return the first key if multiple OPENAI_API_KEY_n keys exist', () => {
+    it('should return the alphabetically first key if multiple OPENAI_API_KEY_n keys exist', () => {
       const env = createMockEnv({
-        OPENAI_API_KEY_ZULU: 'key_z',
-        OPENAI_API_KEY_XRAY: 'key_x'
+        OPENAI_API_KEY_ZULU: 'key_z_value',
+        OPENAI_API_KEY_XRAY: 'key_x_value',
+        OPENAI_API_KEY: 'key_primary_value'
       });
-      const keys = Object.keys(env).filter(k => k.startsWith("OPENAI_API_KEY")).map(k => env[k]);
-      expect(selectOpenAiApiKey(env)).toBe(keys[0]);
+      // Expected: 'key_primary_value' because it's alphabetically first among the values.
+      expect(selectOpenAiApiKey(env)).toBe('key_primary_value');
     });
 
     it('should throw HttpError if no OPENAI_API_KEY is found', () => {

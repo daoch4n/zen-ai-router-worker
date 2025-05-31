@@ -1,5 +1,5 @@
 import { describe, it, expect } from '@jest/globals';
-import { splitIntoSentences, getTextCharacterCount } from '../../src/utils/textProcessing.mjs';
+import { splitIntoSentences, getTextByteCount } from '../../src/utils/textProcessing.mjs';
 
 describe('Text Processing Utilities', () => {
   describe('splitIntoSentences', () => {
@@ -70,13 +70,21 @@ describe('Text Processing Utilities', () => {
       expect(splitIntoSentences(text)).toEqual(['Really!!?', 'Yes, it is.']);
     });
 
-    it('should correctly handle abbreviations with the new regex logic', () => {
-      const text = 'Mr. Smith went to Washington.He then met Dr. Jones.Is that true?Yes.';
+    it('should correctly handle abbreviations and not split them internally or incorrectly', () => {
+      const text = 'Mr. Smith went to Washington. Dr. Jones also went. They saw the U.S. Capitol building. Later, Gen. Motors made a statement. This is approx. correct.';
       expect(splitIntoSentences(text)).toEqual([
         'Mr. Smith went to Washington.',
-        'He then met Dr. Jones.',
-        'Is that true?',
-        'Yes.'
+        'Dr. Jones also went.',
+        'They saw the U.S. Capitol building.',
+        'Later, Gen. Motors made a statement.',
+        'This is approx. correct.'
+      ]);
+
+      const text2 = 'Visit example.com.It is a good site.Also, test this Ph.D. level material.';
+      expect(splitIntoSentences(text2)).toEqual([
+        'Visit example.com.',
+        'It is a good site.',
+        'Also, test this Ph.D. level material.'
       ]);
     });
 
@@ -108,24 +116,24 @@ describe('Text Processing Utilities', () => {
     });
   });
 
-  describe('getTextCharacterCount', () => {
+  describe('getTextByteCount', () => {
     it('should return 0 for empty, null, or undefined input', () => {
-      expect(getTextCharacterCount('')).toBe(0);
-      expect(getTextCharacterCount(null)).toBe(0);
-      expect(getTextCharacterCount(undefined)).toBe(0);
+      expect(getTextByteCount('')).toBe(0);
+      expect(getTextByteCount(null)).toBe(0);
+      expect(getTextByteCount(undefined)).toBe(0);
     });
 
-    it('should return correct character count for ASCII text', () => {
-      expect(getTextCharacterCount('hello')).toBe(5);
+    it('should return correct byte count for ASCII text', () => {
+      expect(getTextByteCount('hello')).toBe(5);
     });
 
-    it('should return correct character count for text with spaces', () => {
-      expect(getTextCharacterCount('hello world')).toBe(11);
+    it('should return correct byte count for text with spaces', () => {
+      expect(getTextByteCount('hello world')).toBe(11);
     });
 
-    it('should return correct character count for text with multi-byte characters', () => {
-      expect(getTextCharacterCount('你好世界')).toBe(12); // Each Chinese character is 3 bytes in UTF-8
-      expect(getTextCharacterCount('😊')).toBe(4); // Emoji is 4 bytes
+    it('should return correct byte count for text with multi-byte characters', () => {
+      expect(getTextByteCount('你好世界')).toBe(12); // Each Chinese character is 3 bytes in UTF-8
+      expect(getTextByteCount('😊')).toBe(4); // Emoji is 4 bytes in UTF-8
     });
   });
 });
