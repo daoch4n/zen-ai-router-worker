@@ -20,11 +20,12 @@ import { BASE_URL, API_VERSION, DEFAULT_MODEL, THINKING_MODES } from '../constan
  * @param {string} [req.model] - Model name, may include thinking mode suffixes
  * @param {boolean} [req.stream] - Whether to stream the response
  * @param {Object} [req.stream_options] - Streaming configuration options
- * @param {string} apiKey - Google API key for Gemini access
+ * @param {string} apiKey - Client's API key for the target service.
+ * @param {Object} env - Cloudflare Worker environment variables.
  * @returns {Promise<Response>} HTTP response with completion data or stream
  * @throws {Error} When request validation fails or API call errors
  */
-export async function handleCompletions(req, apiKey) {
+export async function handleCompletions(req, apiKey, env) {
   let model = DEFAULT_MODEL;
   let originalModel = req.model;
 
@@ -82,11 +83,10 @@ export async function handleCompletions(req, apiKey) {
     }
     headers = makeHeaders(apiKey, { "Content-Type": "application/json" }); // makeHeaders is for Google
   } else if (isOpenAiModel) {
-    // Assuming a standard OpenAI-compatible endpoint structure
-    // The actual OpenAI BASE_URL would need to be defined, e.g., in constants.mjs
-    // For now, let's imagine it's env.OPENAI_BASE_URL or a fixed one.
-    // This part is a conceptual change as the worker was Google-centric.
-    const OPENAI_BASE_URL = env.OPENAI_API_BASE_URL || "https://api.openai.com/v1"; // Example
+    if (!env || !env.OPENAI_API_BASE_URL) {
+      console.warn("OPENAI_API_BASE_URL is not configured in env. Using default https://api.openai.com/v1");
+    }
+    const OPENAI_BASE_URL = env && env.OPENAI_API_BASE_URL ? env.OPENAI_API_BASE_URL : "https://api.openai.com/v1";
     url = `${OPENAI_BASE_URL}/chat/completions`;
     headers = {
       "Authorization": `Bearer ${apiKey}`,
@@ -96,6 +96,8 @@ export async function handleCompletions(req, apiKey) {
     // For this step, we assume `body` is compatible enough or `transformRequest` handles it.
   } else {
     // Default or error for unsupported model prefixes for this handler
+    // Ensure HttpError is imported or defined
+    // import { HttpError } from '../utils/error.mjs'; // Assuming it's imported
     throw new HttpError(`Unsupported model type for completions: ${model}`, 400);
   }
 

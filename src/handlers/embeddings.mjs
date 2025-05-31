@@ -37,7 +37,8 @@ export async function handleEmbeddings(req, apiKey, env) {
   let requestBody;
 
   const isGoogleModel = originalModel.startsWith("gemini-") || originalModel.startsWith("models/");
-  const isOpenAiModel = originalModel.startsWith("text-embedding-") || originalModel.includes("ada");
+  // Specific OpenAI model check: only 'text-embedding-' prefix
+  const isOpenAiModel = originalModel.startsWith("text-embedding-");
 
   if (isGoogleModel) {
     if (originalModel.startsWith("models/")) {
@@ -56,7 +57,10 @@ export async function handleEmbeddings(req, apiKey, env) {
       }))
     });
   } else if (isOpenAiModel) {
-    const OPENAI_BASE_URL = env.OPENAI_API_BASE_URL || "https://api.openai.com/v1";
+    if (!env || !env.OPENAI_API_BASE_URL) {
+      console.warn("OPENAI_API_BASE_URL is not configured in env. Using default https://api.openai.com/v1");
+    }
+    const OPENAI_BASE_URL = env && env.OPENAI_API_BASE_URL ? env.OPENAI_API_BASE_URL : "https://api.openai.com/v1";
     url = `${OPENAI_BASE_URL}/embeddings`;
     headers = {
       "Authorization": `Bearer ${apiKey}`,
@@ -98,8 +102,19 @@ export async function handleEmbeddings(req, apiKey, env) {
       finalResponseBody = JSON.stringify(responseBodyJson);
     }
     return new Response(finalResponseBody, fixCors(response));
-  } else {
-    // TODO: processGoogleApiError might need to be made generic or conditional based on the target API
-    throw await processGoogleApiError(response);
+  } else { // Error handling
+    if (isGoogleModel) {
+      throw await processGoogleApiError(response);
+    } else if (isOpenAiModel) {
+      // TODO: Implement a more specific OpenAI API error processor (e.g., processOpenAiApiError)
+      // For now, throw a generic HttpError with details from the OpenAI response.
+      const errorText = await response.text();
+      throw new HttpError(`OpenAI API Error: ${response.status} ${errorText}`, response.status);
+    } else {
+      // Fallback for models that didn't match isGoogleModel or isOpenAiModel, though this path
+      // should ideally not be reached if the model check at the beginning is exhaustive.
+      const errorText = await response.text();
+      throw new HttpError(`API Error for model ${originalModel}: ${response.status} ${errorText}`, response.status);
+    }
   }
 }

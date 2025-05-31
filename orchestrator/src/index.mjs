@@ -324,7 +324,6 @@ const processSentenceTask = async () => {
                 const headersToSend = { 'Content-Type': 'application/json' };
                 // backendApiKey is guaranteed to be present here due to the check above.
                 headersToSend['Authorization'] = `Bearer ${backendApiKey}`;
-                console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - API Key for backend worker: Present`);
                 console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Sending to backend worker: ${targetService} at ${backendTtsUrl.toString()}`);
 
                 const backendResponse = await targetService.fetch(new Request(backendTtsUrl.toString(), {

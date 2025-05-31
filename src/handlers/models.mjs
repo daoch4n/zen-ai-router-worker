@@ -21,6 +21,9 @@ export async function handleModels(apiKey, env) {
   let errors = [];
 
   // 1. Fetch Google Models (using the provided apiKey, assumed to be a Google key here)
+  // TODO: Clarify API key strategy if distinct keys for Google vs OpenAI are needed.
+  // This currently assumes `apiKey` is a Google key if no OPENAI_BASE_URL is provided,
+  // or attempts to use it for both if OPENAI_BASE_URL is set.
   try {
     const googleResponse = await fetch(`${BASE_URL}/${API_VERSION}/models`, { // BASE_URL is Google's
       headers: makeHeaders(apiKey), // apiKey is client's Google key
@@ -50,11 +53,12 @@ export async function handleModels(apiKey, env) {
   // For this refactor, we assume `apiKey` is the one to try for OpenAI if OPENAI_API_BASE_URL is set.
   const OPENAI_BASE_URL = env.OPENAI_API_BASE_URL;
   if (OPENAI_BASE_URL) {
+    // TODO: Assumes clientApiKey is valid for OpenAI. Consider if a separate OpenAI-specific key is needed.
     try {
       const openAiResponse = await fetch(`${OPENAI_BASE_URL}/models`, {
         headers: {
           "Authorization": `Bearer ${apiKey}`, // Using the same client apiKey for OpenAI
-          "Content-Type": "application/json"
+          "Content-Type": "application/json" // Content-Type for the request to OpenAI
         },
       });
 
@@ -75,10 +79,15 @@ export async function handleModels(apiKey, env) {
 
   // 3. Combine results and handle errors
   if (allModels.length === 0 && errors.length > 0) {
-    // If no models were fetched and there were errors, throw the first one or a summary.
-    // For simplicity, using the first error. processGoogleApiError might not be suitable for all.
-    const firstError = errors[0];
-    throw new Error(`Failed to fetch models from any provider. First error (${firstError.service}): ${firstError.status} ${firstError.message}`);
+    const errorResponseBody = JSON.stringify({
+      object: "error",
+      message: "Failed to fetch models from any configured provider.",
+      details: errors,
+    });
+    const errorStatus = errors[0]?.status || 500;
+    const errorHeaders = { 'Content-Type': 'application/json' };
+    // Apply CORS to the error response as well
+    return new Response(errorResponseBody, fixCors({ headers: errorHeaders, status: errorStatus }));
   }
 
   // Remove duplicate models by 'id' if any provider lists the same model ID.
@@ -91,8 +100,9 @@ export async function handleModels(apiKey, env) {
 
   // Determine overall status - prefer 200 if any models loaded, otherwise reflect error from primary if only one source failed.
   // This simplistic approach returns 200 if any models are found.
-  const overallStatus = allModels.length > 0 ? 200 : (errors[0]?.status || 500);
+  const overallStatus = allModels.length > 0 ? 200 : (errors[0]?.status || 500); // Should not be reached if errors caused empty allModels
 
+  const successHeaders = { 'Content-Type': 'application/json' };
 
-  return new Response(responseBody, fixCors({ headers: {}, status: overallStatus }));
+  return new Response(responseBody, fixCors({ headers: successHeaders, status: overallStatus }));
 }

@@ -1,20 +1,8 @@
-import {
-  transformAnthropicToOpenAIRequest
-} from '../transformers/requestAnthropic.mjs';
-import {
-  transformOpenAIToAnthropicResponse
-} from '../transformers/responseAnthropic.mjs';
-import {
-  createAnthropicStreamTransformer
-} from '../transformers/streamAnthropic.mjs';
-// Removed: transformAnthropicToOpenAIRequest, transformOpenAIToAnthropicResponse, createAnthropicStreamTransformer
-// These were for adapting to handleCompletions (Gemini/OpenAI handler).
-// We now need direct Anthropic interaction.
+// Unused transformers from previous cross-handler flow have been removed.
 // import { handleCompletions } from './completions.mjs'; // No longer calling this
-import { parseStream as parseAnthropicStream, parseStreamFlush as parseAnthropicStreamFlush } from '../transformers/streamAnthropic.mjs'; // Assuming streamAnthropic.mjs has or will have Anthropic specific stream parsing.
-import { generateId } from '../utils/helpers.mjs';
+import { generateId } from '../utils/helpers.mjs'; // generateId is not used here currently, but often useful. Keeping for now.
 import { fixCors } from '../utils/cors.mjs';
-import { errorHandler, HttpError } from '../utils/error.mjs'; // HttpError might be needed
+import { errorHandler, HttpError } from '../utils/error.mjs';
 import { DEFAULT_ANTHROPIC_VERSION } from '../constants/index.mjs';
 
 /**
@@ -77,23 +65,11 @@ export async function handleAnthropicCompletions(req, apiKey, env) {
     }
 
     if (stream) {
-      // TODO: Anthropic streaming is different from OpenAI's.
-      // It uses server-sent events (SSE) with specific event types like 'message_start', 'content_block_delta', 'message_delta', 'message_stop'.
-      // The createAnthropicStreamTransformer was for OpenAI -> Anthropic client.
-      // Now we need Anthropic backend -> Anthropic client.
-      // This means the raw stream from anthropicResponse.body needs to be processed accordingly.
-      // For now, let's pass the raw stream and assume client can handle Anthropic's SSE format.
-      // A more robust solution would parse and potentially re-format if an intermediate standard was desired.
-
-      // The original `parseStream` and `createAnthropicStreamTransformer` were for adapting
-      // an OpenAI stream to an Anthropic client stream.
-      // If the client is an Anthropic client, it expects Anthropic's native SSE stream.
-      // So, we might just pass the body through after setting correct headers.
-
-      // For simplicity, directly return the stream if client expects native Anthropic SSE
+      // The client is expected to handle Anthropic's native SSE stream format.
+      // Direct passthrough of the stream from Anthropic to the client.
       return new Response(anthropicResponse.body, {
         headers: {
-          'Content-Type': 'text/event-stream', // Anthropic uses this
+          'Content-Type': 'text/event-stream', // Anthropic uses this for SSE
           'Cache-Control': 'no-cache',
           'Connection': 'keep-alive',
           ...fixCors(anthropicResponse).headers, // Apply CORS headers from original response
