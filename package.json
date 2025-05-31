@@ -3,7 +3,8 @@
   "version": "2.0.0",
   "type": "module",
   "dependencies": {
-    "@whatwg-node/server": "0.9"
+    "@whatwg-node/server": "0.9",
+    "uuid": "^9.0.1"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
