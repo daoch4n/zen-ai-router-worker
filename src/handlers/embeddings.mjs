@@ -15,62 +15,91 @@ import { BASE_URL, API_VERSION, DEFAULT_EMBEDDINGS_MODEL } from '../constants/in
  * @param {string} req.model - Model name for embeddings
  * @param {string|Array<string>} req.input - Text input(s) to embed
  * @param {number} [req.dimensions] - Desired embedding dimensions
- * @param {string} apiKey - Google API key for Gemini access
+ * @param {string} apiKey - Client's API key for the target service.
+ * @param {Object} env - Cloudflare Worker environment variables.
  * @returns {Promise<Response>} HTTP response with embedding data
  * @throws {HttpError} When model is not specified or request validation fails
  */
-export async function handleEmbeddings(req, apiKey) {
+export async function handleEmbeddings(req, apiKey, env) {
   if (typeof req.model !== "string") {
     throw new HttpError("model is not specified", 400);
   }
 
-  // Determine the actual model name for Gemini API
-  let model;
-  if (req.model.startsWith("models/")) {
-    model = req.model;
-  } else {
-    // Use default embedding model for non-Gemini model names
-    if (!req.model.startsWith("gemini-")) {
-      req.model = DEFAULT_EMBEDDINGS_MODEL;
-    }
-    model = "models/" + req.model;
-  }
+  const originalModel = req.model;
+  let targetModelApiName = originalModel;
 
-  // Normalize input to array format for batch processing
   if (!Array.isArray(req.input)) {
     req.input = [req.input];
   }
 
-  // Call Gemini batch embedding API
-  const response = await fetch(`${BASE_URL}/${API_VERSION}/${model}:batchEmbedContents`, {
-    method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
-    body: JSON.stringify({
+  let url;
+  let headers;
+  let requestBody;
+
+  const isGoogleModel = originalModel.startsWith("gemini-") || originalModel.startsWith("models/");
+  const isOpenAiModel = originalModel.startsWith("text-embedding-") || originalModel.includes("ada");
+
+  if (isGoogleModel) {
+    if (originalModel.startsWith("models/")) {
+      targetModelApiName = originalModel;
+    } else {
+      // Default to a known Google embedding model if a generic or non-embedding Gemini model is passed.
+      targetModelApiName = `models/${DEFAULT_EMBEDDINGS_MODEL}`;
+    }
+    url = `${BASE_URL}/${API_VERSION}/${targetModelApiName}:batchEmbedContents`; // BASE_URL is Google
+    headers = makeHeaders(apiKey, { "Content-Type": "application/json" }); // apiKey is client's Google key
+    requestBody = JSON.stringify({
       "requests": req.input.map(text => ({
-        model,
+        model: targetModelApiName,
         content: { parts: { text } },
         outputDimensionality: req.dimensions,
       }))
-    })
-  });
-
-  let { body } = response;
-  if (response.ok) {
-    // Transform Gemini response to OpenAI format
-    const { embeddings } = JSON.parse(await response.text());
-    body = JSON.stringify({
-      object: "list",
-      data: embeddings.map(({ values }, index) => ({
-        object: "embedding",
-        index,
-        embedding: values,
-      })),
-      model: req.model,
-    }, null, "  ");
+    });
+  } else if (isOpenAiModel) {
+    const OPENAI_BASE_URL = env.OPENAI_API_BASE_URL || "https://api.openai.com/v1";
+    url = `${OPENAI_BASE_URL}/embeddings`;
+    headers = {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    };
+    requestBody = JSON.stringify({
+      model: originalModel,
+      input: req.input,
+      dimensions: req.dimensions
+    });
   } else {
-    // Handle API errors with enhanced error processing
-    throw await processGoogleApiError(response);
+    throw new HttpError(`Unsupported model for embeddings: ${originalModel}`, 400);
   }
 
-  return new Response(body, fixCors(response));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: headers,
+    body: requestBody
+  });
+
+  let responseBodyJson;
+  if (response.ok) {
+    responseBodyJson = await response.json();
+    let finalResponseBody;
+    if (isGoogleModel) {
+      finalResponseBody = JSON.stringify({
+        object: "list",
+        data: responseBodyJson.embeddings.map(({ values }, index) => ({
+          object: "embedding",
+          index,
+          embedding: values,
+        })),
+        model: originalModel,
+      }, null, "  ");
+    } else if (isOpenAiModel) {
+      // OpenAI response is already in the desired format.
+      // Ensure 'model' field is present, as client expects it.
+      if (!responseBodyJson.model) responseBodyJson.model = originalModel;
+      finalResponseBody = JSON.stringify(responseBodyJson);
+    }
+    return new Response(finalResponseBody, fixCors(response));
+  } else {
+    // TODO: processGoogleApiError might need to be made generic or conditional based on the target API
+    throw await processGoogleApiError(response);
+  }
 }

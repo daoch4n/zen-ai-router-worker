@@ -67,20 +67,45 @@ export async function handleCompletions(req, apiKey) {
       body.tools.push({googleSearch: {}});
   }
 
-  // Construct Gemini API endpoint URL based on streaming preference
-  const TASK = req.stream ? "streamGenerateContent" : "generateContent";
-  let url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`;
-  if (req.stream) {
-    url += "?alt=sse";
+  // Construct API endpoint URL and headers based on model type
+  let url;
+  let headers;
+  const isGoogleModel = model.startsWith("gemini-") || model.startsWith("gemma-") || model.startsWith("learnlm-") || originalModel.startsWith("models/"); // models/.. are google
+  const isOpenAiModel = model.startsWith("gpt-"); // Add other OpenAI model prefixes if needed
+  // Add isAnthropicModel if this handler were to also support anthropic directly
+
+  if (isGoogleModel) {
+    const TASK = req.stream ? "streamGenerateContent" : "generateContent";
+    url = `${BASE_URL}/${API_VERSION}/models/${model}:${TASK}`; // BASE_URL is Google's
+    if (req.stream) {
+      url += "?alt=sse";
+    }
+    headers = makeHeaders(apiKey, { "Content-Type": "application/json" }); // makeHeaders is for Google
+  } else if (isOpenAiModel) {
+    // Assuming a standard OpenAI-compatible endpoint structure
+    // The actual OpenAI BASE_URL would need to be defined, e.g., in constants.mjs
+    // For now, let's imagine it's env.OPENAI_BASE_URL or a fixed one.
+    // This part is a conceptual change as the worker was Google-centric.
+    const OPENAI_BASE_URL = env.OPENAI_API_BASE_URL || "https://api.openai.com/v1"; // Example
+    url = `${OPENAI_BASE_URL}/chat/completions`;
+    headers = {
+      "Authorization": `Bearer ${apiKey}`,
+      "Content-Type": "application/json"
+    };
+    // OpenAI request body might need slight adjustments from Gemini's `body`.
+    // For this step, we assume `body` is compatible enough or `transformRequest` handles it.
+  } else {
+    // Default or error for unsupported model prefixes for this handler
+    throw new HttpError(`Unsupported model type for completions: ${model}`, 400);
   }
 
   const response = await fetch(url, {
     method: "POST",
-    headers: makeHeaders(apiKey, { "Content-Type": "application/json" }),
+    headers: headers,
     body: JSON.stringify(body),
   });
 
-  body = response.body;
+  let responseBody = response.body; // Renamed to avoid conflict with outer `body`
   if (response.ok) {
     let id = "chatcmpl-" + generateId();
     const shared = {};

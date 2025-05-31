@@ -309,32 +309,22 @@ const processSentenceTask = async () => {
                 backendTtsUrl.searchParams.set('voiceName', voiceId); // voiceId from outer scope
 
                 let backendApiKey;
-                if (env.GOOGLE_API_KEY) {
+                if (env.BACKEND_WORKER_API_KEY) {
+                    backendApiKey = env.BACKEND_WORKER_API_KEY;
+                    console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Using BACKEND_WORKER_API_KEY.`);
+                } else if (env.GOOGLE_API_KEY) {
                     backendApiKey = env.GOOGLE_API_KEY;
+                    console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Using GOOGLE_API_KEY as fallback.`);
                 } else {
-                    // Fallback to the first KEYn or a default if no GOOGLE_API_KEY
-                    const envKeys = Object.keys(env);
-                    const firstAppKey = envKeys.find(k => k.startsWith("KEY"));
-                    if (firstAppKey) {
-                        backendApiKey = env[firstAppKey];
-                    } else {
-                        // As a last resort, maybe use env.PASS if no other key is found,
-                        // or throw an error if backend auth is strictly required and no key is found.
-                        // For now, let's log an error and proceed without, to see if tests catch it
-                        // or if it works without it in some environments.
-                        // This part might need refinement based on actual backend worker auth requirements.
-                        console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - No specific GOOGLE_API_KEY or KEYn found for backend authentication. Check env configuration.`);
-                        // backendApiKey = env.PASS; // Optionally fallback to env.PASS
-                    }
+                    // For /api/rawtts, an API key is mandatory.
+                    console.error(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Critical: No API key found (BACKEND_WORKER_API_KEY or GOOGLE_API_KEY). API key is mandatory for /api/rawtts.`);
+                    throw new HttpError("API key for backend worker is not configured.", 500);
                 }
 
                 const headersToSend = { 'Content-Type': 'application/json' };
-                if (backendApiKey) {
-                    headersToSend['Authorization'] = `Bearer ${backendApiKey}`;
-                    console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Using API Key for backend worker: Present`);
-                } else {
-                    console.warn(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - No API Key being sent to backend worker for /api/rawtts.`);
-                }
+                // backendApiKey is guaranteed to be present here due to the check above.
+                headersToSend['Authorization'] = `Bearer ${backendApiKey}`;
+                console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - API Key for backend worker: Present`);
                 console.log(`Orchestrator: Job ${jobId}, Sentence ${sentenceIndex} - Sending to backend worker: ${targetService} at ${backendTtsUrl.toString()}`);
 
                 const backendResponse = await targetService.fetch(new Request(backendTtsUrl.toString(), {

@@ -82,16 +82,17 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new HttpError("Method Not Allowed", 405);
         }
-        authenticateClientRequest(request, env);
-        return handleAnthropicCompletions(await request.json(), googleApiKeyForBackend, env)
+        const clientApiKeyAnthropic = authenticateClientRequest(request, env);
+        // handleAnthropicCompletions already expects env as its third param.
+        return handleAnthropicCompletions(await request.json(), clientApiKeyAnthropic, env)
           .catch(errHandler);
 
       case url.pathname.endsWith("/chat/completions"):
         if (!(request.method === "POST")) {
           throw new HttpError("Method Not Allowed for /chat/completions, expected POST", 405);
         }
-        authenticateClientRequest(request, env);
-        return handleCompletions(await request.json(), googleApiKeyForBackend)
+        const clientApiKeyCompletions = authenticateClientRequest(request, env);
+        return handleCompletions(await request.json(), clientApiKeyCompletions, env)
           .catch(errHandler);
 
       case url.pathname.endsWith("/embeddings"):
@@ -99,16 +100,16 @@ async function fetch(request, env) {
         if (!(request.method === "POST")) {
           throw new HttpError("Method Not Allowed for /embeddings, expected POST", 405);
         }
-        authenticateClientRequest(request, env);
-        return handleEmbeddings(await request.json(), googleApiKeyForBackend)
+        const clientApiKeyEmbeddings = authenticateClientRequest(request, env);
+        return handleEmbeddings(await request.json(), clientApiKeyEmbeddings, env)
           .catch(errHandler);
 
       case url.pathname.endsWith("/models"):
         if (!(request.method === "GET")) {
           throw new HttpError("Method Not Allowed for /models, expected GET", 405);
         }
-        authenticateClientRequest(request, env);
-        return handleModels(googleApiKeyForBackend)
+        const clientApiKeyModels = authenticateClientRequest(request, env);
+        return handleModels(clientApiKeyModels, env)
           .catch(errHandler);
 
       case url.pathname.endsWith("/tts"):
