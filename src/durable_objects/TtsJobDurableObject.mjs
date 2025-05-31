@@ -54,7 +54,16 @@ export class TtsJobDurableObject {
   // New methods to be implemented here
 
   async initializeJob(request) {
+    const jobIdFromState = this.state.id.toString();
     const { jobId, text, voiceId, model, splittingPreference } = await request.json();
+
+    if (jobId !== jobIdFromState) {
+        throw new HttpError(
+            `Job ID in request body ('${jobId}') must match Durable Object instance ID ('${jobIdFromState}').`,
+            400
+        );
+    }
+
     if (!jobId || !text || !voiceId || !model || !splittingPreference) {
       throw new HttpError("Missing required fields for job initialization: jobId, text, voiceId, model, splittingPreference", 400);
     }
@@ -63,8 +72,16 @@ export class TtsJobDurableObject {
     }
     // Add other basic validations for voiceId, model, splittingPreference if necessary
 
+    const validSplittingPreferences = ['characterCount', 'none', 'sentence'];
+    if (!validSplittingPreferences.includes(splittingPreference)) {
+        throw new HttpError(
+            `Invalid splittingPreference value: '${splittingPreference}'. Must be one of ${validSplittingPreferences.join(', ')}.`,
+            400
+        );
+    }
+
     let sentences;
-    if (splittingPreference === 'tokenCount') {
+    if (splittingPreference === 'characterCount') {
         const initialSentences = splitIntoSentences(text);
         const batchedSentences = [];
         let currentBatch = '';
@@ -307,40 +324,38 @@ export class TtsJobDurableObject {
 
     if (typeof sentenceIndexToFail === 'number') {
         if (sentenceIndexToFail < 0 || sentenceIndexToFail >= jobData.sentences.length) {
-            throw new HttpError(`Invalid sentenceIndexToFail: ${sentenceIndexToFail}`, 400);
+            throw new HttpError(`Invalid sentenceIndexToFail: ${sentenceIndexToFail}. Must be between 0 and ${jobData.sentences.length - 1}.`, 400);
         }
-        if (jobData.processedAudioChunks[sentenceIndexToFail]) {
-            jobData.processedAudioChunks[sentenceIndexToFail].status = 'failed';
-            if (errorMessage !== undefined) {
-                 jobData.processedAudioChunks[sentenceIndexToFail].error = errorMessage;
+
+        // Directly update the status and error of the specified sentence chunk
+        jobData.processedAudioChunks[sentenceIndexToFail].status = 'failed';
+        if (errorMessage !== undefined) { // errorMessage from request body is associated with this sentence failure
+            jobData.processedAudioChunks[sentenceIndexToFail].error = errorMessage;
+        }
+
+        // Note: processedSentenceCount is not incremented for failed sentences.
+        // Overall job status might become 'failed' or 'partial_success' based on this.
+        // For now, we just mark the chunk. The job status itself is handled below.
+
+        // Check if this failure leads to all sentences being finalized
+        let finalizedSentenceCount = 0;
+        jobData.processedAudioChunks.forEach(chunk => {
+            if (chunk.status === 'completed' || chunk.status === 'failed') {
+                finalizedSentenceCount++;
             }
-            // Note: processedSentenceCount is not incremented for failed sentences.
-            // Overall job status might become 'failed' or 'partial_success' based on this.
-            // For now, we just mark the chunk. The job status itself is handled below.
+        });
 
-            // Check if this failure leads to all sentences being finalized
-            let finalizedSentenceCount = 0;
-            jobData.processedAudioChunks.forEach(chunk => {
-                if (chunk.status === 'completed' || chunk.status === 'failed') {
-                    finalizedSentenceCount++;
-                }
-            });
-
-            if (finalizedSentenceCount === jobData.sentences.length) {
-                // Since we just marked one as failed, it must be completed_with_errors
-                // This will be overridden if a more general 'status' (like 'failed') is also part of this request.
-                if (!status || status === 'completed_with_errors' || status === 'processing_with_errors') {
-                    jobData.status = 'completed_with_errors';
-                }
-                console.log(`Job ${jobIdFromPath} finalized with errors due to sentence ${sentenceIndexToFail} failure. All ${jobData.sentences.length} sentences attempted.`);
-            } else if (jobData.status !== 'failed' && jobData.status !== 'completed_with_errors' && jobData.status !== 'processing_error' && (!status || (status !== 'failed' && status !== 'completed_with_errors'))) {
-                // Don't override a more terminal overall status unless it's also a terminal one.
-                // Also, don't override if 'status' in request is already setting a terminal state.
-                jobData.status = 'processing_with_errors';
+        if (finalizedSentenceCount === jobData.sentences.length) {
+            // Since we just marked one as failed, it must be completed_with_errors
+            // This will be overridden if a more general 'status' (like 'failed') is also part of this request.
+            if (!status || status === 'completed_with_errors' || status === 'processing_with_errors') {
+                jobData.status = 'completed_with_errors';
             }
-
-        } else {
-            throw new HttpError(`Cannot mark sentence ${sentenceIndexToFail} as failed, no such chunk data initialized.`, 400);
+            console.log(`Job ${jobIdFromPath} finalized with errors due to sentence ${sentenceIndexToFail} failure. All ${jobData.sentences.length} sentences attempted.`);
+        } else if (jobData.status !== 'failed' && jobData.status !== 'completed_with_errors' && jobData.status !== 'processing_error' && (!status || (status !== 'failed' && status !== 'completed_with_errors'))) {
+            // Don't override a more terminal overall status unless it's also a terminal one.
+            // Also, don't override if 'status' in request is already setting a terminal state.
+            jobData.status = 'processing_with_errors';
         }
     }
 
@@ -468,6 +483,10 @@ export class TtsJobDurableObject {
   }
 
   // R2 related methods for storing/retrieving *combined* audio (can be kept if needed)
+  // Stores a final, combined audio result in R2 for the job.
+  // This method is intended for a workflow where individual audio chunks are first generated
+  // and then assembled into a single audio file, which is then stored using this endpoint.
+  // It is NOT directly used in the primary chunk-based streaming flow from the orchestrator.
   async handleStoreResult(request, jobId) {
     const { base64Audio, mimeType } = await request.json();
     const jobData = await this.storage.get(jobId);
@@ -492,6 +511,9 @@ export class TtsJobDurableObject {
       headers: { 'Content-Type': 'application/json' }, status: 200 });
   }
 
+  // Retrieves a final, combined audio result previously stored in R2 for the job.
+  // This method complements handleStoreResult and is used to fetch the single, combined audio file.
+  // It is NOT directly used in the primary chunk-based streaming flow from the orchestrator.
   async handleGetResult(request, jobId) {
     const jobData = await this.storage.get(jobId);
     if (!jobData) throw new HttpError('Job not found', 404);
