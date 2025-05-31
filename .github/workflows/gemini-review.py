@@ -94,7 +94,7 @@ class GitHubAuthenticator:
             logger.info(f"Successfully generated JWT token for GitHub App ID: {self.app_id}")
             return jwt_token
         except Exception as e:
-            logger.error(f"Error generating JWT token: {e}")
+            logger.error("Error generating JWT token: %s", e, exc_info=True)
             traceback.print_exc()
             return None
 
@@ -135,7 +135,7 @@ class GitHubAuthenticator:
             logger.info(f"Successfully obtained installation access token for installation ID: {self.installation_id}")
             return access_token
         except Exception as e:
-            logger.error(f"Error getting installation access token: {e}")
+            logger.error("Error getting installation access token: %s", e, exc_info=True)
             traceback.print_exc()
             return None
 
@@ -178,10 +178,10 @@ class GitHubAuthenticator:
                             self.client = Github(installation_token)
                             return self.client, self.token
                     except Exception as e:
-                        logger.error(f"Error getting installation access token: {e}")
+                        logger.error("Error getting installation access token: %s", e, exc_info=True)
                         logger.info("Falling back to GITHUB_TOKEN due to installation token error")
             except Exception as e:
-                logger.error(f"Error during JWT token generation: {e}")
+                logger.error("Error during JWT token generation: %s", e, exc_info=True)
                 logger.info("Falling back to GITHUB_TOKEN due to JWT generation error")
         else:
             # Log specific reason for not using GitHub App authentication
@@ -341,10 +341,10 @@ try:
 
     logger.info("Successfully initialized GitHub and Gemini clients")
 except ValueError as e:
-    logger.error(f"Initialization error: {str(e)}")
+    logger.error("Initialization error: %s", e, exc_info=True)
     sys.exit(1)
 except Exception as e:
-    logger.error(f"Unexpected error during initialization: {str(e)}")
+    logger.error("Unexpected error during initialization: %s", e, exc_info=True)
     traceback.print_exc()
     sys.exit(1)
 
@@ -384,10 +384,10 @@ def get_review_context() -> ReviewContext:
     try:
         repo_obj = gh.get_repo(repo_full_name) if gh else None
     except GithubException as e:
-        logger.error(f"Error accessing GitHub repository: {e}")
+        logger.error("Error accessing GitHub repository: %s", e, exc_info=True)
         sys.exit(1)
     except Exception as e:
-        logger.error(f"An unexpected error occurred while fetching repo details: {e}")
+        logger.error("An unexpected error occurred while fetching repo details: %s", e, exc_info=True)
         sys.exit(1)
 
     if event_name == "pull_request":
@@ -396,10 +396,10 @@ def get_review_context() -> ReviewContext:
         try:
             pr_obj = repo_obj.get_pull(pull_number) if repo_obj else None
         except GithubException as e:
-            logger.error(f"Error accessing GitHub PR: {e}")
+            logger.error("Error accessing GitHub PR: %s", e, exc_info=True)
             sys.exit(1)
         except Exception as e:
-            logger.error(f"An unexpected error occurred while fetching PR details: {e}")
+            logger.error("An unexpected error occurred while fetching PR details: %s", e, exc_info=True)
             sys.exit(1)
 
         pr_title = pr_obj.title if pr_obj else ""
@@ -419,10 +419,10 @@ def get_review_context() -> ReviewContext:
         try:
             commit_obj = repo_obj.get_commit(commit_sha) if repo_obj else None
         except GithubException as e:
-            logger.error(f"Error accessing GitHub commit: {e}")
+            logger.error("Error accessing GitHub commit: %s", e, exc_info=True)
             sys.exit(1)
         except Exception as e:
-            logger.error(f"An unexpected error occurred while fetching commit details: {e}")
+            logger.error("An unexpected error occurred while fetching commit details: %s", e, exc_info=True)
             sys.exit(1)
 
         commit_message = commit_obj.commit.message if commit_obj and commit_obj.commit else ""
@@ -438,7 +438,7 @@ def get_review_context() -> ReviewContext:
             try:
                 pr_obj = repo_obj.get_pull(pull_number) if repo_obj else None
             except GithubException as e:
-                logger.error(f"Error accessing GitHub PR for issue_comment: {e}")
+                logger.error("Error accessing GitHub PR for issue_comment: %s", e, exc_info=True)
                 sys.exit(1)
             pr_title = pr_obj.title if pr_obj else ""
             pr_body = pr_obj.body if pr_obj else ""
@@ -531,7 +531,7 @@ def get_diff(review_context: ReviewContext, comparison_sha: Optional[str] = None
         except GithubException as e:
             logger.warning(f"Error getting comparison diff (compare {comparison_sha} vs {head_sha}): {e}. Falling back.")
         except Exception as e:
-            logger.error(f"Unexpected error during repo.compare: {e}. Falling back.")
+            logger.error("Unexpected error during repo.compare: %s. Falling back.", e, exc_info=True)
             traceback.print_exc()
 
     # Strategy 2: Use pr.get_diff() (only for PRs)
@@ -548,7 +548,7 @@ def get_diff(review_context: ReviewContext, comparison_sha: Optional[str] = None
         except GithubException as e:
             logger.warning(f"Error getting diff using pr.get_diff(): {e}. Falling back further.")
         except Exception as e:
-            logger.error(f"Unexpected error during pr.get_diff(): {e}. Falling back further.")
+            logger.error("Unexpected error during pr.get_diff(): %s. Falling back further.", e, exc_info=True)
 
     # Strategy 3: Use direct API request with proper authentication
     # This strategy can be adapted for both PRs and commits if needed, but for now,
@@ -607,9 +607,9 @@ def get_diff(review_context: ReviewContext, comparison_sha: Optional[str] = None
         logger.info(f"Retrieved diff (length: {len(diff_text)}) via direct API call.")
         return diff_text
     except requests.exceptions.RequestException as e:
-        logger.error(f"Failed to get diff via direct API call: {e}")
+        logger.error("Failed to get diff via direct API call: %s", e, exc_info=True)
     except Exception as e:
-        logger.error(f"Unexpected error during direct API call for diff: {e}")
+        logger.error("Unexpected error during direct API call for diff: %s", e, exc_info=True)
 
     logger.error("All methods to retrieve diff failed.")
     return ""
@@ -1501,16 +1501,16 @@ def create_review_and_summary_comment(review_context: ReviewContext, comments_fo
                     )
                     logger.info("Successfully created PR review with suggestions.")
                 except GithubException as e:
-                    logger.error(f"Error creating PR review: {e}. Status: {e.status}, Data: {e.data}")
+                    logger.error("Error creating PR review: %s (Status: %s, Data: %s)", e, getattr(e, 'status', 'N/A'), getattr(e, 'data', 'N/A'), exc_info=True)
                     logger.warning("Falling back to posting individual issue comments for suggestions.")
                     for c_item in valid_review_comments:
                         try:
                             # For PRs, issue comments are tied to the PR number
                             target_obj.create_issue_comment(f"I found an issue in **File:** `{c_item['path']}` (at diff position {c_item['position']})\n\n{c_item['body']}")
                         except Exception as ie:
-                            logger.error(f"Error posting individual suggestion as issue comment: {ie}")
+                            logger.error("Error posting individual suggestion as issue comment: %s", ie, exc_info=True)
                 except Exception as e:
-                    logger.error(f"Unexpected error during PR review creation: {e}")
+                    logger.error("Unexpected error during PR review creation: %s", e, exc_info=True)
                     traceback.print_exc()
             elif review_context.event_type == "push" and review_context.commit_obj:
                 # For push events, comments are posted directly on the commit
@@ -1537,9 +1537,9 @@ def create_review_and_summary_comment(review_context: ReviewContext, comments_fo
                         )
                         logger.info(f"Posted comment on commit {review_context.commit_sha} for file {c_item['path']}.")
                     except GithubException as e:
-                        logger.error(f"Error posting commit comment for {c_item['path']}: {e}. Status: {e.status}, Data: {e.data}")
+                        logger.error("Error posting commit comment for %s: %s (Status: %s, Data: %s)", c_item['path'], e, getattr(e, 'status', 'N/A'), getattr(e, 'data', 'N/A'), exc_info=True)
                     except Exception as e:
-                        logger.error(f"Unexpected error posting commit comment for {c_item['path']}: {e}")
+                        logger.error("Unexpected error posting commit comment for %s: %s", c_item['path'], e, exc_info=True)
                         traceback.print_exc()
             else:
                 logger.warning("No validly structured comments to create a review with.")
@@ -1669,9 +1669,9 @@ def create_review_and_summary_comment(review_context: ReviewContext, comments_fo
                     target_obj.create_issue_comment(summary_body)
                     logger.info("Successfully created summary comment on PR/Issue.")
                 except GithubException as e:
-                    logger.error(f"Error creating summary comment on PR/Issue: {e}. Status: {e.status}, Data: {e.data}")
+                    logger.error("Error creating summary comment on PR/Issue: %s (Status: %s, Data: %s)", e, getattr(e, 'status', 'N/A'), getattr(e, 'data', 'N/A'), exc_info=True)
                 except Exception as e:
-                    logger.error(f"Unexpected error creating summary comment on PR/Issue: {e}")
+                    logger.error("Unexpected error creating summary comment on PR/Issue: %s", e, exc_info=True)
                     traceback.print_exc()
             elif review_context.event_type == "push":
                 logger.warning("Summary comments are not directly supported for bare commits via create_issue_comment. Skipping summary comment.")
@@ -1679,7 +1679,7 @@ def create_review_and_summary_comment(review_context: ReviewContext, comments_fo
         else:
             logger.error("Cannot post summary comment: No valid target object (PR or Commit) available.")
     except Exception as e:
-        logger.error(f"Unhandled error during summary comment posting: {e}")
+        logger.error("Unhandled error during summary comment posting: %s", e, exc_info=True)
         traceback.print_exc()
 
 
@@ -1868,11 +1868,11 @@ def main():
         logger.info("AI Code Review Script finished successfully.")
     except ValueError as e:
         # Expected errors that we've explicitly raised
-        logger.error("Error in main process: %s", e)
+        logger.error("Error in main process: %s", e, exc_info=True)
         # We don't re-raise here as we want to handle these gracefully
     except Exception as e:
         # Unexpected errors
-        logger.error("Unexpected error in main process: %s", e)
+        logger.error("Unexpected error in main process: %s", e, exc_info=True)
         traceback.print_exc()
         # We don't re-raise here to avoid abrupt termination
 
@@ -1885,7 +1885,7 @@ if __name__ == "__main__":
         raise
     except Exception as e:
         # Catch any unhandled exceptions that weren't caught in main()
-        logger.critical(f"Unhandled exception in __main__: {type(e).__name__} - {e}")
+        logger.critical("Unhandled exception in __main__: %s - %s", type(e).__name__, e, exc_info=True)
         traceback.print_exc()
 
         # Create an empty review file to avoid workflow failures
@@ -1901,7 +1901,7 @@ if __name__ == "__main__":
                 with open("reviews/gemini-pr-review.json", "w") as f: # Default to PR review file
                     json.dump({"metadata": {"error": str(e)}, "review_comments": []}, f)
         except Exception as file_error:
-            logger.critical(f"Failed to create empty review file: {file_error}")
+            logger.critical("Failed to create empty review file: %s", file_error, exc_info=True)
 
         # Exit with error code
         sys.exit(1)
