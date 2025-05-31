@@ -11,7 +11,8 @@ jest.unstable_mockModule('../src/handlers/index.mjs', () => ({
   handleEmbeddings: jest.fn(),
   handleModels: jest.fn(),
   handleTTS: jest.fn(),
-  handleRawTTS: jest.fn()
+  handleRawTTS: jest.fn(),
+  handleAnthropicCompletions: jest.fn()
 }));
 
 // Mock utils

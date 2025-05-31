@@ -3,12 +3,14 @@
  */
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
 import {
+  toOpenAiStreamFlush,
   sseline,
   parseStream,
   parseStreamFlush,
   toOpenAiStream
 } from '../../src/transformers/stream.mjs';
 import { THINKING_MODES } from '../../src/constants/index.mjs';
+import { STREAM_DELIMITER } from '../../src/constants/index.mjs';
 
 describe('Stream Transformers', () => {
   describe('sseline', () => {
@@ -178,7 +180,7 @@ describe('Stream Transformers', () => {
 
       // Due to the bug in line 61: line =+ STREAM_DELIMITER becomes line = +STREAM_DELIMITER
       // which converts "\n\n" to 0 (whitespace strings convert to 0)
-      expect(mockController.enqueue).toHaveBeenCalledWith(0);
+      expect(mockController.enqueue).toHaveBeenCalledWith(line + STREAM_DELIMITER);
     });
 
     it('should handle missing candidates', () => {
@@ -189,7 +191,7 @@ describe('Stream Transformers', () => {
       toOpenAiStream.call(context, line, mockController);
 
       // Same bug as above - line becomes 0
-      expect(mockController.enqueue).toHaveBeenCalledWith(0);
+      expect(mockController.enqueue).toHaveBeenCalledWith(line + STREAM_DELIMITER);
     });
 
     it('should handle first chunk with role', () => {

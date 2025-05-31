@@ -128,6 +128,6 @@ export function toOpenAiStreamFlush(controller) {
     for (const obj of this.last) {
       controller.enqueue(sseline(obj));
     }
-    controller.enqueue("data: [DONE]" + STREAM_DELIMITER);
   }
+  controller.enqueue("data: [DONE]" + STREAM_DELIMITER);
 }
