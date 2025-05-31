@@ -103,30 +103,33 @@ export class GeminiToAnthropicStreamTransformer {
           }
 
           const fc = part.functionCall;
-          let toolCallIdForArgs = null;
+          let toolCallIdForArgs = null; // This will hold the ID for args processing in the current part
 
           if (fc.name) {
-            // Check if this name is already active to prevent duplicate starts for the same call.
-            // This scenario (name appearing again for the same call) should be rare if Gemini streams name once then args.
+            let currentProcessingToolId = null; // ID of the tool being focused on due to fc.name
             let existingToolIdWithName = null;
             Object.keys(this.activeToolCalls).forEach(id => {
                 if (this.activeToolCalls[id].name === fc.name && this.activeToolCalls[id].isStarted) {
-                    existingToolIdWithName = id; // This tool's args might be continued/updated
+                    existingToolIdWithName = id;
                 }
             });
 
-            if (fc.name && !existingToolIdWithName) { // A truly new, different tool is starting
-                // Stop any other active tool call before starting a new one.
+            if (existingToolIdWithName) {
+                currentProcessingToolId = existingToolIdWithName;
+                // This tool is already active. Its args might be appended or it might be a new sequence for it.
+                // No need to stop other tools if we are just continuing to stream for an existing tool.
+            } else {
+                // A truly new, different tool name is starting. Stop all other active tool calls.
                 for (const toolId in this.activeToolCalls) {
                     if (this.activeToolCalls[toolId].isStarted) {
                         anthropicSse += this.emitContentBlockStop(this.activeToolCalls[toolId].index);
-                        delete this.activeToolCalls[toolId];
                     }
                 }
-                this.lastActiveToolCallIdForArgs = null; // Reset since old tools are stopped.
+                this.activeToolCalls = {}; // Clear all previous tools
+                this.lastActiveToolCallIdForArgs = null; // Reset context for future args-only parts
 
                 const newToolId = `toolu_${generateId()}`;
-                toolCallIdForArgs = newToolId; // This new tool becomes the current one for args
+                currentProcessingToolId = newToolId;
                 this.activeToolCalls[newToolId] = {
                     id: newToolId,
                     name: fc.name,
@@ -135,22 +138,29 @@ export class GeminiToAnthropicStreamTransformer {
                     isStarted: true,
                 };
                 anthropicSse += this.emitContentBlockStart("tool_use", this.contentBlockIndex, {
-                    id: newToolId,
+                    id: currentProcessingToolId, // Use currentProcessingToolId (which is newToolId here)
                     name: fc.name,
                     input: {}
                 });
-                this.hadToolUseContent = true; // Mark that a tool was used
+                this.hadToolUseContent = true;
                 this.contentBlockIndex++;
-                toolCallIdForArgs = newToolId;
             }
-            this.lastActiveToolCallIdForArgs = toolCallIdForArgs; // This tool is now the target for subsequent args
+            this.lastActiveToolCallIdForArgs = currentProcessingToolId; // For next args-only parts
+            toolCallIdForArgs = currentProcessingToolId; // For current part's args
+
           } else if (fc.args) {
-            // Args received without a name in this specific part, assign to last active tool
+            // This part only contains args, no name. Assign to the tool that last had its name processed.
             toolCallIdForArgs = this.lastActiveToolCallIdForArgs;
           }
 
+          // Process fc.args using the determined toolCallIdForArgs
           if (fc.args && toolCallIdForArgs && this.activeToolCalls[toolCallIdForArgs]) {
             const toolInfo = this.activeToolCalls[toolCallIdForArgs];
+             // Ensure the tool is marked as started if it wasn't (e.g. if name and args come in same chunk but different parts)
+            if (!toolInfo.isStarted) { // This case should ideally not happen if name always comes first or with first args
+                console.warn(`Processing args for tool ${toolInfo.name} which was not marked as started.`);
+                toolInfo.isStarted = true;
+            }
             const argsFragment = typeof fc.args === 'string' ? fc.args : JSON.stringify(fc.args);
             toolInfo.accumulatedArgsJson += argsFragment;
             anthropicSse += this.emitContentBlockDelta("input_json_delta", toolInfo.index, {
@@ -158,7 +168,7 @@ export class GeminiToAnthropicStreamTransformer {
             });
             this.outputTokens += argsFragment.length / 4;
           } else if (fc.args && !toolCallIdForArgs) {
-             console.warn("Received functionCall args fragment but no active tool call to assign it to:", fc);
+             console.warn("Received functionCall args fragment but no active tool call id to assign it to:", fc);
           }
         }
       }
