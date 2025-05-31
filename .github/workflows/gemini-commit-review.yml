@@ -199,7 +199,21 @@ jobs:
             attempt=$((attempt + 1))
           done
 
-      - name: 💾 Commit review artifacts (review JSON)
+      - name: 🔢 Get Issue Count
+        id: get_issue_count
+        run: |
+          # Ensure jq is installed (it usually is on ubuntu-latest)
+          if ! command -v jq &> /dev/null; then
+              echo "jq not found, installing..."
+              sudo apt-get update && sudo apt-get install -y jq
+          fi
+          
+          # Read the review JSON and count issues
+          issue_count=$(jq '.review_comments | length' reviews/gemini-commit-review.json)
+          echo "Detected $issue_count issues."
+          echo "issue_count=$issue_count" >> $GITHUB_OUTPUT
+
+      - name: � Commit review artifacts (review JSON)
         run: |
           export GIT_AUTHOR_NAME="zen-ai-qa[bot]"
           export GIT_AUTHOR_EMAIL="211895442+zen-ai-qa[bot]@users.noreply.github.com"
@@ -214,7 +228,15 @@ jobs:
             echo "No changes to review artifacts to commit."
           else
             # For commit reviews, simplify the commit message
-            commit_message="👁️‍🗨️ Update Gemini Commit review" # Simplified message
+            issue_count_val="${{ steps.get_issue_count.outputs.issue_count }}"
+            if [ "$issue_count_val" -eq 0 ]; then
+              commit_message="✅ No issues found since last push"
+            elif [ "$issue_count_val" -eq 1 ]; then
+              commit_message="⚠️ Found 1 issue since last push"
+            else
+              commit_message="⚠️ Found $issue_count_val issues since last push"
+            fi
+            echo "Generated commit message: $commit_message"
 
             git commit -m "$commit_message"
 
