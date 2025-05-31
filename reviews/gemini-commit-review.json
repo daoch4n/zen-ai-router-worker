@@ -2,13 +2,13 @@
   "metadata": {
     "event_type": "push",
     "repo": "daoch4n/zen-ai-router-worker",
-    "title": "Commit: Adjust triggers",
-    "timestamp_utc": "2025-05-31T12:12:45.538681+00:00",
-    "review_tool": "I'm your Gemini AI Reviewer",
+    "title": "Commit: Commit review test",
+    "timestamp_utc": "2025-05-31T12:15:25.247752+00:00",
+    "review_tool": "zen-ai-qa",
     "model_used": "gemini-2.5-flash-preview-05-20",
     "api_key_used": "primary",
     "rate_limited": false,
-    "commit_sha": "1f7639905e8d1326488d95f0b8225ff5942d3811"
+    "commit_sha": "639252b58a29c35c70c8549678a72091982ebc0e"
   },
   "review_comments": []
 }
