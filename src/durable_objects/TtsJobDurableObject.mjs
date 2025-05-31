@@ -2,46 +2,12 @@
 
 import { v4 as uuidv4 } from 'uuid'; // Assuming uuidv4 is used for job IDs
 import { HttpError } from '../utils/error.mjs'; // Assuming HttpError is defined here
+import { splitIntoSentences, getTextCharacterCount } from '../utils/textProcessing.mjs';
 
 const TTL_SECONDS = 24 * 60 * 60; // 24 hours
 const MAX_TEXT_LENGTH_CHAR_COUNT = 1500;
 
-// Text processing utilities (copied from orchestrator/src/utils/textProcessing.mjs)
-const abbreviationPattern = new RegExp(
-  '([A-Z][a-z]{0,2}\\.(?:\\s?[A-Z][a-z]{0,2}\\.)+|[A-Z]\\.([A-Z]\\.)+|[Mm](?:rs?|s)\\.|[Ee]tc\\.|[Cc]f\\.|[Vv]s\\.|[DSJ]r\\.|[Pp]rof\\.|[Ii].e\\.|[Ee].g\\.)(?=\\s|$)',
-  'g'
-);
-
-function splitIntoSentences(text) {
-  if (!text || typeof text !== 'string') {
-    return [];
-  }
-
-  // Temporarily replace abbreviations to prevent incorrect sentence splitting
-  const placeholders = [];
-  text = text.replace(abbreviationPattern, (match) => {
-    placeholders.push(match);
-    return `__ABBR_${placeholders.length - 1}__`;
-  });
-
-  // Split by common sentence terminators, ensuring they are followed by space or end of string
-  // Adjusted to better handle cases like "Hello!How are you?" vs "Hello! How are you?"
-  // It now looks for a terminator followed by either whitespace, a quote, or end of string.
-  // Or, it handles multiple terminators like "!!?"
-  const sentences = text.split(/(?<=[.?!])(?=(\s+["']?|$)|[.!?"']+)/g)
-    .map(s => s.trim())
-    .filter(s => s.length > 0);
-
-  // Restore abbreviations
-  return sentences.map(sentence =>
-    sentence.replace(/__ABBR_(\d+)__/g, (match, index) => placeholders[parseInt(index, 10)])
-  );
-}
-
-function getTextCharacterCount(text) {
-    // Basic character count, can be expanded for more sophisticated "token" counting
-    return text ? text.length : 0;
-}
+// Text processing utilities are now imported from ../utils/textProcessing.mjs
 
 
 export class TtsJobDurableObject {

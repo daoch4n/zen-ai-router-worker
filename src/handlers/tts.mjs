@@ -324,7 +324,17 @@ export async function handleRawTTS(request, apiKey, env, url) {
       throw new HttpError("Invalid JSON in request body", 400);
     }
 
-    const { text, model } = requestBody;
+    const { text, model, jobId, sentenceIndex } = requestBody;
+
+    // Validate jobId
+    if (typeof jobId !== 'string' || jobId.trim().length === 0) {
+      throw new HttpError("jobId field is required in request body and must be a non-empty string", 400);
+    }
+
+    // Validate sentenceIndex
+    if (typeof sentenceIndex !== 'number' || sentenceIndex < 0 || !Number.isInteger(sentenceIndex)) {
+      throw new HttpError("sentenceIndex field is required in request body and must be a non-negative integer", 400);
+    }
 
     // Validate required fields
     if (!voiceName) {
