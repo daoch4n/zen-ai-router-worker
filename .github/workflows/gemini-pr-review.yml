@@ -177,7 +177,7 @@ jobs:
           attempt=1
           while [ $attempt -le $max_attempts ]; do
             echo "Attempt $attempt of $max_attempts to run code review script"
-            if python .github/workflows/gemini-pr-review.py; then
+            if python .github/workflows/gemini-review.py; then
               echo "Code review script completed successfully"
               break
             else
