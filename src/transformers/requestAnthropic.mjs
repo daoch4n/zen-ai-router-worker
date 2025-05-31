@@ -53,6 +53,7 @@ export function cleanGeminiSchema(schema) { // Added export
  */
 export function transformAnthropicToGeminiRequest(anthropicReq, env) {
   const geminiReq = {};
+  const toolIdToNameMap = new Map(); // Step 1: Initialize map
 
   // 1. Model mapping (using env for flexibility, though not strictly part of Gemini direct mapping)
   // It's good practice to allow model aliasing or selection via environment.
@@ -72,48 +73,55 @@ export function transformAnthropicToGeminiRequest(anthropicReq, env) {
 
   // Map Anthropic messages to Gemini format
   // Gemini uses a 'parts' array for content.
+  // First pass to populate toolIdToNameMap from assistant messages
+  for (const message of anthropicReq.messages) {
+    if (message.role === 'assistant' && Array.isArray(message.content)) {
+      for (const block of message.content) {
+        if (block.type === 'tool_use' && block.id && block.name) {
+          toolIdToNameMap.set(block.id, block.name); // Step 2: Populate map
+        }
+      }
+    }
+  }
+
+  // Second pass to build Gemini contents, using the map
   for (const message of anthropicReq.messages) {
     const geminiMessage = {
-      role: message.role === "assistant" ? "model" : message.role, // Map 'assistant' to 'model'
+      role: message.role === "assistant" ? "model" : message.role,
       parts: []
     };
 
     if (typeof message.content === "string") {
-      geminiMessage.parts.push({
-        text: message.content
-      });
+      geminiMessage.parts.push({ text: message.content });
     } else if (Array.isArray(message.content)) {
       for (const block of message.content) {
         if (block.type === "text") {
-          geminiMessage.parts.push({
-            text: block.text
-          });
+          geminiMessage.parts.push({ text: block.text });
         } else if (message.role === "user" && block.type === "tool_result") {
-          // Map Anthropic tool_result (user message) to Gemini functionResponse part
+          const functionName = toolIdToNameMap.get(block.tool_use_id);
+          if (!functionName) {
+            // TODO: This warning indicates a tool_result for an ID not found in assistant's
+            // tool_use blocks in the current request history. This will likely cause errors
+            // with Gemini if the name isn't the one it expects.
+            // This highlights the limitation of stateless transformation for multi-turn tool use
+            // that might span multiple separate API request-response cycles.
+            console.warn(`[transformAnthropicToGeminiRequest] Function name for tool_use_id '${block.tool_use_id}' not found in current request history. Using ID as name.`);
+          }
           geminiMessage.parts.push({
             functionResponse: {
-              // TODO: The 'name' ideally should be the actual function name called by the model.
-              // Using tool_use_id due to statelessness. This might need adjustment if Gemini
-              // strictly requires the original function name from the model's functionCall.
-              name: block.tool_use_id,
-              response: {
-                // Per requirements, the response content from Anthropic's tool_result
-                // is nested under a "result" key for Gemini's functionResponse.
-                result: block.content // block.content is typically a JSON object or string
-              }
+              name: functionName || block.tool_use_id, // Step 3: Use map, fallback to ID
+              response: block.content // Corrected structure: direct assignment
             }
           });
         } else if (message.role === "assistant" && block.type === "tool_use") {
-          // Map Anthropic tool_use (assistant message in history) to Gemini functionCall part
           geminiMessage.parts.push({
             functionCall: {
               name: block.name,
-              args: block.input // block.input is typically a JSON object
+              args: block.input
             }
           });
         }
-        // Image blocks ('image' type) would be handled here if converting to Gemini Vision model.
-        // For standard Gemini chat, they are typically omitted or require specific handling.
+        // Image blocks omitted for now
       }
     }
     geminiReq.contents.push(geminiMessage);

@@ -10,7 +10,10 @@ export class GeminiToAnthropicStreamTransformer {
   constructor(anthropicModelName, originalRequestId, streamIncludeUsage, originalRequest) {
     this.anthropicModelName = anthropicModelName;
     this.originalRequestId = originalRequestId || `msg_${generateId()}`;
-    this.streamIncludeUsage = streamIncludeUsage; // TODO: Implement usage reporting if Gemini provides it in stream
+    // Note: Usage is reported based on `usageMetadata` from Gemini's final stream chunk.
+    // `streamIncludeUsage` is an Anthropic request concept; this transformer populates Anthropic
+    // SSE usage fields if Gemini provides the data in its stream.
+    this.streamIncludeUsage = streamIncludeUsage;
     this.originalRequest = originalRequest;
 
     this.contentBlockIndex = 0; // Overall index for content blocks

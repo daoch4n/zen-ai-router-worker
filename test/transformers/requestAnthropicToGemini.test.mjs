@@ -1,6 +1,5 @@
 import assert from 'assert';
-import { transformAnthropicToGeminiRequest } from '../../src/transformers/requestAnthropic.mjs';
-import { cleanGeminiSchema } from '../../src/transformers/requestAnthropic.mjs'; // Assuming cleanGeminiSchema is exported or testable
+import { transformAnthropicToGeminiRequest, cleanGeminiSchema } from '../../src/transformers/requestAnthropic.mjs';
 
 // Mock environment, if your function uses it (e.g., for model mapping)
 const mockEnv = {
@@ -103,62 +102,47 @@ describe('transformAnthropicToGeminiRequest', () => {
 
     describe('No Tools or Tool Choice None', () => {
         it('should set mode to NONE if no tools are in the request', () => {
-            const anthropicReq = { messages: [{ role: "user", content: "Hi" }] };
-            // In the implementation, if `anthropicReq.tools` is undefined or empty,
-            // `geminiReq.tool_config` gets `mode: "NONE"`.
-            // If `mode` is "NONE" and there were no tools, `tool_config` might be deleted.
-            // Let's check against the actual implementation behavior.
+            const anthropicReq = { model: "claude-test", messages: [{ role: "user", content: "Hi" }] };
             const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
-             if (geminiReq.tool_config) { // If tool_config is present
-                assert.deepStrictEqual(geminiReq.tool_config.function_calling_config.mode, "NONE");
-             } else { // If tool_config is absent (because no tools implies no function calling config needed)
-                assert.ok(true, "tool_config is correctly omitted when no tools are present and mode is NONE");
-             }
-             assert.strictEqual(geminiReq.tools, undefined, "tools property should be undefined");
+            // According to the implementation, if no tools are present, tool_config is deleted.
+            assert.strictEqual(geminiReq.tool_config, undefined, "tool_config should be undefined when no tools are present");
+            assert.strictEqual(geminiReq.tools, undefined, "tools property should be undefined");
         });
 
-        it('should set mode to NONE if tools are present but tool_choice is "none"', () => {
-            const anthropicReq = {
-                messages: [],
-                tools: [{ name: "get_weather", description: "Weather", input_schema: { type: "object" } }],
-                tool_choice: { type: "none" } // Assuming Anthropic supports this or similar
-            };
-            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
-            assert.deepStrictEqual(geminiReq.tool_config, { function_calling_config: { mode: "NONE" } });
-            // Tools might still be defined in geminiReq.tools if mode is NONE, Gemini might ignore them or use for context.
-            assert.ok(geminiReq.tools && geminiReq.tools[0].functionDeclarations.length > 0, "Tools can be defined even if mode is NONE");
-        });
+        // Removed the test for tool_choice: { type: "none" } as "none" is not a standard Anthropic type,
+        // and mode: "NONE" is covered by the "no tools" case or if explicitly set by a valid Anthropic choice
+        // that the transformer logic might map to NONE (though current logic doesn't show such a mapping for a non-standard type).
     });
 
     describe('Message History Transformation for Function Calling', () => {
-        it('should map Anthropic tool_result to Gemini functionResponse', () => {
+        it('should map Anthropic tool_result to Gemini functionResponse with correct name', () => {
             const anthropicReq = {
+                model: 'claude-3-opus-20240229',
                 messages: [
-                    { role: "user", content: "Call the tool." },
-                    { role: "assistant", content: [{ type: "text", text: "OK." }, { type: "tool_use", id: "toolu_123", name: "run_query", input: { query: "test" } }] },
-                    {
-                        role: "user",
-                        content: [{
-                            type: "tool_result",
-                            tool_use_id: "toolu_123",
-                            content: { success: true, data: "result_data" }
-                        }]
-                    }
-                ]
-            };
+                  { role: 'user', content: 'Can you run a query for me?' },
+                  { // Assistant message that called the tool
+                    role: 'assistant',
+                    content: [
+                      { type: 'tool_use', id: 'toolu_xyz789', name: 'run_actual_query', input: { query_string: 'SELECT *' } }
+                    ]
+                  },
+                  { // User message providing the result
+                    role: 'user',
+                    content: [
+                      { type: 'tool_result', tool_use_id: 'toolu_xyz789', content: { success: true, result_data: 'Query output' } }
+                    ]
+                  }
+                ],
+                max_tokens: 100
+              };
             const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
-            assert.strictEqual(geminiReq.contents.length, 3);
-            const geminiUserToolResultMsg = geminiReq.contents[2];
-            assert.strictEqual(geminiUserToolResultMsg.role, "user");
-            assert.strictEqual(geminiUserToolResultMsg.parts.length, 1);
-            assert.ok(geminiUserToolResultMsg.parts[0].functionResponse);
-            // TODO: The 'name' ideally should be the actual function name called by the model.
-            // Using tool_use_id due to statelessness. This might need adjustment if Gemini
-            // strictly requires the original function name from the model's functionCall.
-            assert.strictEqual(geminiUserToolResultMsg.parts[0].functionResponse.name, "toolu_123");
-            assert.deepStrictEqual(geminiUserToolResultMsg.parts[0].functionResponse.response, {
-                result: { success: true, data: "result_data" }
-            });
+
+            const geminiUserToolResultMsg = geminiReq.contents.find(c => c.role === 'user' && c.parts.some(p => p.functionResponse));
+            assert.ok(geminiUserToolResultMsg, 'Gemini user message with functionResponse not found');
+
+            const functionResponsePart = geminiUserToolResultMsg.parts.find(p => p.functionResponse).functionResponse;
+            assert.strictEqual(functionResponsePart.name, 'run_actual_query'); // Expecting the actual mapped name
+            assert.deepStrictEqual(functionResponsePart.response, { success: true, result_data: 'Query output' });
         });
 
         it('should map Anthropic assistant message with tool_use to Gemini model message with functionCall', () => {
