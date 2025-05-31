@@ -1,17 +1,23 @@
 import {
-  DEFAULT_ANTHROPIC_VERSION
+  DEFAULT_ANTHROPIC_VERSION,
+  THINKING_MODES,
+  REASONING_EFFORT_MAP
 } from '../constants/index.mjs';
+import {
+    parseModelName,
+    getBudgetFromLevel
+} from '../utils/helpers.mjs';
 
 // Defines canonical model name mappings from Anthropic to Gemini.
 // These are baseline mappings; the actual model used in requests might be
 // further influenced by environment variables or specific configurations if needed by the proxy.
 export const anthropicToGeminiModelMap = {
-  "claude-3-opus-20240229": "gemini-1.5-pro-latest", // TODO: Confirm actual target model
-  "claude-3-sonnet-20240229": "gemini-1.0-pro-latest",  // TODO: Confirm actual target model
-  "claude-3-haiku-20240307": "gemini-1.0-pro-vision-latest", // TODO: Confirm actual target model (Haiku might map to Flash or a specific vision/lite model)
-  "claude-2.1": "gemini-1.0-pro", // TODO: Confirm actual target model
-  "claude-2.0": "gemini-1.0-pro", // TODO: Confirm actual target model
-  "claude-instant-1.2": "gemini-1.0-pro" // TODO: Confirm actual target model (or a "flash"/"lite" equivalent)
+  "claude-3-opus-20240229": "gemini-2.5-flash-preview-05-20", // TODO: Confirm actual target model
+  "claude-3-sonnet-20240229": "gemini-2.5-flash-preview-05-20",  // TODO: Confirm actual target model
+  "claude-3-haiku-20240307": "gemini-2.5-flash-preview-05-20", // TODO: Confirm actual target model (Haiku might map to Flash or a specific vision/lite model)
+  "claude-2.1": "gemini-2.5-flash-preview-05-20", // TODO: Confirm actual target model
+  "claude-2.0": "gemini-2.5-flash-preview-05-20", // TODO: Confirm actual target model
+  "claude-instant-1.2": "gemini-2.5-flash-preview-05-20" // TODO: Confirm actual target model (or a "flash"/"lite" equivalent)
 };
 
 /**
@@ -67,18 +73,24 @@ export function transformAnthropicToGeminiRequest(anthropicReq, env) {
   const geminiReq = {};
   const toolIdToNameMap = new Map(); // Step 1: Initialize map
 
-  // 1. Model mapping (using env for flexibility, though not strictly part of Gemini direct mapping)
-  // It's good practice to allow model aliasing or selection via environment.
-  const modelMap = {
-    "claude-3-opus-20240229": env.MODEL_MAP_OPUS || "gemini-pro", // Default to gemini-pro or specified
-    "claude-3-sonnet-20240229": env.MODEL_MAP_SONNET || "gemini-pro",
-    "claude-3-haiku-20240307": env.MODEL_MAP_HAIKU || "gemini-pro",
-  };
-  // Gemini model names are typically simpler, e.g., "gemini-pro", "gemini-ultra".
-  // The actual model name for Gemini will be part of the URL, not the request body usually.
-  // However, if a specific version or model is passed, we can retain it.
-  // For this transformer, we'll assume the final endpoint construction handles the model.
+  // 1. Determine Effective Target Gemini Model Name
+  let targetGeminiModelName = anthropicToGeminiModelMap[anthropicReq.model] || 'gemini-2.5-flash-preview-05-20'; // Default from map or general fallback
+
+  if (anthropicReq.model === "claude-3-opus-20240229" && env.MODEL_MAP_OPUS) {
+      targetGeminiModelName = env.MODEL_MAP_OPUS;
+  } else if (anthropicReq.model === "claude-3-sonnet-20240229" && env.MODEL_MAP_SONNET) {
+      targetGeminiModelName = env.MODEL_MAP_SONNET;
+  } else if (anthropicReq.model === "claude-3-haiku-20240307" && env.MODEL_MAP_HAIKU) {
+      targetGeminiModelName = env.MODEL_MAP_HAIKU;
+  } else if (anthropicReq.model === "claude-2.1" && env.MODEL_MAP_CLAUDE_2_1) {
+      targetGeminiModelName = env.MODEL_MAP_CLAUDE_2_1;
+  } else if (anthropicReq.model === "claude-2.0" && env.MODEL_MAP_CLAUDE_2_0) {
+      targetGeminiModelName = env.MODEL_MAP_CLAUDE_2_0;
+  } else if (anthropicReq.model === "claude-instant-1.2" && env.MODEL_MAP_CLAUDE_INSTANT_1_2) {
+      targetGeminiModelName = env.MODEL_MAP_CLAUDE_INSTANT_1_2;
+  }
   // We don't add `geminiReq.model` here as it's part of the URL path in Gemini API.
+
 
   // 2. Content (Messages) and System Prompt
   geminiReq.contents = [];
@@ -152,6 +164,30 @@ export function transformAnthropicToGeminiRequest(anthropicReq, env) {
 
   // 3. Generation Config (Max Tokens, Stop Sequences, Temperature, Top P, Top K)
   geminiReq.generationConfig = {};
+
+  // Apply Thinking Budget Logic
+  const modelParsingResult = parseModelName(targetGeminiModelName);
+  const parsedBudgetLevel = modelParsingResult.budget;
+
+  let effectiveBudgetLevel = "high";
+
+  if (parsedBudgetLevel && REASONING_EFFORT_MAP[parsedBudgetLevel.toLowerCase()] !== undefined) {
+      effectiveBudgetLevel = parsedBudgetLevel.toLowerCase();
+  }
+
+  const numericalBudget = getBudgetFromLevel(effectiveBudgetLevel);
+
+  if (numericalBudget > 0) {
+      geminiReq.generationConfig.thinkingConfig = {
+          thinkingBudget: numericalBudget,
+      };
+
+      if (modelParsingResult.mode === THINKING_MODES.THINKING) {
+          geminiReq.generationConfig.thinkingConfig.includeThoughts = true;
+      } else if (modelParsingResult.mode === THINKING_MODES.REFINED) {
+          geminiReq.generationConfig.thinkingConfig.includeThoughts = false;
+      }
+  }
 
   if (anthropicReq.max_tokens) {
     geminiReq.generationConfig.maxOutputTokens = anthropicReq.max_tokens;

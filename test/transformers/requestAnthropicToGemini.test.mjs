@@ -4,6 +4,7 @@ import {
     cleanGeminiSchema,
     anthropicToGeminiModelMap // Import the map
 } from '../../src/transformers/requestAnthropic.mjs';
+import { REASONING_EFFORT_MAP } from '../../src/constants/index.mjs';
 
 // Mock environment, if your function uses it (e.g., for model mapping within transform function)
 const mockEnv = {
@@ -92,11 +93,12 @@ describe('transformAnthropicToGeminiRequest', () => {
               temperature: 0.7,
               topP: 0.9,
               topK: 40,
-              stopSequences: ["\n", "user:"]
-            }, "Gemini generationConfig should be correctly mapped");
+              stopSequences: ["\n", "user:"],
+              thinkingConfig: { thinkingBudget: REASONING_EFFORT_MAP.high }
+            }, "Gemini generationConfig should be correctly mapped and include default thinkingConfig");
         });
 
-        it('should result in undefined generationConfig if no Anthropic generation parameters are set', () => {
+        it('should result in a generationConfig with only default thinkingConfig if no Anthropic generation parameters are set', () => {
             const anthropicReq = {
               model: "claude-test",
               messages: [{ role: "user", content: "Generate text" }]
@@ -104,8 +106,9 @@ describe('transformAnthropicToGeminiRequest', () => {
             };
             const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
 
-            // The transformer deletes generationConfig if it's empty
-            assert.strictEqual(geminiReq.generationConfig, undefined, "Gemini generationConfig should be undefined if no Anthropic params provided");
+            assert.deepStrictEqual(geminiReq.generationConfig, {
+                thinkingConfig: { thinkingBudget: REASONING_EFFORT_MAP.high }
+            }, "Gemini generationConfig should only contain default thinkingConfig if no Anthropic params provided");
         });
     });
 
@@ -218,6 +221,27 @@ describe('transformAnthropicToGeminiRequest', () => {
         });
     });
 
+    it('should reflect model mapping from env if transformAnthropicToGeminiRequest set geminiReq.model', () => {
+      const anthropicReq = {
+        model: 'claude-3-opus-20240229',
+        messages: [{ role: 'user', content: 'Hello' }]
+      };
+      // mockEnv is assumed to be defined in the scope of the describe block, as per existing file structure.
+      // const mockEnv = {
+      //   MODEL_MAP_OPUS: "gemini-opus-equivalent",
+      //   MODEL_MAP_SONNET: "gemini-sonnet-equivalent",
+      //   MODEL_MAP_HAIKU: "gemini-haiku-equivalent",
+      // };
+      const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, mockEnv);
+
+      // IMPORTANT: The current transformAnthropicToGeminiRequest function DOES NOT set geminiReq.model.
+      // This assertion is written based on the user feedback's implication that geminiReq.model *should* be set
+      // by the transformer using the env variables.
+      // This test is expected to fail with the current code, highlighting this gap/assumption.
+      assert.strictEqual(geminiReq.model, mockEnv.MODEL_MAP_OPUS,
+        "Test Failed: transformAnthropicToGeminiRequest does not set geminiReq.model. It is currently undefined. If this behavior is desired, the function needs modification.");
+    });
+
     describe('Message History Transformation for Function Calling', () => {
         it('should map Anthropic tool_result to Gemini functionResponse with correct name', () => {
             const anthropicReq = {
@@ -302,32 +326,115 @@ describe('transformAnthropicToGeminiRequest', () => {
             assert.strictEqual(cleaned.properties.timestamp.format, "date-time");
         });
     });
+
+    describe('Thinking Budget Configuration', () => {
+        it('should default to high budget and no includeThoughts for model with no suffix', () => {
+            const anthropicReq = { model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = {}; // Rely on anthropicToGeminiModelMap
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.high, // 24576
+                // includeThoughts should not be present or false for standard mode
+            }, 'Thinking config should default to high budget and no includeThoughts for standard model');
+             assert.ok(geminiReq.generationConfig.thinkingConfig.includeThoughts === undefined || geminiReq.generationConfig.thinkingConfig.includeThoughts === false);
+        });
+
+        it('should apply thinking-low budget and includeThoughts: true for -thinking-low suffix', () => {
+            const anthropicReq = { model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = { MODEL_MAP_OPUS: "gemini-pro-thinking-low" };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.low, // 1024
+                includeThoughts: true
+            }, 'Thinking config should be low budget and includeThoughts true');
+        });
+
+        it('should apply refined-medium budget and includeThoughts: false for -refined-medium suffix', () => {
+            const anthropicReq = { model: 'claude-3-sonnet-20240229', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = { MODEL_MAP_SONNET: "gemini-pro-refined-medium" };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.medium, // 8192
+                includeThoughts: false
+            }, 'Thinking config should be medium budget and includeThoughts false for refined');
+        });
+
+        it('should not include thinkingConfig for -thinking-none suffix (budget 0)', () => {
+            const anthropicReq = { model: 'claude-3-haiku-20240307', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = { MODEL_MAP_HAIKU: "gemini-pro-thinking-none" };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            // thinkingBudget will be 0, so thinkingConfig itself should not be added.
+            // If generationConfig only had thinkingConfig, it might be deleted.
+            // For this test, ensure max_tokens is set so generationConfig is not empty.
+            anthropicReq.max_tokens = 100; // Ensure generationConfig isn't empty for other reasons
+            const updatedGeminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+
+            assert.ok(updatedGeminiReq.generationConfig, 'generationConfig should still exist');
+            assert.strictEqual(updatedGeminiReq.generationConfig.thinkingConfig, undefined, 'thinkingConfig should be undefined for thinking-none (budget 0)');
+        });
+
+        it('should default to high budget and includeThoughts: true for -thinking-garbage suffix', () => {
+            const anthropicReq = { model: 'claude-3-opus-20240229', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = { MODEL_MAP_OPUS: "gemini-pro-thinking-garbage" };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.high, // 24576 (default high)
+                includeThoughts: true // because mode is 'thinking'
+            }, 'Thinking config should default to high budget and includeThoughts true for invalid budget level in thinking mode');
+        });
+
+        it('should default to high budget and includeThoughts: false for -refined-nonsense suffix', () => {
+            const anthropicReq = { model: 'claude-3-sonnet-20240229', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = { MODEL_MAP_SONNET: "gemini-pro-refined-nonsense" };
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.high, // 24576 (default high)
+                includeThoughts: false // because mode is 'refined'
+            }, 'Thinking config should default to high budget and includeThoughts false for invalid budget level in refined mode');
+        });
+
+        it('should default to high budget for a different Anthropic model with no suffix', () => {
+            const anthropicReq = { model: 'claude-2.1', messages: [{ role: 'user', content: 'Hello' }] };
+            const currentMockEnv = {}; // Rely on anthropicToGeminiModelMap
+            const geminiReq = transformAnthropicToGeminiRequest(anthropicReq, currentMockEnv);
+            assert.ok(geminiReq.generationConfig, 'generationConfig should exist');
+            assert.deepStrictEqual(geminiReq.generationConfig.thinkingConfig, {
+                thinkingBudget: REASONING_EFFORT_MAP.high, // 24576
+                 // includeThoughts should not be present or false for standard mode
+            }, 'Thinking config should default to high budget for standard model claude-2.1');
+            assert.ok(geminiReq.generationConfig.thinkingConfig.includeThoughts === undefined || geminiReq.generationConfig.thinkingConfig.includeThoughts === false);
+        });
+    });
 });
 
 describe('Anthropic to Gemini Model Mapping (anthropicToGeminiModelMap)', () => {
     it('should correctly map claude-3-opus-20240229', () => {
-      assert.strictEqual(anthropicToGeminiModelMap['claude-3-opus-20240229'], "gemini-1.5-pro-latest", "Mapping for Opus model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-opus-20240229'], "gemini-2.5-flash-preview-05-20", "Mapping for Opus model is incorrect");
     });
 
     it('should correctly map claude-3-sonnet-20240229', () => {
-      assert.strictEqual(anthropicToGeminiModelMap['claude-3-sonnet-20240229'], "gemini-1.0-pro-latest", "Mapping for Sonnet model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-sonnet-20240229'], "gemini-2.5-flash-preview-05-20", "Mapping for Sonnet model is incorrect");
     });
 
     it('should correctly map claude-3-haiku-20240307', () => {
-      // Example: update "gemini-1.0-pro-vision-latest" to actual if different (e.g. gemini-flash)
-      assert.strictEqual(anthropicToGeminiModelMap['claude-3-haiku-20240307'], "gemini-1.0-pro-vision-latest", "Mapping for Haiku model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-3-haiku-20240307'], "gemini-2.5-flash-preview-05-20", "Mapping for Haiku model is incorrect");
     });
 
     it('should correctly map claude-2.1', () => {
-      assert.strictEqual(anthropicToGeminiModelMap['claude-2.1'], "gemini-1.0-pro", "Mapping for Claude 2.1 model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-2.1'], "gemini-2.5-flash-preview-05-20", "Mapping for Claude 2.1 model is incorrect");
     });
 
     it('should correctly map claude-2.0', () => {
-      assert.strictEqual(anthropicToGeminiModelMap['claude-2.0'], "gemini-1.0-pro", "Mapping for Claude 2.0 model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-2.0'], "gemini-2.5-flash-preview-05-20", "Mapping for Claude 2.0 model is incorrect");
     });
 
     it('should correctly map claude-instant-1.2', () => {
-      assert.strictEqual(anthropicToGeminiModelMap['claude-instant-1.2'], "gemini-1.0-pro", "Mapping for Claude Instant 1.2 model is incorrect");
+      assert.strictEqual(anthropicToGeminiModelMap['claude-instant-1.2'], "gemini-2.5-flash-preview-05-20", "Mapping for Claude Instant 1.2 model is incorrect");
     });
 
     it('should return undefined for an unmapped Anthropic model', () => {
