@@ -1,10 +1,8 @@
 // test/durable_objects/TtsJobDurableObject.test.mjs
 
 import { describe, it, expect, beforeEach, jest } from '@jest/globals';
-import { TtsJobDurableObject } from '../../src/durable_objects/TtsJobDurableObject.mjs';
+import { TtsJobDurableObject, MAX_TEXT_LENGTH_CHAR_COUNT } from '../../src/durable_objects/TtsJobDurableObject.mjs';
 import { HttpError } from '../../src/utils/error.mjs';
-
-const MAX_TEXT_LENGTH_CHAR_COUNT = 1500; // Should match the source file
 
 describe('TtsJobDurableObject', () => {
   let state;
