@@ -8,6 +8,7 @@ export const BASE_URL = "https://generativelanguage.googleapis.com";
 
 /** API version used for all Gemini API requests */
 export const API_VERSION = "v1beta";
+export const DEFAULT_ANTHROPIC_VERSION = "2023-06-01";
 
 /** Client identifier sent with API requests for tracking and debugging */
 export const API_CLIENT = "genai-js/0.24.1";
